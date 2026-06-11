@@ -547,6 +547,23 @@ select.ui-modal-input { cursor: pointer; appearance: none; -webkit-appearance: n
 .detect-name { color: var(--text-bright); font-size: 13px; font-weight: 600; }
 .detect-aliases { color: var(--muted); font-size: 11px; margin-left: auto; text-align: right; }
 
+/* ---------- hop ANALYSIS modal ---------- */
+.analysis-modal { max-width: 560px; }
+.analysis-group { margin-top: 4px; }
+.analysis-group + .analysis-group { margin-top: 16px; }
+.analysis-head {
+  font-size: 11px; letter-spacing: 0.14em; color: var(--accent);
+  margin-bottom: 8px; text-transform: uppercase;
+}
+.analysis-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.analysis-item {
+  font-size: 13px; line-height: 1.6; color: var(--text);
+  padding: 10px 12px; border: 1px solid var(--line); background: var(--panel-2);
+  border-left-width: 3px;
+}
+.analysis-item.good { border-left-color: var(--accent); }
+.analysis-item.nudge { border-left-color: var(--accent-mid); color: var(--text); }
+
 /* ---------- CHARACTERS detail ---------- */
 .char-block { background: var(--panel); border: 1px solid var(--line); padding: 14px; }
 .char-block h3 { margin: 0 0 10px; font-size: 12px; letter-spacing: 0.14em; color: var(--accent); }

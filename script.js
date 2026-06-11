@@ -588,6 +588,65 @@ function chunkDetectReviewModal(K, rows) {
   });
 }
 
+// AI read of a single hop in the context of the whole manuscript: what's
+// working, plus a few gently-delivered suggestions. Surfaced in a result modal.
+async function analyzeChunk(chunk, btn) {
+  if (!(chunk.body || '').trim()) { alertModal('Write some content first.', { title: 'ANALYZE' }); return; }
+  const original = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = '✨ READING…'; }
+  try {
+    const proj = projectsCache.find(p => p.id === activeProjectId);
+    const context = db.chunks
+      .filter(c => c.id !== chunk.id && (c.body || '').trim())
+      .map(c => ({ title: c.title, body: c.body }));
+    const result = await aiInvoke({
+      task: 'analyze_chunk',
+      chunk: { title: chunk.title, body: chunk.body },
+      context,
+      type: proj?.type || '',
+      genre: proj?.genre || '',
+      characters: db.characters.map(c => c.name).filter(Boolean),
+      locations: (db.locations || []).map(l => l.name).filter(Boolean)
+    });
+    if (btn) { btn.disabled = false; btn.textContent = original; }
+    const strengths = (result.strengths || []).filter(Boolean);
+    const suggestions = (result.suggestions || []).filter(Boolean);
+    if (!strengths.length && !suggestions.length) { alertModal('No analysis came back for this hop.', { title: 'ANALYZE' }); return; }
+    analysisResultModal(chunk, strengths, suggestions);
+  } catch (err) {
+    if (btn) { btn.disabled = false; btn.textContent = original; }
+    alertModal('Analysis failed.\n\n' + (err.message || ''), { title: 'ANALYZE' });
+  }
+}
+
+function analysisResultModal(chunk, strengths, suggestions) {
+  const overlay = document.createElement('div');
+  overlay.className = 'ui-modal-overlay';
+  const list = (items, cls) => items.map(t =>
+    `<li class="analysis-item ${cls}">${esc(t)}</li>`).join('');
+  overlay.innerHTML = `
+    <div class="ui-modal analysis-modal">
+      <div class="ui-modal-title">ANALYSIS · ${esc(chunk.title) || 'UNTITLED HOP'}</div>
+      ${strengths.length ? `
+      <div class="analysis-group">
+        <div class="analysis-head">WHAT'S WORKING</div>
+        <ul class="analysis-list">${list(strengths, 'good')}</ul>
+      </div>` : ''}
+      ${suggestions.length ? `
+      <div class="analysis-group">
+        <div class="analysis-head">GENTLE NUDGES</div>
+        <ul class="analysis-list">${list(suggestions, 'nudge')}</ul>
+      </div>` : ''}
+      <div class="ui-modal-actions">
+        <button class="ui-modal-btn solid" data-act="close">Done</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const close = () => overlay.remove();
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  overlay.querySelector('[data-act="close"]').addEventListener('click', close);
+}
+
 // 1-based narrative (N) and chronological (C) position of a hop among all
 // visible hops, matching the ordering shown on the Timelines view.
 function chunkOrdinals(c) {
@@ -622,6 +681,7 @@ function renderChunkCardDisplay(c) {
       ${c.archived ? '<span class="arch-badge">ARCHIVED</span>' : ''}
       <span class="chunk-disp-meta">${meta}</span>
       <span class="chunk-disp-actions">
+        <button class="add-btn" data-f="analyze" title="AI: analyze this hop">✨ ANALYZE</button>
         <button class="add-btn" data-f="archive">${c.archived ? 'UNARCHIVE' : 'ARCHIVE'}</button>
         <button class="add-btn" data-f="edit">EDIT</button>
         <button class="icon-btn" data-f="del" title="Delete hop">✕</button>
@@ -695,6 +755,9 @@ function wireChunkCard(card) {
       e.stopPropagation(); c.archived = !c.archived; save(); renderSections(); return;
     }
     if (e.target.closest('[data-f="edit"]')) { e.stopPropagation(); openChunkModal(id); return; }
+    if (e.target.closest('[data-f="analyze"]')) {
+      e.stopPropagation(); analyzeChunk(c, e.target.closest('[data-f="analyze"]')); return;
+    }
     if (expandedChunks.has(id)) expandedChunks.delete(id); else expandedChunks.add(id);
     renderSections();
   });
@@ -898,6 +961,14 @@ function openChunkModal(chunkId) {
     sv.textContent = '✓ SAVED';
     sv.disabled = true;
     setTimeout(() => { sv.textContent = prev; sv.disabled = false; }, 1200);
+  };
+
+  const az = document.getElementById('chunkModalAnalyze');
+  if (az) az.onclick = () => {
+    // Analyze the live editor text, not the last-saved body.
+    c.title = document.getElementById('chunkModalTitle').value;
+    c.body = document.getElementById('chunkModalBody').value;
+    analyzeChunk(c, az);
   };
 
   document.getElementById('chunkModalOverlay').hidden = false;

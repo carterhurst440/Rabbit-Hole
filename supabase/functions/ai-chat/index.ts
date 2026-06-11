@@ -13,6 +13,8 @@
 //   suggest_ideas     { chunks, type, genre }          -> { ideas: [string] }
 //   suggest_chunks    { chunks, type, genre, chapters, characters, locations }
 //                                                      -> { chunks: [{ title, chapter, description }] }
+//   analyze_chunk     { chunk, context, type, genre, characters, locations }
+//                                                      -> { strengths: [string], suggestions: [string] }
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
 const CORS = {
@@ -45,6 +47,7 @@ Deno.serve(async (req) => {
     if (task === "suggest_tags") return await doSuggestTags(apiKey, body);
     if (task === "suggest_ideas") return await doSuggestIdeas(apiKey, body);
     if (task === "suggest_chunks") return await doSuggestChunks(apiKey, body);
+    if (task === "analyze_chunk") return await doAnalyzeChunk(apiKey, body);
     return json({ error: `Unknown task: ${task}` }, 400);
   } catch (e) {
     console.error("ai-chat error:", (e as Error)?.message || e);
@@ -261,6 +264,40 @@ async function doSuggestChunks(
   return json({ chunks: out });
 }
 
+async function doAnalyzeChunk(
+  apiKey: string,
+  body: { chunk?: Chunk; context?: Chunk[]; type?: string; genre?: string; characters?: string[]; locations?: string[] },
+) {
+  const chunk = body.chunk || ({} as Chunk);
+  const context = (body.context || []).filter((c) => c && (c.body || c.title));
+  const kind = [body.type, body.genre].filter(Boolean).join(" / ");
+  const characters = (body.characters || []).filter(Boolean);
+  const locations = (body.locations || []).filter(Boolean);
+  const system =
+    "You are a perceptive, generous developmental editor inside RABBIT HOLE, a book workbench. " +
+    "The author will give you ONE hop (a scene/excerpt) plus the surrounding manuscript for context. " +
+    "Read the focus hop closely against that context. " +
+    (kind ? `This is a ${kind}; judge it on the terms of that format and genre. ` : "") +
+    "Return two things. First, the 2-3 things that genuinely work in this hop — what is compelling, " +
+    "specific, and alive. Name concrete moments, lines, or choices; never generic praise. " +
+    "Second, a few (2-4) suggestions, delivered very delicately — framed as gentle invitations or " +
+    "questions, never commands or harsh criticism. Ground everything in this story's actual " +
+    "characters and places. Respond with ONLY a JSON object of the form " +
+    `{"strengths":["..."],"suggestions":["..."]}. No markdown, no commentary.`;
+  const user =
+    (characters.length ? `CHARACTERS: ${characters.join(", ")}\n` : "") +
+    (locations.length ? `LOCATIONS: ${locations.join(", ")}\n` : "") +
+    `\nFOCUS HOP${chunk.title ? ` — ${chunk.title}` : ""}:\n${chunk.body || "(empty)"}\n\n` +
+    (context.length ? `SURROUNDING MANUSCRIPT (for context only):\n\n${joinChunks(context)}` : "(no other hops written yet)");
+  const raw = await callClaude(apiKey, { system, messages: [{ role: "user", content: user }], max_tokens: 1100 });
+  const parsed = parseJsonObject(raw);
+  const clean = (arr: unknown): string[] =>
+    Array.isArray(arr)
+      ? arr.map((x) => (typeof x === "string" ? x.trim() : "")).filter(Boolean)
+      : [];
+  return json({ strengths: clean(parsed?.strengths).slice(0, 3), suggestions: clean(parsed?.suggestions).slice(0, 4) });
+}
+
 /* ---------------- helpers ---------------- */
 type Ctx = { project?: string | null; type?: string; genre?: string; chapters?: string[]; characters?: { name: string; summary?: string }[] };
 
@@ -292,7 +329,7 @@ function joinChunks(chunks: Chunk[]): string {
     .join("\n\n");
 }
 
-function parseJsonObject(s: string): { characters?: unknown[]; locations?: unknown[]; ideas?: unknown[]; assign?: unknown[]; suggest?: unknown[]; chunks?: unknown[] } | null {
+function parseJsonObject(s: string): { characters?: unknown[]; locations?: unknown[]; ideas?: unknown[]; assign?: unknown[]; suggest?: unknown[]; chunks?: unknown[]; strengths?: unknown[]; suggestions?: unknown[] } | null {
   try {
     const start = s.indexOf("{");
     const end = s.lastIndexOf("}");
