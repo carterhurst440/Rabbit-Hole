@@ -317,6 +317,20 @@ body.locked .drawer-overlay { display: none !important; }
   color: var(--accent); text-align: center; line-height: 1.4;
 }
 
+/* "check your email" confirmation state */
+.auth-screen:not(.mode-sent) .auth-sent { display: none; }
+.auth-screen.mode-sent .auth-tabs,
+.auth-screen.mode-sent .auth-form { display: none; }
+.auth-sent { display: flex; flex-direction: column; gap: 16px; text-align: center; }
+.auth-sent-title { color: var(--accent); font-size: 14px; letter-spacing: 0.16em; font-weight: 700; }
+.auth-sent-msg { color: var(--text); font-size: 12px; line-height: 1.6; margin: 0; }
+.auth-sent-msg strong { color: var(--text-bright); }
+.auth-back {
+  background: none; border: 1px solid var(--line-2); color: var(--muted);
+  padding: 9px; font-size: 11px; letter-spacing: 0.12em; cursor: pointer; font-family: inherit;
+}
+.auth-back:hover { border-color: var(--accent-mid); color: var(--accent); }
+
 /* ---------- responsive ---------- */
 @media (max-width: 820px) {
   .sections-layout, .timelines-layout { grid-template-columns: 1fr; }

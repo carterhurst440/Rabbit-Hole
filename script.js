@@ -887,14 +887,20 @@ function authMsg(t) { authMsgEl.textContent = t || ''; }
 
 function setAuthMode(m) {
   authMode = m;
+  authScreen.classList.remove('mode-sent');
   authScreen.classList.toggle('mode-signup', m === 'signup');
   document.getElementById('tabSignIn').classList.toggle('active', m === 'signin');
   document.getElementById('tabSignUp').classList.toggle('active', m === 'signup');
   authSubmit.textContent = m === 'signup' ? 'CREATE ACCOUNT' : 'SIGN IN';
   authMsg('');
 }
+function showAuthSent(email) {
+  document.getElementById('authSentEmail').textContent = email;
+  authScreen.classList.add('mode-sent');
+}
 document.getElementById('tabSignIn').addEventListener('click', () => setAuthMode('signin'));
 document.getElementById('tabSignUp').addEventListener('click', () => setAuthMode('signup'));
+document.getElementById('authBackBtn').addEventListener('click', () => setAuthMode('signin'));
 
 function showAuth() {
   currentUser = null;
@@ -1170,12 +1176,14 @@ authForm.addEventListener('submit', async e => {
       if (password.length < 6) { authMsg('Password must be at least 6 characters.'); return; }
       const { data, error } = await sb.auth.signUp({
         email, password,
-        options: { data: { first_name: first, last_name: last } }
+        options: {
+          data: { first_name: first, last_name: last },
+          emailRedirectTo: window.location.origin
+        }
       });
       if (error) { authMsg(error.message); return; }
       if (!data.session) {
-        authMsg('Account created. Check your email to confirm, then sign in.');
-        setAuthMode('signin');
+        showAuthSent(email);
         return;
       }
       // session present → onAuthStateChange shows the app
