@@ -200,6 +200,30 @@ button, input, textarea, select { font-family: inherit; }
 .pc-plus { font-size: 28px; line-height: 1; }
 .pc-new-label { font-size: 11px; letter-spacing: 0.14em; }
 
+/* ---- suggested next chunks (home) ---- */
+.suggest-section { margin-top: 40px; }
+.suggest-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+.suggest-head h2 { margin: 0; font-size: 14px; letter-spacing: 0.16em; color: var(--text-bright); }
+.suggest-head .sub { margin: 6px 0 0; color: var(--muted); font-size: 12px; }
+.suggest-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px;
+}
+.suggest-card {
+  display: flex; flex-direction: column; gap: 9px;
+  background: var(--panel); border: 1px solid var(--line); padding: 16px;
+}
+.suggest-card:hover { border-color: var(--accent-mid); }
+.sc-chap { font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; }
+.sc-title { font-size: 14px; color: var(--text-bright); letter-spacing: 0.03em; }
+.sc-desc { font-size: 12px; color: var(--muted); line-height: 1.6; flex: 1; }
+.sc-add { align-self: flex-start; margin-top: 4px; }
+.suggest-empty { color: var(--muted); font-size: 12px; padding: 8px 0; }
+
+.modal-head-meta { display: flex; align-items: baseline; gap: 12px; margin-right: auto; min-width: 0; }
+.modal-proj {
+  font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted);
+}
+
 /* ---------- MAIN / VIEWS ---------- */
 .app-main { padding: 24px clamp(16px, 4vw, 48px) 80px; max-width: 1400px; margin: 0 0 0 var(--rail-w); }
 .view-head { position: relative; }
@@ -498,6 +522,7 @@ select.ui-modal-input { cursor: pointer; appearance: none; -webkit-appearance: n
 .ref-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ref-row .ref-where { color: var(--muted); font-size: 10px; }
 .ref-row.ref-off .ref-title { color: var(--muted); }
+.ref-edit { flex: 0 0 auto; align-self: flex-start; }
 .ref-body { white-space: pre-wrap; font-size: 12px; line-height: 1.6; color: var(--text); padding: 0 10px 10px; border-top: 1px solid var(--line); margin-top: 2px; padding-top: 8px; }
 .ref-body .occ { cursor: pointer; border-radius: 2px; padding: 0 1px; }
 .ref-body .occ:hover { outline: 1px solid var(--accent-mid); }

@@ -193,9 +193,8 @@ function renderHeaderMeta() {
 /* =====================================================================
    SECTIONS
    ===================================================================== */
-// transient UI state (not persisted): which chunks are in edit mode, and which
-// are expanded for read-only preview in display mode
-const editingChunks = new Set();
+// transient UI state (not persisted): which chunks are expanded for read-only
+// preview in display mode. Editing always happens in the chunk modal.
 const expandedChunks = new Set();
 
 function chunksOf(chapterId) {
@@ -271,11 +270,12 @@ function renderChunkPane() {
       chronoOrder: db.chunks.length,
       chronoLabel: '',
       characterIds: [],
+      locationIds: [],
       labelIds: []
     });
-    editingChunks.add(id);
     save(); renderSections();
     recordWritingActivity();
+    openChunkModal(id);
   });
   document.getElementById('delChapBtn').addEventListener('click', async () => {
     if (!await confirmModal('Delete this chapter and its chunks?')) return;
@@ -359,7 +359,7 @@ function reorderChunkInChapter(chapterId, draggedId, beforeId) {
 }
 
 function renderChunkCard(c) {
-  return editingChunks.has(c.id) ? renderChunkCardEdit(c) : renderChunkCardDisplay(c);
+  return renderChunkCardDisplay(c);
 }
 
 // Is this character/location present in this chunk? Either the author explicitly
@@ -398,12 +398,6 @@ function wireEntityChips(container, K, chunk) {
       wireEntityChips(fresh, K, chunk);
     });
   });
-}
-
-function entityChipsField(K, chunk) {
-  return `<div class="meta-field" style="flex:1">${K.NOUNS} IN THIS CHUNK
-    <div class="char-chips" data-ent-kind="${K.noun}">${entityChipsHTML(K, chunk)}</div>
-  </div>`;
 }
 
 // Ask the model which existing tags fit this scene and what new tags to add,
@@ -551,33 +545,6 @@ function chunkSummaryHeader(c) {
   </div>`;
 }
 
-function renderChunkCardEdit(c) {
-  return `
-  <div class="chunk-card" data-id="${c.id}">
-    <div class="chunk-card-head">
-      <input class="chunk-title-input" data-f="title" value="${esc(c.title)}" placeholder="Chunk title" />
-      <button class="add-btn solid" data-f="save">SAVE</button>
-      <button class="icon-btn" data-f="del" title="Delete chunk">✕</button>
-    </div>
-    <textarea class="chunk-body" data-f="body" placeholder="Write…">${esc(c.body)}</textarea>
-    <div class="chunk-meta">
-      <div class="meta-field">CHRONO LABEL
-        <input data-f="chronoLabel" value="${esc(c.chronoLabel || '')}" placeholder="e.g. Day 3, 1991, before the fall" />
-      </div>
-    </div>
-    <div class="chunk-meta">
-      ${entityChipsField(ENTITY_KINDS.character, c)}
-      ${entityChipsField(ENTITY_KINDS.location, c)}
-    </div>
-    <div class="meta-field" style="margin-top:10px">
-      <div class="meta-field-head">LABELS
-        <button class="add-btn" data-f="gentags" title="AI: suggest tags from this scene">✨ GENERATE TAGS</button>
-      </div>
-      ${labelEditorHTML(c.labelIds || [])}
-    </div>
-  </div>`;
-}
-
 function wireChunkCard(card) {
   const id = card.dataset.id;
   const c = db.chunks.find(x => x.id === id);
@@ -586,41 +553,19 @@ function wireChunkCard(card) {
   const del = async () => {
     if (!await confirmModal('Delete this chunk?')) return;
     db.chunks = db.chunks.filter(x => x.id !== id);
-    editingChunks.delete(id);
     save(); renderSections();
   };
 
-  if (card.classList.contains('collapsed')) {
-    card.querySelector('.chunk-display').addEventListener('click', e => {
-      if (e.target.closest('[data-f="grip"]')) { e.stopPropagation(); return; }
-      if (e.target.closest('[data-f="del"]')) { e.stopPropagation(); del(); return; }
-      if (e.target.closest('[data-f="archive"]')) {
-        e.stopPropagation(); c.archived = !c.archived; save(); renderSections(); return;
-      }
-      if (e.target.closest('[data-f="edit"]')) { editingChunks.add(id); renderSections(); return; }
-      if (expandedChunks.has(id)) expandedChunks.delete(id); else expandedChunks.add(id);
-      renderSections();
-    });
-    return;
-  }
-
-  card.querySelector('[data-f="title"]').addEventListener('input', e => { c.title = e.target.value; save(); });
-  card.querySelector('[data-f="body"]').addEventListener('input', e => { c.body = e.target.value; save(); });
-  card.querySelector('[data-f="chronoLabel"]').addEventListener('input', e => { c.chronoLabel = e.target.value; save(); });
-  card.querySelector('[data-f="save"]').addEventListener('click', () => {
-    if (!c.title.trim()) c.title = 'Untitled chunk';
-    editingChunks.delete(id);
-    save(); renderSections();
+  card.querySelector('.chunk-display').addEventListener('click', e => {
+    if (e.target.closest('[data-f="grip"]')) { e.stopPropagation(); return; }
+    if (e.target.closest('[data-f="del"]')) { e.stopPropagation(); del(); return; }
+    if (e.target.closest('[data-f="archive"]')) {
+      e.stopPropagation(); c.archived = !c.archived; save(); renderSections(); return;
+    }
+    if (e.target.closest('[data-f="edit"]')) { e.stopPropagation(); openChunkModal(id); return; }
+    if (expandedChunks.has(id)) expandedChunks.delete(id); else expandedChunks.add(id);
+    renderSections();
   });
-  card.querySelector('[data-f="del"]').addEventListener('click', del);
-  card.querySelectorAll('.char-chips[data-ent-kind]').forEach(cont => {
-    const K = cont.dataset.entKind === 'location' ? ENTITY_KINDS.location : ENTITY_KINDS.character;
-    wireEntityChips(cont, K, c);
-  });
-  const gt = card.querySelector('[data-f="gentags"]');
-  if (gt) gt.addEventListener('click', () => generateChunkTags(c, gt));
-  const le = card.querySelector('.label-editor');
-  if (le) wireLabelEditor(le, c);
 }
 
 document.getElementById('addChapterBtn').addEventListener('click', () => {
@@ -770,6 +715,8 @@ function openChunkModal(chunkId) {
   document.getElementById('chunkModalArchive').textContent = c.archived ? 'UNARCHIVE' : 'ARCHIVE';
   document.getElementById('chunkModalChapter').textContent = chapterTitle(c.chapterId);
   document.getElementById('chunkModalChapter').style.color = chapterColor(c.chapterId);
+  const projEl = document.getElementById('chunkModalProject');
+  if (projEl) projEl.textContent = projectsCache.find(p => p.id === activeProjectId)?.name || '';
 
   const sel = document.getElementById('chunkModalChapterSel');
   sel.innerHTML = db.chapters.map(ch =>
@@ -797,7 +744,20 @@ function openChunkModal(chunkId) {
 function closeChunkModal() {
   document.getElementById('chunkModalOverlay').hidden = true;
   modalChunkId = null;
-  renderTimelines();
+  rerenderActiveView();
+}
+
+// Re-render whichever view is currently showing, so edits made in the chunk
+// modal (opened from any surface) are reflected when it closes.
+function rerenderActiveView() {
+  const r = currentRoute();
+  if (r === 'home') renderHome();
+  else if (r === 'sections') renderSections();
+  else if (r === 'timelines') renderTimelines();
+  else if (r === 'characters') renderCharacters();
+  else if (r === 'locations') renderLocations();
+  else if (r === 'labels') renderLabels();
+  else if (r === 'ideas') renderIdeas();
 }
 
 (function wireChunkModal() {
@@ -967,6 +927,7 @@ function renderEntityPane(K) {
             <div class="ref-where">${esc(chapterTitle(r.chapterId))}${r.chronoLabel ? ' · ' + esc(r.chronoLabel) : ''}</div>
             ${chunkCharLocLine(r)}
           </div>
+          <button class="add-btn ref-edit" data-ref-edit="${r.id}" title="Edit this chunk">EDIT</button>
         </div>
         ${open ? `<div class="ref-body">${renderRefBody(c, r)}</div>` : ''}
       </div>`;
@@ -1044,6 +1005,9 @@ function renderEntityPane(K) {
       if (expandedRefs.has(id)) expandedRefs.delete(id); else expandedRefs.add(id);
       renderEntityPane(K);
     });
+  });
+  pane.querySelectorAll('[data-ref-edit]').forEach(btn => {
+    btn.addEventListener('click', e => { e.stopPropagation(); openChunkModal(btn.dataset.refEdit); });
   });
   pane.querySelectorAll('.occ').forEach(span => {
     span.addEventListener('click', e => {
@@ -1374,9 +1338,15 @@ function renderLabelPane() {
       <h3>CHUNKS (${chunks.length})</h3>
       <div class="char-refs">
         ${chunks.length ? chunks.map(c => `
-          <div class="ref-row">${esc(c.title) || 'Untitled chunk'}
-            <div class="ref-where">${esc(chapterTitle(c.chapterId))}${c.chronoLabel ? ' · ' + esc(c.chronoLabel) : ''}</div>
-            ${chunkCharLocLine(c)}
+          <div class="ref-row">
+            <div class="ref-head">
+              <div class="ref-meta">
+                <div class="ref-title">${esc(c.title) || 'Untitled chunk'}</div>
+                <div class="ref-where">${esc(chapterTitle(c.chapterId))}${c.chronoLabel ? ' · ' + esc(c.chronoLabel) : ''}</div>
+                ${chunkCharLocLine(c)}
+              </div>
+              <button class="add-btn ref-edit" data-chunk-edit="${c.id}" title="Edit this chunk">EDIT</button>
+            </div>
           </div>`).join('') : '<span style="color:var(--muted)">No chunks tagged.</span>'}
       </div>
     </div>
@@ -1415,6 +1385,8 @@ function renderLabelPane() {
     const next = await promptModal('Tag summary:', l.summary || '', { title: 'TAG SUMMARY', okText: 'Save' });
     if (next !== null) { l.summary = next; save(); renderLabelPane(); }
   });
+  pane.querySelectorAll('[data-chunk-edit]').forEach(btn =>
+    btn.addEventListener('click', () => openChunkModal(btn.dataset.chunkEdit)));
 }
 
 async function generateTagSummary(l, btn) {
@@ -2203,6 +2175,126 @@ function renderHome() {
   grid.querySelectorAll('[data-del]').forEach(b =>
     b.addEventListener('click', () => deleteProjectFlow(b.dataset.del)));
   grid.querySelector('#newProjectCard').addEventListener('click', createProjectFlow);
+  renderSuggestedChunks();
+}
+
+/* ---- suggested next chunks (home page) ---- */
+let suggestedChunks = null;     // cached AI result for the active project
+let suggestedFor = null;        // project id the cache belongs to
+let suggestLoading = false;
+
+function renderSuggestedChunks() {
+  const section = document.getElementById('suggestSection');
+  if (!section) return;
+  // Only meaningful once a project is open (its content lives in `db`).
+  if (!activeProjectId) { section.hidden = true; return; }
+  section.hidden = false;
+
+  // Drop a stale cache when the active project changed.
+  if (suggestedFor !== activeProjectId) { suggestedChunks = null; suggestedFor = activeProjectId; }
+
+  const grid = document.getElementById('suggestGrid');
+  const sub = document.getElementById('suggestSub');
+  const refresh = document.getElementById('suggestRefreshBtn');
+  refresh.disabled = suggestLoading;
+  refresh.textContent = suggestLoading ? '✨ THINKING…' : '↻ REFRESH';
+
+  if (suggestLoading) {
+    sub.textContent = 'Reading your work so far…';
+    grid.innerHTML = `<div class="suggest-empty">Thinking through what comes next…</div>`;
+    return;
+  }
+
+  if (!suggestedChunks) {
+    // Auto-generate the first time there's content to read; otherwise prompt.
+    if (db.chunks.some(c => (c.body || '').trim())) { fetchSuggestedChunks(); return; }
+    sub.textContent = 'Write a little, then I can suggest where to go next.';
+    grid.innerHTML = `<div class="suggest-empty">No suggestions yet — start writing, then hit REFRESH.</div>`;
+    return;
+  }
+
+  if (!suggestedChunks.length) {
+    sub.textContent = 'No suggestions came back. Try refreshing.';
+    grid.innerHTML = `<div class="suggest-empty">Nothing came back. Hit REFRESH to try again.</div>`;
+    return;
+  }
+
+  sub.textContent = 'Scenes that would make sense to write next.';
+  grid.innerHTML = suggestedChunks.map((s, i) => {
+    const ch = matchChapter(s.chapter);
+    const chapName = ch ? ch.title : (s.chapter || 'New chapter');
+    const chapColor = ch ? (ch.color || 'var(--accent)') : 'var(--muted)';
+    return `
+      <div class="suggest-card" data-i="${i}">
+        <div class="sc-chap" style="color:${chapColor}">${esc(chapName)}${ch ? '' : ' · NEW'}</div>
+        <div class="sc-title">${esc(s.title || 'Untitled scene')}</div>
+        <div class="sc-desc">${esc(s.description || '')}</div>
+        <button class="add-btn solid sc-add" data-i="${i}">+ ADD CHUNK</button>
+      </div>`;
+  }).join('');
+  grid.querySelectorAll('.sc-add').forEach(b =>
+    b.addEventListener('click', () => addSuggestedChunk(suggestedChunks[+b.dataset.i])));
+}
+
+// Find an existing chapter whose title matches the AI's suggested chapter name.
+function matchChapter(name) {
+  const n = (name || '').trim().toLowerCase();
+  if (!n) return null;
+  return db.chapters.find(ch => (ch.title || '').trim().toLowerCase() === n) || null;
+}
+
+async function fetchSuggestedChunks() {
+  if (suggestLoading) return;
+  suggestLoading = true;
+  renderSuggestedChunks();
+  try {
+    const proj = projectsCache.find(p => p.id === activeProjectId);
+    const { chunks } = await aiInvoke({
+      task: 'suggest_chunks',
+      type: proj?.type || '',
+      genre: proj?.genre || '',
+      chapters: db.chapters.map(ch => ch.title).filter(Boolean),
+      characters: db.characters.map(c => c.name).filter(Boolean),
+      locations: (db.locations || []).map(l => l.name).filter(Boolean),
+      chunks: db.chunks.filter(c => (c.body || '').trim()).map(c => ({ title: c.title, body: c.body }))
+    });
+    suggestedChunks = Array.isArray(chunks) ? chunks : [];
+    suggestedFor = activeProjectId;
+  } catch (err) {
+    suggestedChunks = [];
+    suggestLoading = false;
+    renderSuggestedChunks();
+    alertModal('Could not suggest next chunks.\n\n' + (err.message || ''), { title: 'SUGGESTED NEXT CHUNKS' });
+    return;
+  }
+  suggestLoading = false;
+  renderSuggestedChunks();
+}
+
+// Turn a suggestion into a real chunk in the active project, then open it in the
+// chunk editor so the author can refine chapter / characters / locations / tags.
+function addSuggestedChunk(s) {
+  if (!s) return;
+  const ch = matchChapter(s.chapter) || db.chapters.find(x => x.id === db.ui.activeChapter) || db.chapters[0];
+  if (!ch) { alertModal('Add a chapter first, then suggestions can be filed.', { title: 'ADD CHUNK' }); return; }
+  const id = uid();
+  db.chunks.push({
+    id, chapterId: ch.id, title: s.title || '', body: s.description || '',
+    orderInChapter: chunksOf(ch.id).length,
+    narrativeOrder: db.chunks.length,
+    chronoOrder: db.chunks.length,
+    chronoLabel: '',
+    characterIds: [],
+    locationIds: [],
+    labelIds: []
+  });
+  save();
+  recordWritingActivity();
+  if (Array.isArray(suggestedChunks)) {
+    suggestedChunks = suggestedChunks.filter(x => x !== s);
+    renderSuggestedChunks();
+  }
+  openChunkModal(id);
 }
 
 /* ---- project flows ---- */
@@ -2265,6 +2357,8 @@ async function deleteProjectFlow(id) {
 }
 
 document.getElementById('projectSelect').addEventListener('change', e => openProject(e.target.value));
+
+document.getElementById('suggestRefreshBtn').addEventListener('click', () => { suggestedChunks = null; fetchSuggestedChunks(); });
 
 authForm.addEventListener('submit', async e => {
   e.preventDefault();

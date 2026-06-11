@@ -110,6 +110,17 @@
       <div id="streakBar"></div>
       <div id="heatmap"></div>
       <div class="project-grid" id="projectGrid"></div>
+
+      <div class="suggest-section" id="suggestSection" hidden>
+        <div class="suggest-head">
+          <div>
+            <h2>SUGGESTED NEXT CHUNKS</h2>
+            <p class="sub" id="suggestSub">Scenes that would make sense to write next.</p>
+          </div>
+          <button class="add-btn" id="suggestRefreshBtn">↻ REFRESH</button>
+        </div>
+        <div class="suggest-grid" id="suggestGrid"></div>
+      </div>
     </section>
 
     <!-- ============ SECTIONS ============ -->
@@ -243,7 +254,10 @@
   <div class="modal-overlay" id="chunkModalOverlay" hidden>
     <div class="modal" role="dialog" aria-modal="true">
       <div class="modal-head">
-        <span id="chunkModalChapter" class="modal-chap">—</span>
+        <span class="modal-head-meta">
+          <span id="chunkModalProject" class="modal-proj"></span>
+          <span id="chunkModalChapter" class="modal-chap">—</span>
+        </span>
         <button class="add-btn" id="chunkModalArchive">ARCHIVE</button>
         <button class="icon-btn" id="chunkModalClose" title="Close">✕</button>
       </div>

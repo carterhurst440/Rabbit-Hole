@@ -11,6 +11,8 @@
 //   detect_locations  { chunks, existing }             -> { locations: [{ name, aliases }] }
 //   suggest_tags      { chunk, existing }              -> { assign: [string], suggest: [string] }
 //   suggest_ideas     { chunks, type, genre }          -> { ideas: [string] }
+//   suggest_chunks    { chunks, type, genre, chapters, characters, locations }
+//                                                      -> { chunks: [{ title, chapter, description }] }
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
 const CORS = {
@@ -42,6 +44,7 @@ Deno.serve(async (req) => {
     if (task === "detect_locations") return await doDetectLocations(apiKey, body);
     if (task === "suggest_tags") return await doSuggestTags(apiKey, body);
     if (task === "suggest_ideas") return await doSuggestIdeas(apiKey, body);
+    if (task === "suggest_chunks") return await doSuggestChunks(apiKey, body);
     return json({ error: `Unknown task: ${task}` }, 400);
   } catch (e) {
     console.error("ai-chat error:", (e as Error)?.message || e);
@@ -217,6 +220,47 @@ async function doSuggestIdeas(apiKey: string, body: { chunks?: Chunk[]; type?: s
   return json({ ideas });
 }
 
+async function doSuggestChunks(
+  apiKey: string,
+  body: { chunks?: Chunk[]; type?: string; genre?: string; chapters?: string[]; characters?: string[]; locations?: string[] },
+) {
+  const chunks = body.chunks || [];
+  const kind = [body.type, body.genre].filter(Boolean).join(" / ");
+  const chapters = (body.chapters || []).filter(Boolean);
+  const characters = (body.characters || []).filter(Boolean);
+  const locations = (body.locations || []).filter(Boolean);
+  const system =
+    "You are a story-structure partner inside RABBIT HOLE, a book workbench. Read the work so far " +
+    "and propose the next scenes the author should write — concrete, specific beats that follow " +
+    "naturally from where the manuscript currently stands. " +
+    (kind ? `This is a ${kind}; keep suggestions appropriate to that format and genre. ` : "") +
+    "For each suggested scene give: a short evocative title; the chapter it most likely belongs to " +
+    "(reuse one of the author's existing chapter names when it fits, otherwise propose a concise new " +
+    "chapter name); and a 1-2 sentence description of what happens, referencing this story's actual " +
+    "characters and places. Offer exactly 5 suggestions, ordered by what should come next. Respond " +
+    "with ONLY a JSON object of the form " +
+    `{"chunks":[{"title":"...","chapter":"...","description":"..."}]}. No markdown, no commentary.`;
+  const user =
+    (chapters.length ? `EXISTING CHAPTERS: ${chapters.join(", ")}\n` : "") +
+    (characters.length ? `CHARACTERS: ${characters.join(", ")}\n` : "") +
+    (locations.length ? `LOCATIONS: ${locations.join(", ")}\n` : "") +
+    `\nWORK SO FAR:\n\n${chunks.length ? joinChunks(chunks) : "(nothing written yet — suggest strong opening scenes)"}`;
+  const raw = await callClaude(apiKey, { system, messages: [{ role: "user", content: user }], max_tokens: 1200 });
+  const parsed = parseJsonObject(raw);
+  const out = Array.isArray(parsed?.chunks)
+    ? (parsed.chunks as unknown[])
+        .filter((c): c is { title?: unknown; chapter?: unknown; description?: unknown } => !!c && typeof c === "object")
+        .map((c) => ({
+          title: typeof c.title === "string" ? c.title.trim() : "",
+          chapter: typeof c.chapter === "string" ? c.chapter.trim() : "",
+          description: typeof c.description === "string" ? c.description.trim() : "",
+        }))
+        .filter((c) => c.title || c.description)
+        .slice(0, 5)
+    : [];
+  return json({ chunks: out });
+}
+
 /* ---------------- helpers ---------------- */
 type Ctx = { project?: string | null; type?: string; genre?: string; chapters?: string[]; characters?: { name: string; summary?: string }[] };
 
@@ -248,7 +292,7 @@ function joinChunks(chunks: Chunk[]): string {
     .join("\n\n");
 }
 
-function parseJsonObject(s: string): { characters?: unknown[]; locations?: unknown[]; ideas?: unknown[]; assign?: unknown[]; suggest?: unknown[] } | null {
+function parseJsonObject(s: string): { characters?: unknown[]; locations?: unknown[]; ideas?: unknown[]; assign?: unknown[]; suggest?: unknown[]; chunks?: unknown[] } | null {
   try {
     const start = s.indexOf("{");
     const end = s.lastIndexOf("}");
