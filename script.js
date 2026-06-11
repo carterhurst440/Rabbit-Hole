@@ -183,11 +183,34 @@ function closeDrawer() { drawer.classList.remove('open'); overlay.classList.remo
 document.getElementById('drawerToggle').addEventListener('click', openDrawer);
 overlay.addEventListener('click', closeDrawer);
 
+/* ---------------- GLOBAL ADD HOP ---------------- */
+// Create a hop from anywhere via the header CTA, then open it in the modal so
+// the author can write and run per-hop detection without leaving the page.
+function addHopGlobal() {
+  if (!activeProjectId) { alertModal('Open a project first.', { title: 'ADD HOP' }); return; }
+  if (!db.chapters.length) {
+    db.chapters.push({ id: uid(), title: 'Chapter 1', order: 0, color: CHAPTER_PALETTE[0] });
+  }
+  const chapterId = (db.ui.activeChapter && db.chapters.some(c => c.id === db.ui.activeChapter))
+    ? db.ui.activeChapter : db.chapters[0].id;
+  const id = uid();
+  db.chunks.push({
+    id, chapterId, title: '', body: '',
+    orderInChapter: chunksOf(chapterId).length,
+    narrativeOrder: db.chunks.length,
+    chronoOrder: db.chunks.length,
+    chronoLabel: '', characterIds: [], locationIds: [], labelIds: []
+  });
+  save(); recordWritingActivity();
+  openChunkModal(id);
+}
+document.getElementById('addHopBtn').addEventListener('click', addHopGlobal);
+
 /* ---------------- HEADER META ---------------- */
 function renderHeaderMeta() {
   const words = db.chunks.reduce((n, c) => n + (c.body || '').trim().split(/\s+/).filter(Boolean).length, 0);
   document.getElementById('headerMeta').textContent =
-    `${db.chunks.length} chunks · ${words.toLocaleString()} words`;
+    `${db.chunks.length} hops · ${words.toLocaleString()} words`;
 }
 
 /* =====================================================================
@@ -243,13 +266,13 @@ function renderChunkPane() {
     <div class="chunk-card-head">
       <input type="color" class="chap-color" id="chapColor" value="${chapterColor(ch.id)}" title="Chapter accent color" />
       <input class="chunk-title-input" id="chapTitle" value="${esc(ch.title)}" />
-      <button class="add-btn solid" id="addChunkBtn">+ CHUNK</button>
+      <button class="add-btn solid" id="addChunkBtn">+ HOP</button>
       <button class="icon-btn" id="delChapBtn" title="Delete chapter">✕</button>
     </div>`;
 
   const body = chunks.length
     ? chunks.map(renderChunkCard).join('')
-    : `<div class="pane-empty">No chunks yet. Add one above.</div>`;
+    : `<div class="pane-empty">No hops yet. Add one above.</div>`;
 
   pane.innerHTML = head + body;
 
@@ -280,7 +303,7 @@ function renderChunkPane() {
     openChunkModal(id);
   });
   document.getElementById('delChapBtn').addEventListener('click', async () => {
-    if (!await confirmModal('Delete this chapter and its chunks?')) return;
+    if (!await confirmModal('Delete this chapter and its hops?')) return;
     db.chunks = db.chunks.filter(c => c.chapterId !== ch.id);
     db.chapters = db.chapters.filter(c => c.id !== ch.id);
     db.ui.activeChapter = db.chapters[0]?.id || null;
@@ -405,7 +428,7 @@ function wireEntityChips(container, K, chunk) {
 // Ask the model which existing tags fit this scene and what new tags to add,
 // then let the author confirm before applying.
 async function generateChunkTags(chunk, btn) {
-  if (!(chunk.body || '').trim()) { alertModal('Write some content first.', { title: 'GENERATE TAGS' }); return; }
+  if (!(chunk.body || '').trim()) { alertModal('Write some content first.', { title: 'DETECT TAGS' }); return; }
   const original = btn.textContent;
   btn.disabled = true; btn.textContent = '✨ THINKING…';
   try {
@@ -417,7 +440,7 @@ async function generateChunkTags(chunk, btn) {
     btn.disabled = false; btn.textContent = original;
     const assign = (result.assign || []).filter(Boolean);
     const suggest = (result.suggest || []).filter(Boolean);
-    if (!assign.length && !suggest.length) { alertModal('No tags suggested for this scene.', { title: 'GENERATE TAGS' }); return; }
+    if (!assign.length && !suggest.length) { alertModal('No tags suggested for this scene.', { title: 'DETECT TAGS' }); return; }
     const chosen = await tagReviewModal(assign, suggest);
     if (!chosen || !chosen.length) return;
     if (!Array.isArray(chunk.labelIds)) chunk.labelIds = [];
@@ -432,7 +455,7 @@ async function generateChunkTags(chunk, btn) {
     }
   } catch (err) {
     btn.disabled = false; btn.textContent = original;
-    alertModal('Tag generation failed.\n\n' + (err.message || ''), { title: 'GENERATE TAGS' });
+    alertModal('Tag generation failed.\n\n' + (err.message || ''), { title: 'DETECT TAGS' });
   }
 }
 
@@ -472,6 +495,84 @@ function tagReviewModal(assign, suggest) {
   });
 }
 
+// Per-hop entity detection: scan THIS hop's text for characters/locations,
+// match against existing entities or propose new ones, and link the chosen ones
+// to the hop. Mirrors the project-wide DETECT but scoped to a single hop.
+async function detectChunkEntities(K, chunk, btn) {
+  if (!(chunk.body || '').trim()) { alertModal('Write some content first.', { title: `DETECT ${K.NOUNS}` }); return; }
+  const original = btn.textContent;
+  btn.disabled = true; btn.textContent = '✨ SCANNING…';
+  try {
+    const result = await aiInvoke({
+      task: K.detectTask,
+      chunks: [{ title: chunk.title, body: chunk.body }],
+      existing: db[K.coll].map(e => e.name)
+    });
+    btn.disabled = false; btn.textContent = original;
+    const found = (result[K.resultKey] || []).filter(f => f && f.name);
+    if (!found.length) { alertModal(`No ${K.noun}s found in this hop.`, { title: `DETECT ${K.NOUNS}` }); return; }
+
+    const byKey = new Map();
+    db[K.coll].forEach(e => {
+      byKey.set(e.name.toLowerCase(), e);
+      (e.aliases || []).forEach(a => byKey.set(a.toLowerCase(), e));
+    });
+    const link = Array.isArray(chunk[K.link]) ? chunk[K.link] : (chunk[K.link] = []);
+    const rows = found.map(f => {
+      const match = byKey.get(f.name.toLowerCase()) || null;
+      return { name: f.name, aliases: f.aliases || [], existing: match, linked: match ? link.includes(match.id) : false };
+    });
+    const chosen = await chunkDetectReviewModal(K, rows);
+    if (!chosen || !chosen.length) return;
+    chosen.forEach(r => {
+      let ent = r.existing;
+      if (!ent) {
+        ent = { id: uid(), name: r.name, aliases: r.aliases || [], summary: '', notes: [], color: CHAPTER_PALETTE[db[K.coll].length % CHAPTER_PALETTE.length], dismissedRefs: [] };
+        db[K.coll].push(ent);
+      }
+      if (!link.includes(ent.id)) link.push(ent.id);
+    });
+    save();
+    refreshModalEntityChips(K, chunk);
+  } catch (err) {
+    btn.disabled = false; btn.textContent = original;
+    alertModal('Detection failed.\n\n' + (err.message || ''), { title: `DETECT ${K.NOUNS}` });
+  }
+}
+
+function chunkDetectReviewModal(K, rows) {
+  return new Promise(resolve => {
+    const overlay = document.createElement('div');
+    overlay.className = 'ui-modal-overlay';
+    overlay.innerHTML = `
+      <div class="ui-modal detect-modal">
+        <div class="ui-modal-title">DETECTED ${K.NOUNS}</div>
+        <div class="ui-modal-msg">Found in this hop. Checked items get linked; “new” ones are created first.</div>
+        <div class="detect-list">
+          ${rows.map((r, i) => `
+            <label class="detect-row">
+              <input type="checkbox" data-i="${i}" checked ${r.linked ? 'disabled' : ''} />
+              <span class="detect-name">${esc(r.name)}</span>
+              <span class="detect-aliases">${r.linked ? 'linked' : (r.existing ? 'existing' : 'new')}</span>
+            </label>`).join('')}
+        </div>
+        <div class="ui-modal-actions">
+          <button class="ui-modal-btn" data-act="cancel">Cancel</button>
+          <button class="ui-modal-btn solid" data-act="add">Link selected</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    const close = val => { overlay.remove(); resolve(val); };
+    overlay.addEventListener('click', e => { if (e.target === overlay) close(null); });
+    overlay.querySelector('[data-act="cancel"]').addEventListener('click', () => close(null));
+    overlay.querySelector('[data-act="add"]').addEventListener('click', () => {
+      const picked = [...overlay.querySelectorAll('.detect-row input:checked')]
+        .filter(inp => !inp.disabled).map(inp => rows[+inp.dataset.i]);
+      close(picked);
+    });
+  });
+}
+
 function renderChunkCardDisplay(c) {
   const expanded = expandedChunks.has(c.id);
   const words = (c.body || '').trim().split(/\s+/).filter(Boolean).length;
@@ -491,13 +592,13 @@ function renderChunkCardDisplay(c) {
     <div class="chunk-display" data-f="open">
       <span class="chunk-grip" data-f="grip" title="Drag to reorder">⠿</span>
       <span class="chunk-chevron">${expanded ? '▾' : '▸'}</span>
-      <span class="chunk-disp-title">${esc(c.title) || '<em>Untitled chunk</em>'}</span>
+      <span class="chunk-disp-title">${esc(c.title) || '<em>Untitled hop</em>'}</span>
       ${c.archived ? '<span class="arch-badge">ARCHIVED</span>' : ''}
       <span class="chunk-disp-meta">${meta}</span>
       <span class="chunk-disp-actions">
         <button class="add-btn" data-f="archive">${c.archived ? 'UNARCHIVE' : 'ARCHIVE'}</button>
         <button class="add-btn" data-f="edit">EDIT</button>
-        <button class="icon-btn" data-f="del" title="Delete chunk">✕</button>
+        <button class="icon-btn" data-f="del" title="Delete hop">✕</button>
       </span>
     </div>
     ${body}
@@ -556,7 +657,7 @@ function wireChunkCard(card) {
   if (!c) return;
 
   const del = async () => {
-    if (!await confirmModal('Delete this chunk?')) return;
+    if (!await confirmModal('Delete this hop?')) return;
     db.chunks = db.chunks.filter(x => x.id !== id);
     save(); renderSections();
   };
@@ -621,7 +722,7 @@ function renderTimelines() {
 function drawTrack(elId, orderKey, filterChar, filterLabel) {
   const track = document.getElementById(elId);
   const ordered = [...db.chunks].filter(isVisibleChunk).sort((a, b) => (a[orderKey] ?? 0) - (b[orderKey] ?? 0));
-  if (!ordered.length) { track.innerHTML = `<div class="pane-empty">No chunks yet.</div>`; return; }
+  if (!ordered.length) { track.innerHTML = `<div class="pane-empty">No hops yet.</div>`; return; }
 
   // Filter by presence (explicit link OR live mention), matching what's displayed.
   const charEnt = filterChar ? db.characters.find(x => x.id === filterChar) : null;
@@ -759,7 +860,31 @@ function openChunkModal(chunkId) {
   const gt = document.getElementById('chunkModalGenTags');
   gt.onclick = () => generateChunkTags(c, gt);
 
+  const dc = document.getElementById('chunkDetectChars');
+  dc.onclick = () => detectChunkEntities(ENTITY_KINDS.character, c, dc);
+  const dl = document.getElementById('chunkDetectLocs');
+  dl.onclick = () => detectChunkEntities(ENTITY_KINDS.location, c, dl);
+
+  const sv = document.getElementById('chunkModalSave');
+  sv.onclick = () => {
+    save();
+    const prev = sv.textContent;
+    sv.textContent = '✓ SAVED';
+    sv.disabled = true;
+    setTimeout(() => { sv.textContent = prev; sv.disabled = false; }, 1200);
+  };
+
   document.getElementById('chunkModalOverlay').hidden = false;
+}
+
+// Re-render the character/location chip row for kind K inside the open hop
+// modal — used after per-hop detection links new entities to the hop.
+function refreshModalEntityChips(K, c) {
+  const id = K === ENTITY_KINDS.character ? 'chunkModalChars' : 'chunkModalLocs';
+  const wrap = document.getElementById(id);
+  if (!wrap) return;
+  wrap.innerHTML = entityChipsHTML(K, c);
+  wireEntityChips(wrap, K, c);
 }
 
 function closeChunkModal() {
@@ -1368,7 +1493,7 @@ function renderLabelPane() {
               </div>
               <button class="add-btn ref-edit" data-chunk-edit="${c.id}" title="Edit this chunk">EDIT</button>
             </div>
-          </div>`).join('') : '<span style="color:var(--muted)">No chunks tagged.</span>'}
+          </div>`).join('') : '<span style="color:var(--muted)">No hops tagged.</span>'}
       </div>
     </div>
     <div class="char-block">
@@ -1394,7 +1519,7 @@ function renderLabelPane() {
     if (d) d.style.background = l.color;
   });
   document.getElementById('delLabelBtn').addEventListener('click', async () => {
-    if (!await confirmModal('Delete this label? It will be removed from all chunks and ideas.')) return;
+    if (!await confirmModal('Delete this label? It will be removed from all hops and ideas.')) return;
     db.chunks.forEach(c => { if (c.labelIds) c.labelIds = c.labelIds.filter(id => id !== l.id); });
     db.ideas.forEach(i => { if (i.labelIds) i.labelIds = i.labelIds.filter(id => id !== l.id); });
     db.labels = db.labels.filter(x => x.id !== l.id);
@@ -1412,7 +1537,7 @@ function renderLabelPane() {
 
 async function generateTagSummary(l, btn) {
   const chunks = labelUsage(l.id).chunks;
-  if (!chunks.length) { alertModal('No chunks use this tag yet.', { title: 'TAG SUMMARY' }); return; }
+  if (!chunks.length) { alertModal('No hops use this tag yet.', { title: 'TAG SUMMARY' }); return; }
   const original = btn.textContent;
   btn.disabled = true; btn.textContent = '✨ THINKING…';
   try {
@@ -1529,7 +1654,7 @@ document.getElementById('suggestIdeasBtn').addEventListener('click', generateIde
 async function generateIdeaSuggestions() {
   const btn = document.getElementById('suggestIdeasBtn');
   const chunks = db.chunks.filter(c => (c.body || '').trim());
-  if (!chunks.length) { alertModal('No chunk content to read yet.', { title: 'GENERATE IDEAS' }); return; }
+  if (!chunks.length) { alertModal('No hop content to read yet.', { title: 'GENERATE IDEAS' }); return; }
   const original = btn.textContent;
   btn.disabled = true; btn.textContent = '✨ THINKING…';
   try {
@@ -2250,7 +2375,7 @@ function renderSuggestedChunks() {
         <div class="sc-chap" style="color:${chapColor}">${esc(chapName)}${ch ? '' : ' · NEW'}</div>
         <div class="sc-title">${esc(s.title || 'Untitled scene')}</div>
         <div class="sc-desc">${esc(s.description || '')}</div>
-        <button class="add-btn solid sc-add" data-i="${i}">+ ADD CHUNK</button>
+        <button class="add-btn solid sc-add" data-i="${i}">+ ADD HOP</button>
       </div>`;
   }).join('');
   grid.querySelectorAll('.sc-add').forEach(b =>
@@ -2285,7 +2410,7 @@ async function fetchSuggestedChunks() {
     suggestedChunks = [];
     suggestLoading = false;
     renderSuggestedChunks();
-    alertModal('Could not suggest next chunks.\n\n' + (err.message || ''), { title: 'SUGGESTED NEXT CHUNKS' });
+    alertModal('Could not suggest next hops.\n\n' + (err.message || ''), { title: 'SUGGESTED NEXT HOPS' });
     return;
   }
   suggestLoading = false;
@@ -2297,7 +2422,7 @@ async function fetchSuggestedChunks() {
 function addSuggestedChunk(s) {
   if (!s) return;
   const ch = matchChapter(s.chapter) || db.chapters.find(x => x.id === db.ui.activeChapter) || db.chapters[0];
-  if (!ch) { alertModal('Add a chapter first, then suggestions can be filed.', { title: 'ADD CHUNK' }); return; }
+  if (!ch) { alertModal('Add a chapter first, then suggestions can be filed.', { title: 'ADD HOP' }); return; }
   const id = uid();
   db.chunks.push({
     id, chapterId: ch.id, title: s.title || '', body: s.description || '',

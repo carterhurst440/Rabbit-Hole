@@ -46,6 +46,7 @@ button, input, textarea, select { font-family: inherit; }
 .drawer-toggle:hover { color: var(--accent); }
 .brand { font-weight: 800; letter-spacing: 0.18em; color: var(--accent); }
 .header-spacer { flex: 1; }
+.header-add-hop { margin-right: 14px; }
 .header-meta { color: var(--muted); font-size: 11px; letter-spacing: 0.1em; }
 
 /* ---------- SIDE NAV (narrow icon rail, persistent on desktop) ---------- */
@@ -321,6 +322,8 @@ button, input, textarea, select { font-family: inherit; }
 .chunk-body:focus, .chunk-title-input:focus, input:focus, textarea:focus, select:focus {
   outline: none; border-color: var(--accent-mid);
 }
+.modal-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
+.modal-tools-sep { flex: 1 1 0; min-width: 8px; }
 .chunk-meta { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 10px; align-items: center; }
 .meta-field { display: flex; flex-direction: column; gap: 4px; font-size: 10px; letter-spacing: 0.1em; color: var(--muted); }
 .meta-field input, .meta-field select {

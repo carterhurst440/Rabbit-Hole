@@ -45,6 +45,7 @@
       <select id="projectSelect" aria-label="Project"></select>
     </div>
     <div class="header-spacer"></div>
+    <button class="add-btn solid header-add-hop" id="addHopBtn" title="Add a new hop">+ HOP</button>
     <div class="header-meta" id="headerMeta">—</div>
     <button class="ai-toggle" id="aiToggle" title="AI assistant" aria-label="AI assistant">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H8l-4 4V6a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2z"/><path d="M9 10h6M9 13h4"/></svg>
@@ -114,7 +115,7 @@
       <div class="suggest-section" id="suggestSection" hidden>
         <div class="suggest-head">
           <div>
-            <h2>SUGGESTED NEXT CHUNKS</h2>
+            <h2>SUGGESTED NEXT HOPS</h2>
             <p class="sub" id="suggestSub">Scenes that would make sense to write next.</p>
           </div>
           <button class="add-btn" id="suggestRefreshBtn">↻ REFRESH</button>
@@ -127,7 +128,7 @@
     <section class="view" id="view-sections">
       <div class="view-head">
         <h1>SECTIONS</h1>
-        <p class="sub">Chapters and the chunks inside them. This is your source of truth.</p>
+        <p class="sub">Chapters and the hops inside them. This is your source of truth.</p>
         <button class="add-btn arch-toggle" data-arch>SHOW ARCHIVED</button>
       </div>
       <div class="sections-layout">
@@ -173,7 +174,7 @@
     <section class="view" id="view-characters" hidden>
       <div class="view-head">
         <h1>CHARACTERS</h1>
-        <p class="sub">Summaries built from every chunk that references them, plus your own notes.</p>
+        <p class="sub">Summaries built from every hop that references them, plus your own notes.</p>
         <button class="add-btn arch-toggle" data-arch>SHOW ARCHIVED</button>
       </div>
       <div class="sections-layout">
@@ -181,7 +182,7 @@
           <div class="rail-head">
             <span>CAST</span>
             <div class="rail-actions">
-              <button class="add-btn" id="detectCharsBtn" title="AI: detect characters from your chunks">✨ DETECT</button>
+              <button class="add-btn" id="detectCharsBtn" title="AI: detect characters from your hops">✨ DETECT</button>
               <button class="add-btn" id="addCharBtn">+ ADD</button>
             </div>
           </div>
@@ -203,7 +204,7 @@
           <div class="rail-head">
             <span>PLACES</span>
             <div class="rail-actions">
-              <button class="add-btn" id="detectLocsBtn" title="AI: detect locations from your chunks">✨ DETECT</button>
+              <button class="add-btn" id="detectLocsBtn" title="AI: detect locations from your hops">✨ DETECT</button>
               <button class="add-btn" id="addLocBtn">+ ADD</button>
             </div>
           </div>
@@ -217,7 +218,7 @@
     <section class="view" id="view-labels" hidden>
       <div class="view-head">
         <h1>TAGS</h1>
-        <p class="sub">Manual tags. Rename here and it updates everywhere; see every chunk and idea using each one.</p>
+        <p class="sub">Manual tags. Rename here and it updates everywhere; see every hop and idea using each one.</p>
         <button class="add-btn arch-toggle" data-arch>SHOW ARCHIVED</button>
       </div>
       <div class="sections-layout">
@@ -237,7 +238,7 @@
       <div class="view-head">
         <h1>IDEA BACKLOG</h1>
         <p class="sub">Loose ideas and sticky notes. Tag them to group.</p>
-        <button class="add-btn" id="suggestIdeasBtn" title="AI: read every chunk and propose ideas for what comes next">✨ GENERATE IDEAS</button>
+        <button class="add-btn" id="suggestIdeasBtn" title="AI: read every hop and propose ideas for what comes next">✨ GENERATE IDEAS</button>
       </div>
       <div class="idea-compose">
         <textarea id="ideaInput" placeholder="Drop an idea…" rows="2"></textarea>
@@ -261,8 +262,15 @@
         <button class="add-btn" id="chunkModalArchive">ARCHIVE</button>
         <button class="icon-btn" id="chunkModalClose" title="Close">✕</button>
       </div>
-      <input class="chunk-title-input" id="chunkModalTitle" placeholder="Chunk title" />
+      <input class="chunk-title-input" id="chunkModalTitle" placeholder="Hop title" />
       <textarea class="chunk-body" id="chunkModalBody" placeholder="Write…" rows="10"></textarea>
+      <div class="modal-tools">
+        <button class="add-btn solid" id="chunkModalSave" title="Save this hop">✓ SAVE</button>
+        <span class="modal-tools-sep"></span>
+        <button class="add-btn" id="chunkDetectChars" title="AI: detect characters in this hop">✨ DETECT CHARACTERS</button>
+        <button class="add-btn" id="chunkDetectLocs" title="AI: detect locations in this hop">✨ DETECT LOCATIONS</button>
+        <button class="add-btn" id="chunkModalGenTags" title="AI: detect tags in this hop">✨ DETECT TAGS</button>
+      </div>
       <div class="chunk-meta">
         <div class="meta-field">CHAPTER
           <select id="chunkModalChapterSel"></select>
@@ -271,16 +279,14 @@
           <input id="chunkModalChrono" placeholder="e.g. Day 3, 1991" />
         </div>
       </div>
-      <div class="meta-field" style="margin-top:12px">CHARACTERS IN THIS CHUNK
+      <div class="meta-field" style="margin-top:12px">CHARACTERS IN THIS HOP
         <div class="char-chips" id="chunkModalChars"></div>
       </div>
-      <div class="meta-field" style="margin-top:12px">LOCATIONS IN THIS CHUNK
+      <div class="meta-field" style="margin-top:12px">LOCATIONS IN THIS HOP
         <div class="char-chips" id="chunkModalLocs"></div>
       </div>
       <div class="meta-field" style="margin-top:12px">
-        <div class="meta-field-head">LABELS
-          <button class="add-btn" id="chunkModalGenTags" title="AI: suggest tags from this scene">✨ GENERATE TAGS</button>
-        </div>
+        <div class="meta-field-head">TAGS</div>
         <div id="chunkModalLabels"></div>
       </div>
     </div>
