@@ -479,8 +479,6 @@ function tagReviewModal(assign, suggest) {
 function renderChunkCardDisplay(c) {
   const expanded = expandedChunks.has(c.id);
   const words = (c.body || '').trim().split(/\s+/).filter(Boolean).length;
-  const labelTags = (c.labelIds || []).map(id =>
-    `<span class="tag" style="--lc:${labelColor(id)}">${esc(labelName(id))}</span>`).join('');
   const charCount = db.characters.filter(ch => chunkEntityPresence(ENTITY_KINDS.character, c, ch).on).length;
   const locCount = (db.locations || []).filter(l => chunkEntityPresence(ENTITY_KINDS.location, c, l).on).length;
   const meta = [
@@ -490,7 +488,7 @@ function renderChunkCardDisplay(c) {
     locCount ? `${locCount} loc` : ''
   ].filter(Boolean).join(' · ');
   const body = expanded
-    ? `<div class="chunk-disp-body">${c.body ? highlightNames(c.body, characterTerms()) : '<span class="muted">(no content yet)</span>'}</div>`
+    ? `${chunkSummaryHeader(c)}<div class="chunk-disp-body">${c.body ? highlightNames(c.body, characterTerms()) : '<span class="muted">(no content yet)</span>'}</div>`
     : '';
   return `
   <div class="chunk-card collapsed ${expanded ? 'is-expanded' : ''} ${c.archived ? 'archived' : ''}" data-id="${c.id}" draggable="true">
@@ -499,7 +497,6 @@ function renderChunkCardDisplay(c) {
       <span class="chunk-chevron">${expanded ? '▾' : '▸'}</span>
       <span class="chunk-disp-title">${esc(c.title) || '<em>Untitled chunk</em>'}</span>
       ${c.archived ? '<span class="arch-badge">ARCHIVED</span>' : ''}
-      ${labelTags ? `<span class="chunk-disp-tags">${labelTags}</span>` : ''}
       <span class="chunk-disp-meta">${meta}</span>
       <span class="chunk-disp-actions">
         <button class="add-btn" data-f="archive">${c.archived ? 'UNARCHIVE' : 'ARCHIVE'}</button>
@@ -508,6 +505,24 @@ function renderChunkCardDisplay(c) {
       </span>
     </div>
     ${body}
+  </div>`;
+}
+
+// Header shown at the top of an expanded chunk: current tags, characters, and
+// locations attached to this scene (explicit links plus auto-detected mentions).
+function chunkSummaryHeader(c) {
+  const tagChip = (label, color) => `<span class="tag" style="--lc:${color}">${esc(label)}</span>`;
+  const tags = (c.labelIds || []).map(id => tagChip(labelName(id), labelColor(id))).join('');
+  const chars = db.characters.filter(ch => chunkEntityPresence(ENTITY_KINDS.character, c, ch).on)
+    .map(ch => tagChip(ch.name, ch.color || 'var(--accent)')).join('');
+  const locs = (db.locations || []).filter(l => chunkEntityPresence(ENTITY_KINDS.location, c, l).on)
+    .map(l => tagChip(l.name, l.color || 'var(--accent)')).join('');
+  const row = (label, chips) =>
+    `<div class="cs-row"><span class="cs-label">${label}</span><span class="cs-vals">${chips || '<span class="cs-empty">—</span>'}</span></div>`;
+  return `<div class="chunk-summary">
+    ${row('TAGS', tags)}
+    ${row('CHARACTERS', chars)}
+    ${row('LOCATIONS', locs)}
   </div>`;
 }
 
