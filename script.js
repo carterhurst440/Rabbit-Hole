@@ -691,14 +691,22 @@ function renderCharacters() {
         </div>`).join('')
     : `<div class="pane-empty" style="border:none">No characters yet.</div>`;
   list.querySelectorAll('.chapter-item').forEach(el => {
-    el.addEventListener('click', () => { db.ui.activeChar = el.dataset.id; save(); renderCharacters(); });
+    el.addEventListener('click', () => {
+      if (db.ui.activeChar !== el.dataset.id) expandedRefs.clear();
+      db.ui.activeChar = el.dataset.id; save(); renderCharacters();
+    });
   });
   renderCharPane();
 }
 
+// Transient (not persisted): chunk ids whose reference body is expanded in the pane.
+let expandedRefs = new Set();
+
 function refsFor(c) {
   const terms = [c.name, ...(c.aliases || [])].filter(Boolean).map(t => t.toLowerCase());
+  const dismissed = new Set(c.dismissedRefs || []);
   return db.chunks.filter(isVisibleChunk).filter(chunk => {
+    if (dismissed.has(chunk.id)) return false;
     if (chunk.characterIds.includes(c.id)) return true;
     const hay = (chunk.title + ' ' + chunk.body).toLowerCase();
     return terms.some(t => t && hay.includes(t));
@@ -711,10 +719,12 @@ function renderCharPane() {
   if (!c) { pane.innerHTML = `<div class="pane-empty">Select or add a character.</div>`; return; }
 
   const refs = refsFor(c);
+  const refTerms = [c.name, ...(c.aliases || [])].filter(Boolean).map(t => ({ t, color: c.color || '' }));
   pane.innerHTML = `
     <div class="chunk-card-head">
       <input type="color" class="chap-color" id="charColor" value="${c.color || '#e0a96d'}" title="Character color" />
       <input class="chunk-title-input" id="charName" value="${esc(c.name)}" />
+      <button class="add-btn" id="mergeCharBtn" title="Merge another character into this one">MERGE</button>
       <button class="icon-btn" id="delCharBtn" title="Delete">✕</button>
     </div>
     <div class="char-block">
@@ -732,10 +742,21 @@ function renderCharPane() {
     <div class="char-block">
       <h3>REFERENCES (${refs.length})</h3>
       <div class="char-refs">
-        ${refs.length ? refs.map(r => `
-          <div class="ref-row">${esc(r.title)}
-            <div class="ref-where">${esc(chapterTitle(r.chapterId))}${r.chronoLabel ? ' · ' + esc(r.chronoLabel) : ''}</div>
-          </div>`).join('') : '<span style="color:var(--muted)">No references found.</span>'}
+        ${refs.length ? refs.map(r => {
+          const open = expandedRefs.has(r.id);
+          return `
+          <div class="ref-row ${open ? 'is-open' : ''}" data-ref="${r.id}">
+            <div class="ref-head">
+              <button class="ref-expand" data-ref-toggle title="Show this reference">${open ? '▾' : '▸'}</button>
+              <div class="ref-meta">
+                <div class="ref-title">${esc(r.title || 'Untitled')}</div>
+                <div class="ref-where">${esc(chapterTitle(r.chapterId))}${r.chronoLabel ? ' · ' + esc(r.chronoLabel) : ''}</div>
+              </div>
+              <button class="ref-dismiss" data-ref-dismiss title="This isn't this character — stop mapping it">DISMISS</button>
+            </div>
+            ${open ? `<div class="ref-body">${highlightNames(r.body || '<span style="color:var(--muted)">(empty)</span>', refTerms)}</div>` : ''}
+          </div>`;
+        }).join('') : '<span style="color:var(--muted)">No references found.</span>'}
       </div>
     </div>
     <div class="char-block">
@@ -770,6 +791,26 @@ function renderCharPane() {
     db.ui.activeChar = db.characters[0]?.id || null;
     save(); renderCharacters();
   });
+  document.getElementById('mergeCharBtn').addEventListener('click', () => openMergeModal(c));
+  pane.querySelectorAll('[data-ref-toggle]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = btn.closest('.ref-row').dataset.ref;
+      if (expandedRefs.has(id)) expandedRefs.delete(id); else expandedRefs.add(id);
+      renderCharPane();
+    });
+  });
+  pane.querySelectorAll('[data-ref-dismiss]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = btn.closest('.ref-row').dataset.ref;
+      if (!await confirmModal('Dismiss this reference? It will no longer map to this character, even during DETECT.', { title: 'DISMISS REFERENCE', okText: 'Dismiss' })) return;
+      c.dismissedRefs = c.dismissedRefs || [];
+      if (!c.dismissedRefs.includes(id)) c.dismissedRefs.push(id);
+      const chunk = db.chunks.find(ch => ch.id === id);
+      if (chunk) chunk.characterIds = chunk.characterIds.filter(cid => cid !== c.id);
+      expandedRefs.delete(id);
+      save(); renderCharacters();
+    });
+  });
   document.getElementById('genSummaryBtn').addEventListener('click', e => generateSummary(c, e.currentTarget));
   document.getElementById('editSummaryBtn').addEventListener('click', async () => {
     const next = await promptModal('Character summary:', c.summary || '', { okText: 'Save' });
@@ -786,6 +827,98 @@ function renderCharPane() {
       const nid = e.target.closest('.note-row').dataset.nid;
       c.notes = c.notes.filter(n => n.id !== nid); save(); renderCharPane();
     });
+  });
+}
+
+// Merge `secondary` into `primary`: primary keeps `primaryName`, every other name
+// (the loser's name + both alias sets) becomes an alias, chunk links + notes +
+// dismissed refs are unioned, then the secondary character is deleted.
+function mergeCharacters(primaryId, secondaryId, primaryName) {
+  const primary = db.characters.find(c => c.id === primaryId);
+  const secondary = db.characters.find(c => c.id === secondaryId);
+  if (!primary || !secondary || primary === secondary) return;
+
+  const winner = primaryName || primary.name;
+  const aliasPool = [primary.name, secondary.name, ...(primary.aliases || []), ...(secondary.aliases || [])];
+  const seen = new Set([winner.toLowerCase()]);
+  const aliases = [];
+  aliasPool.forEach(a => {
+    const v = (a || '').trim();
+    if (v && !seen.has(v.toLowerCase())) { seen.add(v.toLowerCase()); aliases.push(v); }
+  });
+
+  primary.name = winner;
+  primary.aliases = aliases;
+  primary.notes = [...(primary.notes || []), ...(secondary.notes || [])];
+  primary.summary = primary.summary || secondary.summary || '';
+  const dismissed = new Set([...(primary.dismissedRefs || []), ...(secondary.dismissedRefs || [])]);
+  primary.dismissedRefs = [...dismissed];
+
+  db.chunks.forEach(ch => {
+    if (ch.characterIds.includes(secondary.id)) {
+      ch.characterIds = ch.characterIds.filter(id => id !== secondary.id);
+      if (!ch.characterIds.includes(primary.id)) ch.characterIds.push(primary.id);
+    }
+  });
+
+  db.characters = db.characters.filter(c => c.id !== secondary.id);
+  db.ui.activeChar = primary.id;
+  expandedRefs.clear();
+  save(); renderCharacters();
+}
+
+// Modal: pick another character to fold into `c`, then choose which of the two
+// names survives as the primary (the other becomes an alias).
+function openMergeModal(c) {
+  const others = db.characters.filter(x => x.id !== c.id);
+  if (!others.length) { alertModal('Need at least two characters to merge.', { title: 'MERGE CHARACTERS' }); return; }
+  const overlay = document.createElement('div');
+  overlay.className = 'ui-modal-overlay';
+  overlay.innerHTML = `
+    <div class="ui-modal merge-modal">
+      <div class="ui-modal-title">MERGE CHARACTERS</div>
+      <div class="ui-modal-msg">Fold another character into <strong>${esc(c.name)}</strong>. Their references and notes move over; the unused name becomes an alias.</div>
+      <div class="merge-field">
+        <label class="merge-label">Merge this character in</label>
+        <select class="chunk-title-input" id="mergeOther">
+          ${others.map(o => `<option value="${o.id}">${esc(o.name)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="merge-field">
+        <label class="merge-label">Primary name (kept)</label>
+        <div class="merge-names" id="mergeNames"></div>
+      </div>
+      <div class="ui-modal-actions">
+        <button class="ui-modal-btn" data-act="cancel">Cancel</button>
+        <button class="ui-modal-btn solid" data-act="merge">Merge</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  const otherSel = overlay.querySelector('#mergeOther');
+  const namesBox = overlay.querySelector('#mergeNames');
+  function renderNames() {
+    const other = db.characters.find(x => x.id === otherSel.value);
+    const opts = [c.name, other ? other.name : ''].filter(Boolean);
+    namesBox.innerHTML = opts.map((n, i) => `
+      <label class="merge-name-opt">
+        <input type="radio" name="mergePrimary" value="${esc(n)}" ${i === 0 ? 'checked' : ''} />
+        <span>${esc(n)}</span>
+      </label>`).join('');
+  }
+  renderNames();
+  otherSel.addEventListener('change', renderNames);
+
+  const close = () => overlay.remove();
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  overlay.querySelector('[data-act="cancel"]').addEventListener('click', close);
+  overlay.querySelector('[data-act="merge"]').addEventListener('click', async () => {
+    const otherId = otherSel.value;
+    const primaryName = (overlay.querySelector('input[name="mergePrimary"]:checked') || {}).value || c.name;
+    close();
+    const other = db.characters.find(x => x.id === otherId);
+    if (!await confirmModal(`Merge "${other.name}" into "${primaryName}"? This cannot be undone.`, { title: 'MERGE CHARACTERS', okText: 'Merge' })) return;
+    mergeCharacters(c.id, otherId, primaryName);
   });
 }
 
@@ -847,8 +980,18 @@ document.getElementById('detectCharsBtn').addEventListener('click', detectCharac
 // author pick which new ones to add via a review modal.
 async function detectCharacters() {
   const btn = document.getElementById('detectCharsBtn');
-  const chunks = db.chunks.filter(c => (c.body || '').trim() || (c.title || '').trim());
-  if (!chunks.length) { alertModal('No chunk text to scan yet.', { title: 'DETECT CHARACTERS' }); return; }
+  const all = db.chunks.filter(c => (c.body || '').trim() || (c.title || '').trim());
+  if (!all.length) { alertModal('No chunk text to scan yet.', { title: 'DETECT CHARACTERS' }); return; }
+
+  const scanned = new Set(db.ui.detectScannedIds || []);
+  const fresh = all.filter(c => !scanned.has(c.id));
+  // Let the author limit the scan to content added since the last run — this
+  // avoids re-surfacing characters whose references they previously dismissed.
+  const scope = await detectScopeModal(fresh.length, all.length);
+  if (!scope) return;
+  const chunks = scope === 'new' ? fresh : all;
+  if (!chunks.length) { alertModal('No new content since the last scan.', { title: 'DETECT CHARACTERS' }); return; }
+
   const original = btn.textContent;
   btn.disabled = true; btn.textContent = '✨ SCANNING…';
   try {
@@ -858,18 +1001,46 @@ async function detectCharacters() {
       existing: db.characters.map(c => c.name)
     });
     btn.disabled = false; btn.textContent = original;
+    // Mark everything we just scanned (or, for an ALL scan, the whole project).
+    const nowScanned = new Set([...(db.ui.detectScannedIds || []), ...chunks.map(c => c.id)]);
+    db.ui.detectScannedIds = [...nowScanned];
+
     const known = new Set(db.characters.flatMap(c => [c.name, ...(c.aliases || [])]).map(s => s.toLowerCase()));
     const candidates = (characters || []).filter(c => c.name && !known.has(c.name.toLowerCase()));
-    if (!candidates.length) { alertModal('No new characters found.', { title: 'DETECT CHARACTERS' }); return; }
+    if (!candidates.length) { save(); alertModal('No new characters found.', { title: 'DETECT CHARACTERS' }); return; }
     const chosen = await characterReviewModal(candidates);
-    if (!chosen || !chosen.length) return;
-    chosen.forEach(cand => db.characters.push({ id: uid(), name: cand.name, aliases: cand.aliases || [], summary: '', notes: [], color: CHAPTER_PALETTE[db.characters.length % CHAPTER_PALETTE.length] }));
+    if (!chosen || !chosen.length) { save(); return; }
+    chosen.forEach(cand => db.characters.push({ id: uid(), name: cand.name, aliases: cand.aliases || [], summary: '', notes: [], color: CHAPTER_PALETTE[db.characters.length % CHAPTER_PALETTE.length], dismissedRefs: [] }));
     db.ui.activeChar = db.characters[db.characters.length - 1].id;
     save(); renderCharacters();
   } catch (err) {
     btn.disabled = false; btn.textContent = original;
     alertModal('Detection failed.\n\n' + (err.message || ''), { title: 'DETECT CHARACTERS' });
   }
+}
+
+// Ask whether to scan only content added since the last DETECT, or everything.
+function detectScopeModal(newCount, allCount) {
+  return new Promise(resolve => {
+    const overlay = document.createElement('div');
+    overlay.className = 'ui-modal-overlay';
+    overlay.innerHTML = `
+      <div class="ui-modal">
+        <div class="ui-modal-title">DETECT CHARACTERS</div>
+        <div class="ui-modal-msg">Scan only what's new since the last run, or re-scan everything?</div>
+        <div class="ui-modal-actions" style="flex-wrap:wrap">
+          <button class="ui-modal-btn" data-act="cancel">Cancel</button>
+          <button class="ui-modal-btn" data-act="all">All content (${allCount})</button>
+          <button class="ui-modal-btn solid" data-act="new" ${newCount ? '' : 'disabled'}>New only (${newCount})</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    const close = val => { overlay.remove(); resolve(val); };
+    overlay.addEventListener('click', e => { if (e.target === overlay) close(null); });
+    overlay.querySelector('[data-act="cancel"]').addEventListener('click', () => close(null));
+    overlay.querySelector('[data-act="all"]').addEventListener('click', () => close('all'));
+    overlay.querySelector('[data-act="new"]').addEventListener('click', () => close('new'));
+  });
 }
 
 function characterReviewModal(candidates) {
@@ -1524,7 +1695,7 @@ async function loadProject(projectId) {
       characterIds: cc.filter(j => j.chunk_id === r.id).map(j => j.character_id),
       labelIds: cl.filter(j => j.chunk_id === r.id).map(j => j.label_id)
     })),
-    characters: (characters.data || []).map(r => ({ id: r.id, name: r.name, aliases: r.aliases || [], summary: r.summary || '', notes: r.notes || [], color: r.color || '' })),
+    characters: (characters.data || []).map(r => ({ id: r.id, name: r.name, aliases: r.aliases || [], summary: r.summary || '', notes: r.notes || [], color: r.color || '', dismissedRefs: r.dismissed_refs || [] })),
     labels: (labels.data || []).map(r => ({ id: r.id, name: (r.name || '').toUpperCase(), color: r.color, summary: r.summary || '' })),
     ideas: (ideas.data || []).map(r => ({ id: r.id, text: r.text, ts: r.ts || Date.parse(r.created_at), labelIds: il.filter(j => j.idea_id === r.id).map(j => j.label_id) })),
     ui: (proj.data && proj.data.ui) || {}
@@ -1579,7 +1750,7 @@ async function persistProject() {
   try {
     const chapters = db.chapters.map((c, i) => ({ id: c.id, user_id: U, project_id: P, title: c.title, color: c.color, position: c.order ?? i }));
     const chunks = db.chunks.map((c, i) => ({ id: c.id, user_id: U, project_id: P, chapter_id: c.chapterId || null, title: c.title, body: c.body, chrono_label: c.chronoLabel || null, narrative_pos: c.narrativeOrder ?? i, chrono_pos: c.chronoOrder ?? i, order_in_chapter: c.orderInChapter ?? 0, archived: !!c.archived }));
-    const characters = db.characters.map(c => ({ id: c.id, user_id: U, project_id: P, name: c.name, aliases: c.aliases || [], summary: c.summary || '', notes: c.notes || [], color: c.color || null }));
+    const characters = db.characters.map(c => ({ id: c.id, user_id: U, project_id: P, name: c.name, aliases: c.aliases || [], summary: c.summary || '', notes: c.notes || [], color: c.color || null, dismissed_refs: c.dismissedRefs || [] }));
     const labels = db.labels.map(l => ({ id: l.id, user_id: U, project_id: P, name: l.name, color: l.color, summary: l.summary || null }));
     const ideas = db.ideas.map(i => ({ id: i.id, user_id: U, project_id: P, text: i.text, ts: i.ts || Date.now() }));
 

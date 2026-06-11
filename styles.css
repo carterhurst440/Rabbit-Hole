@@ -465,8 +465,21 @@ select.ui-modal-input { cursor: pointer; appearance: none; -webkit-appearance: n
 .char-block h3 { margin: 0 0 10px; font-size: 12px; letter-spacing: 0.14em; color: var(--accent); }
 .char-summary { white-space: pre-wrap; font-size: 13px; line-height: 1.6; color: var(--text); }
 .char-refs { display: flex; flex-direction: column; gap: 6px; }
-.ref-row { font-size: 12px; padding: 6px 8px; background: var(--panel-2); border: 1px solid var(--line); }
+.ref-row { font-size: 12px; background: var(--panel-2); border: 1px solid var(--line); }
+.ref-row.is-open { border-color: var(--accent-mid); }
+.ref-head { display: flex; align-items: center; gap: 8px; padding: 6px 8px; }
+.ref-expand { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 12px; padding: 0 2px; line-height: 1; }
+.ref-expand:hover { color: var(--accent); }
+.ref-meta { flex: 1; min-width: 0; }
+.ref-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ref-row .ref-where { color: var(--muted); font-size: 10px; }
+.ref-dismiss { background: none; border: 1px solid var(--line); color: var(--muted); cursor: pointer; font-size: 9px; letter-spacing: 0.1em; padding: 3px 7px; flex-shrink: 0; }
+.ref-dismiss:hover { border-color: var(--accent); color: var(--accent); }
+.ref-body { white-space: pre-wrap; font-size: 12px; line-height: 1.6; color: var(--text); padding: 0 10px 10px; border-top: 1px solid var(--line); margin-top: 2px; padding-top: 8px; }
+.merge-modal .merge-field { margin: 12px 0; text-align: left; }
+.merge-label { display: block; font-size: 10px; letter-spacing: 0.12em; color: var(--accent); margin-bottom: 6px; }
+.merge-names { display: flex; flex-direction: column; gap: 6px; }
+.merge-name-opt { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
 .note-row { display: flex; gap: 8px; align-items: flex-start; padding: 8px; background: var(--panel-2); border: 1px solid var(--line); margin-bottom: 6px; }
 .note-row .note-text { flex: 1; font-size: 12px; }
 
