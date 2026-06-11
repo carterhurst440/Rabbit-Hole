@@ -277,6 +277,7 @@ body.locked .drawer-overlay { display: none !important; }
   display: flex; align-items: center; justify-content: center;
   background: var(--bg); padding: 24px;
 }
+.auth-screen[hidden] { display: none; }
 .auth-card {
   width: 100%; max-width: 360px;
   background: var(--panel); border: 1px solid var(--line);
