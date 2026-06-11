@@ -1532,22 +1532,21 @@ function renderStreakBar() {
   const cells = [];
   const cursor = new Date();
   cursor.setDate(cursor.getDate() - (DAYS - 1));
-  let lastOn = -1;
   for (let i = 0; i < DAYS; i++) {
     const key = localDayKey(cursor);
     const on = writingDaysCache.has(key);
     const isToday = key === today;
-    if (on) lastOn = i;
     cells.push(
       `<span class="streak-cell${on ? ' on' : ''}${isToday ? ' today' : ''}" title="${key}"></span>`
     );
     cursor.setDate(cursor.getDate() + 1);
   }
   const label = streak === 1 ? '1 day streak' : `${streak} day streak`;
-  // The rabbit perches above the most recent written day and hops as the
-  // streak advances. CELL (14) + GAP (4) = 18px stride; +7 centers it.
-  const rabbit = lastOn >= 0
-    ? `<span class="streak-rabbit" style="left:${lastOn * 18 + 7}px">🐇</span>`
+  // The rabbit starts far left and hops one cell to the right per streak day.
+  // CELL (14) + GAP (4) = 18px stride; +7 centers it over a cell.
+  const pos = Math.min(streak - 1, DAYS - 1);
+  const rabbit = streak > 0
+    ? `<span class="streak-rabbit" style="left:${pos * 18 + 7}px">🐇</span>`
     : '';
   el.innerHTML = `
     <div class="streak-bar">
