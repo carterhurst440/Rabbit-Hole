@@ -295,7 +295,7 @@ function renderChunkCardDisplay(c) {
 
 function renderChunkCardEdit(c) {
   const chips = db.characters.map(ch =>
-    `<span class="char-chip ${c.characterIds.includes(ch.id) ? 'on' : ''}" data-char="${ch.id}">${esc(ch.name)}</span>`
+    `<span class="char-chip ${c.characterIds.includes(ch.id) ? 'on' : ''}" data-char="${ch.id}" style="--cc:${ch.color || 'var(--accent)'}">${esc(ch.name)}</span>`
   ).join('') || `<span class="ci-count">no characters yet — add them in CHARACTERS</span>`;
 
   return `
@@ -503,7 +503,7 @@ function openChunkModal(chunkId) {
 
   const chips = document.getElementById('chunkModalChars');
   chips.innerHTML = db.characters.map(ch =>
-    `<span class="char-chip ${c.characterIds.includes(ch.id) ? 'on' : ''}" data-char="${ch.id}">${esc(ch.name)}</span>`
+    `<span class="char-chip ${c.characterIds.includes(ch.id) ? 'on' : ''}" data-char="${ch.id}" style="--cc:${ch.color || 'var(--accent)'}">${esc(ch.name)}</span>`
   ).join('') || `<span class="ci-count">no characters yet</span>`;
   chips.querySelectorAll('.char-chip[data-char]').forEach(chip => {
     chip.onclick = () => {
@@ -567,6 +567,7 @@ function renderCharacters() {
   list.innerHTML = db.characters.length
     ? db.characters.map(c => `
         <div class="chapter-item ${c.id === db.ui.activeChar ? 'active' : ''}" data-id="${c.id}">
+          <span class="ci-dot" style="background:${c.color || 'var(--accent)'}"></span>
           <span class="ci-title">${esc(c.name)}</span>
           <span class="ci-count">${refsFor(c).length}</span>
         </div>`).join('')
@@ -594,6 +595,7 @@ function renderCharPane() {
   const refs = refsFor(c);
   pane.innerHTML = `
     <div class="chunk-card-head">
+      <input type="color" class="chap-color" id="charColor" value="${c.color || '#e0a96d'}" title="Character color" />
       <input class="chunk-title-input" id="charName" value="${esc(c.name)}" />
       <button class="icon-btn" id="delCharBtn" title="Delete">✕</button>
     </div>
@@ -634,6 +636,11 @@ function renderCharPane() {
   const nameAtRender = c.name;
   const nameInput = document.getElementById('charName');
   nameInput.addEventListener('change', () => renameCharacterEverywhere(c, nameAtRender, nameInput.value.trim()));
+  document.getElementById('charColor').addEventListener('input', e => {
+    c.color = e.target.value; save();
+    const d = document.querySelector(`#charList .chapter-item[data-id="${c.id}"] .ci-dot`);
+    if (d) d.style.background = c.color;
+  });
   document.getElementById('charAliases').addEventListener('input', e => {
     c.aliases = e.target.value.split(',').map(s => s.trim()).filter(Boolean); save();
   });
@@ -711,7 +718,8 @@ async function renameCharacterEverywhere(c, oldName, newName) {
 
 document.getElementById('addCharBtn').addEventListener('click', () => {
   const id = uid();
-  db.characters.push({ id, name: 'New character', aliases: [], summary: '', notes: [] });
+  const color = CHAPTER_PALETTE[db.characters.length % CHAPTER_PALETTE.length];
+  db.characters.push({ id, name: 'New character', aliases: [], summary: '', notes: [], color });
   db.ui.activeChar = id; save(); renderCharacters();
 });
 
@@ -737,7 +745,7 @@ async function detectCharacters() {
     if (!candidates.length) { alertModal('No new characters found.', { title: 'DETECT CHARACTERS' }); return; }
     const chosen = await characterReviewModal(candidates);
     if (!chosen || !chosen.length) return;
-    chosen.forEach(cand => db.characters.push({ id: uid(), name: cand.name, aliases: cand.aliases || [], summary: '', notes: [] }));
+    chosen.forEach(cand => db.characters.push({ id: uid(), name: cand.name, aliases: cand.aliases || [], summary: '', notes: [], color: CHAPTER_PALETTE[db.characters.length % CHAPTER_PALETTE.length] }));
     db.ui.activeChar = db.characters[db.characters.length - 1].id;
     save(); renderCharacters();
   } catch (err) {
@@ -1006,26 +1014,31 @@ function esc(s) {
 function escapeReg(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
 // All character names + aliases, longest-first, deduped — for highlighting/matching.
+// Every character name/alias paired with that character's color, longest-first.
 function characterTerms() {
   const seen = new Set(), terms = [];
   db.characters.forEach(c => {
+    const color = c.color || '';
     [c.name, ...(c.aliases || [])].forEach(t => {
       const v = (t || '').trim();
-      if (v && !seen.has(v)) { seen.add(v); terms.push(v); }
+      if (v && !seen.has(v)) { seen.add(v); terms.push({ t: v, color }); }
     });
   });
-  return terms.sort((a, b) => b.length - a.length);
+  return terms.sort((a, b) => b.t.length - a.t.length);
 }
 
-// Escape `raw` for HTML while wrapping any character name/alias in a highlight span.
+// Escape `raw` for HTML while wrapping any character name/alias in a highlight
+// span tinted with that character's own color (falls back to the accent).
 function highlightNames(raw, terms) {
   raw = String(raw ?? '');
   if (!terms || !terms.length) return esc(raw);
-  const re = new RegExp('\\b(' + terms.map(escapeReg).join('|') + ')\\b', 'g');
+  const colorByTerm = new Map(terms.map(o => [o.t, o.color]));
+  const re = new RegExp('\\b(' + terms.map(o => escapeReg(o.t)).join('|') + ')\\b', 'g');
   let out = '', last = 0, m;
   while ((m = re.exec(raw)) !== null) {
     out += esc(raw.slice(last, m.index));
-    out += '<span class="char-ref">' + esc(m[0]) + '</span>';
+    const col = colorByTerm.get(m[0]);
+    out += '<span class="char-ref"' + (col ? ` style="color:${col}"` : '') + '>' + esc(m[0]) + '</span>';
     last = m.index + m[0].length;
     if (re.lastIndex === m.index) re.lastIndex++; // guard against zero-width
   }
@@ -1237,7 +1250,7 @@ async function loadProject(projectId) {
       characterIds: cc.filter(j => j.chunk_id === r.id).map(j => j.character_id),
       labelIds: cl.filter(j => j.chunk_id === r.id).map(j => j.label_id)
     })),
-    characters: (characters.data || []).map(r => ({ id: r.id, name: r.name, aliases: r.aliases || [], summary: r.summary || '', notes: r.notes || [] })),
+    characters: (characters.data || []).map(r => ({ id: r.id, name: r.name, aliases: r.aliases || [], summary: r.summary || '', notes: r.notes || [], color: r.color || '' })),
     labels: (labels.data || []).map(r => ({ id: r.id, name: r.name, color: r.color, summary: r.summary || '' })),
     ideas: (ideas.data || []).map(r => ({ id: r.id, text: r.text, ts: r.ts || Date.parse(r.created_at), labelIds: il.filter(j => j.idea_id === r.id).map(j => j.label_id) })),
     ui: (proj.data && proj.data.ui) || {}
@@ -1292,7 +1305,7 @@ async function persistProject() {
   try {
     const chapters = db.chapters.map((c, i) => ({ id: c.id, user_id: U, project_id: P, title: c.title, color: c.color, position: c.order ?? i }));
     const chunks = db.chunks.map((c, i) => ({ id: c.id, user_id: U, project_id: P, chapter_id: c.chapterId || null, title: c.title, body: c.body, chrono_label: c.chronoLabel || null, narrative_pos: c.narrativeOrder ?? i, chrono_pos: c.chronoOrder ?? i, order_in_chapter: c.orderInChapter ?? 0 }));
-    const characters = db.characters.map(c => ({ id: c.id, user_id: U, project_id: P, name: c.name, aliases: c.aliases || [], summary: c.summary || '', notes: c.notes || [] }));
+    const characters = db.characters.map(c => ({ id: c.id, user_id: U, project_id: P, name: c.name, aliases: c.aliases || [], summary: c.summary || '', notes: c.notes || [], color: c.color || null }));
     const labels = db.labels.map(l => ({ id: l.id, user_id: U, project_id: P, name: l.name, color: l.color, summary: l.summary || null }));
     const ideas = db.ideas.map(i => ({ id: i.id, user_id: U, project_id: P, text: i.text, ts: i.ts || Date.now() }));
 

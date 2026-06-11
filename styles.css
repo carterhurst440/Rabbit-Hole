@@ -214,7 +214,7 @@ button, input, textarea, select { font-family: inherit; }
   font-size: 11px; padding: 4px 8px; border: 1px solid var(--line-2);
   color: var(--muted); cursor: pointer; user-select: none;
 }
-.char-chip.on { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+.char-chip.on { border-color: var(--cc, var(--accent)); color: var(--cc, var(--accent)); background: rgba(255,255,255,0.04); }
 .icon-btn { background: none; border: none; color: var(--muted-2); cursor: pointer; font-size: 14px; padding: 4px; }
 .icon-btn:hover { color: var(--danger); }
 
