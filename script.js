@@ -508,26 +508,21 @@ function renderChunkCardDisplay(c) {
   </div>`;
 }
 
-// Characters and locations get one uniform color each in summary chips, so the
-// two categories read at a glance regardless of each entity's own palette color.
-const CHAR_TAG_COLOR = '#e07ba6';
-const LOC_TAG_COLOR = '#8fbf72';
-
 // Header shown at the top of an expanded chunk: current tags, characters, and
 // locations attached to this scene (explicit links plus auto-detected mentions).
+// Tags are chips; characters and locations are plain accent-colored text.
 function chunkSummaryHeader(c) {
-  const tagChip = (label, color) => `<span class="tag" style="--lc:${color}">${esc(label)}</span>`;
-  const tags = (c.labelIds || []).map(id => tagChip(labelName(id), labelColor(id))).join('');
-  const chars = db.characters.filter(ch => chunkEntityPresence(ENTITY_KINDS.character, c, ch).on)
-    .map(ch => tagChip(ch.name, CHAR_TAG_COLOR)).join('');
-  const locs = (db.locations || []).filter(l => chunkEntityPresence(ENTITY_KINDS.location, c, l).on)
-    .map(l => tagChip(l.name, LOC_TAG_COLOR)).join('');
-  const row = (label, chips) =>
-    `<div class="cs-row"><span class="cs-label">${label}</span><span class="cs-vals">${chips || '<span class="cs-empty">—</span>'}</span></div>`;
+  const tags = (c.labelIds || []).map(id =>
+    `<span class="tag" style="--lc:${labelColor(id)}">${esc(labelName(id))}</span>`).join('');
+  const charNames = db.characters.filter(ch => chunkEntityPresence(ENTITY_KINDS.character, c, ch).on).map(ch => esc(ch.name));
+  const locNames = (db.locations || []).filter(l => chunkEntityPresence(ENTITY_KINDS.location, c, l).on).map(l => esc(l.name));
+  const text = names => names.length ? `<span class="cs-text">${names.join(', ')}</span>` : '';
+  const row = (label, html) =>
+    `<div class="cs-row"><span class="cs-label">${label}</span><span class="cs-vals">${html || '<span class="cs-empty">—</span>'}</span></div>`;
   return `<div class="chunk-summary">
     ${row('TAGS', tags)}
-    ${row('CHARACTERS', chars)}
-    ${row('LOCATIONS', locs)}
+    ${row('CHARACTERS', text(charNames))}
+    ${row('LOCATIONS', text(locNames))}
   </div>`;
 }
 
@@ -1596,19 +1591,20 @@ function esc(s) {
 
 function escapeReg(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
-// Character + location names/aliases for in-prose highlighting: characters in the
-// uniform pink, locations in the uniform green. Longest-first so multi-word names
-// win over their substrings; characters take precedence on an exact name clash.
+// Character + location names/aliases for in-prose highlighting, each tinted with
+// its own assigned color. Longest-first so multi-word names win over their
+// substrings; characters take precedence on an exact name clash.
 function entityHighlightTerms() {
   const seen = new Set(), terms = [];
-  const add = (coll, color) => (coll || []).forEach(c => {
+  const add = coll => (coll || []).forEach(c => {
+    const color = c.color || '';
     [c.name, ...(c.aliases || [])].forEach(t => {
       const v = (t || '').trim();
       if (v && !seen.has(v)) { seen.add(v); terms.push({ t: v, color }); }
     });
   });
-  add(db.characters, CHAR_TAG_COLOR);
-  add(db.locations, LOC_TAG_COLOR);
+  add(db.characters);
+  add(db.locations);
   return terms.sort((a, b) => b.t.length - a.t.length);
 }
 

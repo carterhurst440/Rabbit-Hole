@@ -278,7 +278,8 @@ button, input, textarea, select { font-family: inherit; }
   flex: 0 0 84px; font-size: 9px; letter-spacing: 0.14em; color: var(--muted);
   padding-top: 2px;
 }
-.cs-vals { display: flex; flex-wrap: wrap; gap: 4px; flex: 1; }
+.cs-vals { display: flex; flex-wrap: wrap; gap: 4px; flex: 1; align-items: baseline; }
+.cs-text { color: var(--accent); font-size: 12px; line-height: 1.5; }
 .cs-empty { color: var(--muted); font-size: 11px; }
 .chunk-card-head { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; }
 .chunk-title-input {
