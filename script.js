@@ -488,7 +488,7 @@ function renderChunkCardDisplay(c) {
     locCount ? `${locCount} loc` : ''
   ].filter(Boolean).join(' · ');
   const body = expanded
-    ? `${chunkSummaryHeader(c)}<div class="chunk-disp-body">${c.body ? highlightNames(c.body, characterTerms()) : '<span class="muted">(no content yet)</span>'}</div>`
+    ? `${chunkSummaryHeader(c)}<div class="chunk-disp-body">${c.body ? highlightNames(c.body, entityHighlightTerms()) : '<span class="muted">(no content yet)</span>'}</div>`
     : '';
   return `
   <div class="chunk-card collapsed ${expanded ? 'is-expanded' : ''} ${c.archived ? 'archived' : ''}" data-id="${c.id}" draggable="true">
@@ -1596,17 +1596,19 @@ function esc(s) {
 
 function escapeReg(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
-// All character names + aliases, longest-first, deduped — for highlighting/matching.
-// Every character name/alias paired with that character's color, longest-first.
-function characterTerms() {
+// Character + location names/aliases for in-prose highlighting: characters in the
+// uniform pink, locations in the uniform green. Longest-first so multi-word names
+// win over their substrings; characters take precedence on an exact name clash.
+function entityHighlightTerms() {
   const seen = new Set(), terms = [];
-  db.characters.forEach(c => {
-    const color = c.color || '';
+  const add = (coll, color) => (coll || []).forEach(c => {
     [c.name, ...(c.aliases || [])].forEach(t => {
       const v = (t || '').trim();
       if (v && !seen.has(v)) { seen.add(v); terms.push({ t: v, color }); }
     });
   });
+  add(db.characters, CHAR_TAG_COLOR);
+  add(db.locations, LOC_TAG_COLOR);
   return terms.sort((a, b) => b.t.length - a.t.length);
 }
 
