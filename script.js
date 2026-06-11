@@ -924,11 +924,26 @@ async function bootApp() {
   if (booted) return;
   booted = true;
   try {
+    await ensureProfile();
     await initProjects();
   } catch (e) {
     console.error('boot failed', e);
     document.getElementById('headerMeta').textContent = 'load error';
   }
+}
+
+// Backstop for the handle_new_user trigger: guarantee a profile row exists for
+// the signed-in user even if the trigger didn't fire (e.g. account predates it).
+async function ensureProfile() {
+  if (!currentUser) return;
+  const meta = currentUser.user_metadata || {};
+  const { error } = await sb.from('profiles').upsert({
+    id: currentUser.id,
+    first_name: meta.first_name || null,
+    last_name: meta.last_name || null,
+    email: currentUser.email,
+  }, { onConflict: 'id', ignoreDuplicates: true });
+  if (error) console.warn('ensureProfile failed', error);
 }
 
 /* =====================================================================
