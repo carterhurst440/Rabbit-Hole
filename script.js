@@ -56,7 +56,7 @@ function migrate(d) {
 let db = seed();
 let activeProjectId = null;
 let projectsCache = [];
-let writingDaysCache = new Set();
+let writingDaysCache = new Map();
 
 // Pull any legacy localStorage data so it can become the user's first project.
 function importableLocalData() {
@@ -257,7 +257,7 @@ function renderChunkPane() {
     });
     editingChunks.add(id);
     save(); renderSections();
-    recordWritingDay();
+    recordWritingActivity();
   });
   document.getElementById('delChapBtn').addEventListener('click', async () => {
     if (!await confirmModal('Delete this chapter and its chunks?')) return;
@@ -992,6 +992,7 @@ document.getElementById('addIdeaBtn').addEventListener('click', () => {
   document.getElementById('ideaInput').value = '';
   document.getElementById('ideaLabels').value = '';
   save(); renderIdeas();
+  recordWritingActivity();
 });
 
 document.getElementById('suggestIdeasBtn').addEventListener('click', generateIdeaSuggestions);
@@ -1019,6 +1020,7 @@ async function generateIdeaSuggestions() {
     const now = Date.now();
     chosen.forEach((text, i) => db.ideas.push({ id: uid(), text, labelIds: [], ts: now + i }));
     save(); renderIdeas();
+    chosen.forEach(() => recordWritingActivity());
   } catch (err) {
     btn.disabled = false; btn.textContent = original;
     alertModal('Could not generate ideas.\n\n' + (err.message || ''), { title: 'GENERATE IDEAS' });
@@ -1313,30 +1315,34 @@ function localDayKey(d = new Date()) {
 
 async function fetchWritingDays() {
   if (!currentUser) return;
-  const { data, error } = await sb.from('writing_days').select('day');
+  const { data, error } = await sb.from('writing_days').select('day, count');
   if (error) { console.warn('writing_days fetch failed', error); return; }
-  writingDaysCache = new Set((data || []).map(r => r.day));
+  writingDaysCache = new Map((data || []).map(r => [r.day, r.count || 0]));
 }
 
-// Mark today as a writing day (account-wide). Upserts so repeat adds are cheap.
-async function recordWritingDay() {
+// Record one writing action (chunk or idea added) on today, account-wide.
+// Bumps the per-day count so the heat map can shade by activity volume.
+async function recordWritingActivity() {
   if (!currentUser) return;
   const today = localDayKey();
-  if (writingDaysCache.has(today)) return;
-  writingDaysCache.add(today);
+  writingDaysCache.set(today, (writingDaysCache.get(today) || 0) + 1);
   renderHome();
-  const { error } = await sb.from('writing_days')
-    .upsert({ user_id: currentUser.id, day: today }, { onConflict: 'user_id,day' });
-  if (error) console.warn('writing_days upsert failed', error);
+  const { data, error } = await sb.rpc('bump_writing_day', { d: today });
+  if (error) { console.warn('bump_writing_day failed', error); return; }
+  if (typeof data === 'number') {
+    writingDaysCache.set(today, data);
+    renderHome();
+  }
 }
 
 // Consecutive days ending today (or yesterday if today not yet written).
-function computeStreak(set) {
-  if (!set.size) return 0;
+// `days` is a Map (day -> count); only presence matters here.
+function computeStreak(days) {
+  if (!days.size) return 0;
   const cursor = new Date();
-  if (!set.has(localDayKey(cursor))) cursor.setDate(cursor.getDate() - 1);
+  if (!days.has(localDayKey(cursor))) cursor.setDate(cursor.getDate() - 1);
   let n = 0;
-  while (set.has(localDayKey(cursor))) {
+  while (days.has(localDayKey(cursor))) {
     n++;
     cursor.setDate(cursor.getDate() - 1);
   }
@@ -1559,9 +1565,65 @@ function renderStreakBar() {
     </div>`;
 }
 
+// Bucket a day's add-count into a shading level (0 = none, 4 = busiest).
+function heatLevel(n) {
+  if (!n) return 0;
+  if (n <= 1) return 1;
+  if (n <= 3) return 2;
+  if (n <= 5) return 3;
+  return 4;
+}
+
+const MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+// GitHub-style contribution grid: weeks as columns, weekdays as rows, shaded
+// by how many chunks/ideas were added that day.
+function renderHeatmap() {
+  const el = document.getElementById('heatmap');
+  if (!el) return;
+  const WEEKS = 26;
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const todayKey = localDayKey(today);
+  // First column starts on the Sunday WEEKS-1 weeks before this week's Sunday.
+  const start = new Date(today);
+  start.setDate(today.getDate() - today.getDay() - (WEEKS - 1) * 7);
+
+  const cells = [];
+  const months = [];
+  let prevMonth = -1;
+  for (let w = 0; w < WEEKS; w++) {
+    const colDate = new Date(start);
+    colDate.setDate(start.getDate() + w * 7);
+    if (colDate.getMonth() !== prevMonth && colDate <= today) {
+      prevMonth = colDate.getMonth();
+      months.push(`<span class="hm-month" style="left:${w * 14}px">${MONTH_ABBR[prevMonth]}</span>`);
+    }
+    for (let d = 0; d < 7; d++) {
+      const cellDate = new Date(start);
+      cellDate.setDate(start.getDate() + w * 7 + d);
+      if (cellDate > today) { cells.push('<span class="hm-cell future"></span>'); continue; }
+      const key = localDayKey(cellDate);
+      const n = writingDaysCache.get(key) || 0;
+      const lvl = heatLevel(n);
+      const isToday = key === todayKey;
+      const noun = n === 1 ? 'add' : 'adds';
+      cells.push(`<span class="hm-cell l${lvl}${isToday ? ' today' : ''}" title="${key}: ${n} ${noun}"></span>`);
+    }
+  }
+  const legend = [0, 1, 2, 3, 4].map(l => `<span class="hm-cell l${l}"></span>`).join('');
+  el.innerHTML = `
+    <div class="heatmap">
+      <div class="hm-title">Activity</div>
+      <div class="hm-months">${months.join('')}</div>
+      <div class="hm-grid">${cells.join('')}</div>
+      <div class="hm-legend"><span>Less</span>${legend}<span>More</span></div>
+    </div>`;
+}
+
 /* ---- HOME: project cards ---- */
 function renderHome() {
   renderStreakBar();
+  renderHeatmap();
   const grid = document.getElementById('projectGrid');
   if (!grid) return;
   const cards = projectsCache.map(p => {
