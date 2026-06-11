@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RABBIT HOLE — Book Workbench</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body class="locked">
+  <!-- ============ AUTH GATE ============ -->
+  <div class="auth-screen" id="authScreen" hidden>
+    <div class="auth-card">
+      <div class="auth-brand">// RABBIT HOLE</div>
+      <div class="auth-tabs">
+        <button class="auth-tab active" id="tabSignIn" type="button" data-mode="signin">SIGN IN</button>
+        <button class="auth-tab" id="tabSignUp" type="button" data-mode="signup">SIGN UP</button>
+      </div>
+      <form class="auth-form" id="authForm" autocomplete="on">
+        <div class="auth-names signup-only">
+          <label>FIRST NAME<input id="authFirst" type="text" autocomplete="given-name" /></label>
+          <label>LAST NAME<input id="authLast" type="text" autocomplete="family-name" /></label>
+        </div>
+        <label>EMAIL<input id="authEmail" type="email" autocomplete="email" required /></label>
+        <label>PASSWORD<input id="authPassword" type="password" autocomplete="current-password" required /></label>
+        <label class="signup-only">CONFIRM PASSWORD<input id="authConfirm" type="password" autocomplete="new-password" /></label>
+        <button class="auth-submit" id="authSubmit" type="submit">SIGN IN</button>
+        <div class="auth-msg" id="authMsg"></div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ============ HEADER ============ -->
+  <header class="app-header">
+    <button class="drawer-toggle" id="drawerToggle" aria-label="Menu">≡</button>
+    <div class="brand">// RABBIT HOLE</div>
+    <div class="header-spacer"></div>
+    <div class="header-meta" id="headerMeta">—</div>
+  </header>
+
+  <!-- ============ DRAWER ============ -->
+  <div class="drawer-overlay" id="drawerOverlay"></div>
+  <nav class="drawer" id="drawer">
+    <div class="drawer-head">// PROJECT</div>
+    <div class="project-switch">
+      <select id="projectSelect"></select>
+      <button class="add-btn" id="newProjectBtn">+ NEW</button>
+    </div>
+    <div class="project-actions">
+      <button class="ghost-btn" id="renameProjectBtn">RENAME</button>
+      <button class="ghost-btn" id="delProjectBtn">DELETE</button>
+    </div>
+    <div class="drawer-head">// NAVIGATION</div>
+    <a href="#sections"  class="drawer-link" data-route="sections">SECTIONS</a>
+    <a href="#timelines" class="drawer-link" data-route="timelines">TIMELINES</a>
+    <a href="#characters" class="drawer-link" data-route="characters">CHARACTERS</a>
+    <a href="#labels"    class="drawer-link" data-route="labels">LABELS</a>
+    <a href="#ideas"     class="drawer-link" data-route="ideas">IDEA BACKLOG</a>
+    <div class="drawer-foot">
+      <div class="drawer-user" id="drawerUser">—</div>
+      <button class="ghost-btn" id="exportBtn">EXPORT JSON</button>
+      <button class="ghost-btn" id="importBtn">IMPORT JSON</button>
+      <input type="file" id="importFile" accept="application/json" hidden />
+      <button class="ghost-btn signout" id="signOutBtn">SIGN OUT</button>
+    </div>
+  </nav>
+
+  <main class="app-main">
+
+    <!-- ============ SECTIONS ============ -->
+    <section class="view" id="view-sections">
+      <div class="view-head">
+        <h1>SECTIONS</h1>
+        <p class="sub">Chapters and the chunks inside them. This is your source of truth.</p>
+      </div>
+      <div class="sections-layout">
+        <aside class="chapter-rail">
+          <div class="rail-head">
+            <span>CHAPTERS</span>
+            <button class="add-btn" id="addChapterBtn">+ ADD</button>
+          </div>
+          <div class="chapter-list" id="chapterList"></div>
+        </aside>
+        <div class="chunk-pane" id="chunkPane"></div>
+      </div>
+    </section>
+
+    <!-- ============ TIMELINES ============ -->
+    <section class="view" id="view-timelines" hidden>
+      <div class="view-head">
+        <h1>TIMELINES</h1>
+        <p class="sub">Narrative order (what the reader sees) vs chronological order (what actually happens).</p>
+      </div>
+      <div class="timeline-controls">
+        <label>FILTER BY CHARACTER
+          <select id="timelineCharFilter"><option value="">— all —</option></select>
+        </label>
+        <label>FILTER BY LABEL
+          <select id="timelineLabelFilter"><option value="">— all —</option></select>
+        </label>
+      </div>
+      <div class="timelines-layout">
+        <div class="timeline-col">
+          <div class="tl-col-head">NARRATIVE ORDER</div>
+          <div class="tl-track" id="narrativeTrack" data-axis="narrative"></div>
+        </div>
+        <div class="timeline-col">
+          <div class="tl-col-head">CHRONOLOGICAL ORDER</div>
+          <div class="tl-track" id="chronoTrack" data-axis="chrono"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ CHARACTERS ============ -->
+    <section class="view" id="view-characters" hidden>
+      <div class="view-head">
+        <h1>CHARACTERS</h1>
+        <p class="sub">Summaries built from every chunk that references them, plus your own notes.</p>
+      </div>
+      <div class="sections-layout">
+        <aside class="chapter-rail">
+          <div class="rail-head">
+            <span>CAST</span>
+            <button class="add-btn" id="addCharBtn">+ ADD</button>
+          </div>
+          <div class="chapter-list" id="charList"></div>
+        </aside>
+        <div class="chunk-pane" id="charPane"></div>
+      </div>
+    </section>
+
+    <!-- ============ LABELS ============ -->
+    <section class="view" id="view-labels" hidden>
+      <div class="view-head">
+        <h1>LABELS</h1>
+        <p class="sub">Manual tags. Rename here and it updates everywhere; see every chunk and idea using each one.</p>
+      </div>
+      <div class="sections-layout">
+        <aside class="chapter-rail">
+          <div class="rail-head">
+            <span>LABELS</span>
+            <button class="add-btn" id="addLabelBtn">+ ADD</button>
+          </div>
+          <div class="chapter-list" id="labelList"></div>
+        </aside>
+        <div class="chunk-pane" id="labelPane"></div>
+      </div>
+    </section>
+
+    <!-- ============ IDEA BACKLOG ============ -->
+    <section class="view" id="view-ideas" hidden>
+      <div class="view-head">
+        <h1>IDEA BACKLOG</h1>
+        <p class="sub">Loose ideas and sticky notes. Tag them to group.</p>
+      </div>
+      <div class="idea-compose">
+        <textarea id="ideaInput" placeholder="Drop an idea…" rows="2"></textarea>
+        <input type="text" id="ideaLabels" placeholder="labels, comma, separated" />
+        <button class="add-btn solid" id="addIdeaBtn">PIN</button>
+      </div>
+      <div class="idea-filter" id="ideaLabelFilter"></div>
+      <div class="idea-grid" id="ideaGrid"></div>
+    </section>
+
+  </main>
+
+  <!-- ============ CHUNK EDIT MODAL ============ -->
+  <div class="modal-overlay" id="chunkModalOverlay" hidden>
+    <div class="modal" role="dialog" aria-modal="true">
+      <div class="modal-head">
+        <span id="chunkModalChapter" class="modal-chap">—</span>
+        <button class="icon-btn" id="chunkModalClose" title="Close">✕</button>
+      </div>
+      <input class="chunk-title-input" id="chunkModalTitle" placeholder="Chunk title" />
+      <textarea class="chunk-body" id="chunkModalBody" placeholder="Write…" rows="10"></textarea>
+      <div class="chunk-meta">
+        <div class="meta-field">CHAPTER
+          <select id="chunkModalChapterSel"></select>
+        </div>
+        <div class="meta-field">CHRONO LABEL
+          <input id="chunkModalChrono" placeholder="e.g. Day 3, 1991" />
+        </div>
+      </div>
+      <div class="meta-field" style="margin-top:12px">CHARACTERS IN THIS CHUNK
+        <div class="char-chips" id="chunkModalChars"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="supabaseClient.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>

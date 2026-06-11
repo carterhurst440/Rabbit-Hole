@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "rabbithole",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["/Users/admin/Desktop/RABBIT-HOLE/server.py"],
+      "port": 4321
+    }
+  ]
+}
