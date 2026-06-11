@@ -702,15 +702,66 @@ function renderCharacters() {
 // Transient (not persisted): chunk ids whose reference body is expanded in the pane.
 let expandedRefs = new Set();
 
-function refsFor(c) {
-  const terms = [c.name, ...(c.aliases || [])].filter(Boolean).map(t => t.toLowerCase());
+// Every match of this character's name/aliases inside a chunk's body, in document
+// order, each tagged with a stable ordinal so individual mentions can be dismissed.
+// Dismissal is keyed "chunkId:ord" in c.dismissedRefs.
+function occurrencesOf(c, chunk) {
+  const terms = [c.name, ...(c.aliases || [])].map(t => (t || '').trim()).filter(Boolean);
+  if (!terms.length) return [];
+  const re = new RegExp('\\b(' + terms.map(escapeReg).join('|') + ')\\b', 'gi');
   const dismissed = new Set(c.dismissedRefs || []);
+  const body = String(chunk.body || '');
+  const out = [];
+  let m, ord = 0;
+  while ((m = re.exec(body)) !== null) {
+    out.push({ ord, index: m.index, text: m[0], dismissed: dismissed.has(chunk.id + ':' + ord) });
+    ord++;
+    if (re.lastIndex === m.index) re.lastIndex++;
+  }
+  return out;
+}
+
+function refStatus(c, chunk) {
+  const occ = occurrencesOf(c, chunk);
+  const live = occ.filter(o => !o.dismissed).length;
+  return { occ, live, total: occ.length, linked: chunk.characterIds.includes(c.id) };
+}
+
+// Active references: explicitly linked, or with at least one live (non-dismissed) mention.
+function refsFor(c) {
   return db.chunks.filter(isVisibleChunk).filter(chunk => {
-    if (dismissed.has(chunk.id)) return false;
-    if (chunk.characterIds.includes(c.id)) return true;
-    const hay = (chunk.title + ' ' + chunk.body).toLowerCase();
-    return terms.some(t => t && hay.includes(t));
+    const s = refStatus(c, chunk);
+    return s.linked || s.live > 0;
   });
+}
+
+// Chunks that mention this character but where every mention has been dismissed —
+// hidden from the active list, surfaced under a disclosure so they can be restored.
+function dismissedRefsFor(c) {
+  return db.chunks.filter(isVisibleChunk).filter(chunk => {
+    const s = refStatus(c, chunk);
+    return !s.linked && s.live === 0 && s.total > 0;
+  });
+}
+
+// Chunk body with each name/alias mention wrapped in a clickable .occ span:
+// live mentions are tinted + clickable to dismiss, dismissed ones are struck
+// through + clickable to restore.
+function renderRefBody(c, chunk) {
+  const raw = String(chunk.body || '');
+  const occ = occurrencesOf(c, chunk);
+  if (!occ.length) return raw ? esc(raw) : '<span style="color:var(--muted)">(empty)</span>';
+  const col = c.color || '';
+  let out = '', last = 0;
+  occ.forEach(o => {
+    out += esc(raw.slice(last, o.index));
+    const tint = (!o.dismissed && col) ? ` style="color:${col}"` : '';
+    const tip = o.dismissed ? 'Click to restore this mention' : 'Click to dismiss this mention';
+    out += `<span class="occ${o.dismissed ? ' occ-off' : ''}" data-chunk="${chunk.id}" data-occ="${o.ord}" title="${tip}"${tint}>${esc(o.text)}</span>`;
+    last = o.index + o.text.length;
+  });
+  out += esc(raw.slice(last));
+  return out;
 }
 
 function renderCharPane() {
@@ -719,7 +770,21 @@ function renderCharPane() {
   if (!c) { pane.innerHTML = `<div class="pane-empty">Select or add a character.</div>`; return; }
 
   const refs = refsFor(c);
-  const refTerms = [c.name, ...(c.aliases || [])].filter(Boolean).map(t => ({ t, color: c.color || '' }));
+  const dismissedRefs = dismissedRefsFor(c);
+  const refRow = (r, off) => {
+    const open = expandedRefs.has(r.id);
+    return `
+      <div class="ref-row ${open ? 'is-open' : ''} ${off ? 'ref-off' : ''}" data-ref="${r.id}">
+        <div class="ref-head">
+          <button class="ref-expand" data-ref-toggle title="Show this reference">${open ? '▾' : '▸'}</button>
+          <div class="ref-meta">
+            <div class="ref-title">${esc(r.title || 'Untitled')}</div>
+            <div class="ref-where">${esc(chapterTitle(r.chapterId))}${r.chronoLabel ? ' · ' + esc(r.chronoLabel) : ''}</div>
+          </div>
+        </div>
+        ${open ? `<div class="ref-body">${renderRefBody(c, r)}</div>` : ''}
+      </div>`;
+  };
   pane.innerHTML = `
     <div class="chunk-card-head">
       <input type="color" class="chap-color" id="charColor" value="${c.color || '#e0a96d'}" title="Character color" />
@@ -741,23 +806,17 @@ function renderCharPane() {
     </div>
     <div class="char-block">
       <h3>REFERENCES (${refs.length})</h3>
+      <div style="color:var(--muted);font-size:11px;margin-bottom:8px">Expand a reference, then click a highlighted mention to dismiss it (click again to restore).</div>
       <div class="char-refs">
-        ${refs.length ? refs.map(r => {
-          const open = expandedRefs.has(r.id);
-          return `
-          <div class="ref-row ${open ? 'is-open' : ''}" data-ref="${r.id}">
-            <div class="ref-head">
-              <button class="ref-expand" data-ref-toggle title="Show this reference">${open ? '▾' : '▸'}</button>
-              <div class="ref-meta">
-                <div class="ref-title">${esc(r.title || 'Untitled')}</div>
-                <div class="ref-where">${esc(chapterTitle(r.chapterId))}${r.chronoLabel ? ' · ' + esc(r.chronoLabel) : ''}</div>
-              </div>
-              <button class="ref-dismiss" data-ref-dismiss title="This isn't this character — stop mapping it">DISMISS</button>
-            </div>
-            ${open ? `<div class="ref-body">${highlightNames(r.body || '<span style="color:var(--muted)">(empty)</span>', refTerms)}</div>` : ''}
-          </div>`;
-        }).join('') : '<span style="color:var(--muted)">No references found.</span>'}
+        ${refs.length ? refs.map(r => refRow(r, false)).join('') : '<span style="color:var(--muted)">No references found.</span>'}
       </div>
+      ${dismissedRefs.length ? `
+        <details class="ref-dismissed-wrap">
+          <summary>${dismissedRefs.length} fully dismissed — review / restore</summary>
+          <div class="char-refs" style="margin-top:8px">
+            ${dismissedRefs.map(r => refRow(r, true)).join('')}
+          </div>
+        </details>` : ''}
     </div>
     <div class="char-block">
       <h3>NOTES</h3>
@@ -799,15 +858,13 @@ function renderCharPane() {
       renderCharPane();
     });
   });
-  pane.querySelectorAll('[data-ref-dismiss]').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const id = btn.closest('.ref-row').dataset.ref;
-      if (!await confirmModal('Dismiss this reference? It will no longer map to this character, even during DETECT.', { title: 'DISMISS REFERENCE', okText: 'Dismiss' })) return;
+  pane.querySelectorAll('.occ').forEach(span => {
+    span.addEventListener('click', e => {
+      e.stopPropagation();
+      const key = span.dataset.chunk + ':' + span.dataset.occ;
       c.dismissedRefs = c.dismissedRefs || [];
-      if (!c.dismissedRefs.includes(id)) c.dismissedRefs.push(id);
-      const chunk = db.chunks.find(ch => ch.id === id);
-      if (chunk) chunk.characterIds = chunk.characterIds.filter(cid => cid !== c.id);
-      expandedRefs.delete(id);
+      const i = c.dismissedRefs.indexOf(key);
+      if (i >= 0) c.dismissedRefs.splice(i, 1); else c.dismissedRefs.push(key);
       save(); renderCharacters();
     });
   });
