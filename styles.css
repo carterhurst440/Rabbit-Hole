@@ -305,6 +305,7 @@ button, input, textarea, select { font-family: inherit; }
 .chunk-disp-title { flex: 1; font-size: 13px; color: var(--text-bright); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chunk-disp-title em { color: var(--muted); font-style: italic; }
 .chunk-disp-meta { font-size: 10px; color: var(--muted); white-space: nowrap; }
+.chunk-disp-meta .hop-ord { color: var(--accent); font-weight: 600; letter-spacing: 0.06em; }
 .chunk-disp-actions { display: flex; gap: 2px; }
 .icon-btn.edit:hover { color: var(--accent); }
 .chunk-chevron { color: var(--muted); font-size: 10px; width: 12px; flex: 0 0 auto; text-align: center; }

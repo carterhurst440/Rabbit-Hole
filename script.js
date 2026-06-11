@@ -588,12 +588,23 @@ function chunkDetectReviewModal(K, rows) {
   });
 }
 
+// 1-based narrative (N) and chronological (C) position of a hop among all
+// visible hops, matching the ordering shown on the Timelines view.
+function chunkOrdinals(c) {
+  const vis = db.chunks.filter(isVisibleChunk);
+  const rank = key => [...vis].sort((a, b) => (a[key] ?? 0) - (b[key] ?? 0)).findIndex(x => x.id === c.id) + 1;
+  return { n: rank('narrativeOrder'), c: rank('chronoOrder') };
+}
+
 function renderChunkCardDisplay(c) {
   const expanded = expandedChunks.has(c.id);
   const words = (c.body || '').trim().split(/\s+/).filter(Boolean).length;
   const charCount = db.characters.filter(ch => chunkEntityPresence(ENTITY_KINDS.character, c, ch).on).length;
   const locCount = (db.locations || []).filter(l => chunkEntityPresence(ENTITY_KINDS.location, c, l).on).length;
+  const ord = chunkOrdinals(c);
   const meta = [
+    `<span class="hop-ord" title="Narrative position">N${ord.n}</span>`,
+    `<span class="hop-ord" title="Chronological position">C${ord.c}</span>`,
     `${words} ${words === 1 ? 'word' : 'words'}`,
     c.chronoLabel ? esc(c.chronoLabel) : '',
     charCount ? `${charCount} char` : '',
