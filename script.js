@@ -1548,13 +1548,9 @@ async function sendAI(text) {
   renderAILog();
   try {
     const payload = aiMessages.filter(m => !m.pending).map(m => ({ role: m.role, content: m.content }));
-    const { data, error } = await sb.functions.invoke('ai-chat', {
-      body: { messages: payload, context: aiContext() }
-    });
+    const data = await aiInvoke({ messages: payload, context: aiContext() });
     aiMessages = aiMessages.filter(m => !m.pending);
-    if (error) throw error;
-    if (data && data.error) throw new Error(data.error);
-    aiMessages.push({ role: 'assistant', content: (data && data.reply) || 'No response.' });
+    aiMessages.push({ role: 'assistant', content: data.reply || 'No response.' });
   } catch (e) {
     aiMessages = aiMessages.filter(m => !m.pending);
     aiMessages.push({ role: 'assistant', content: 'Error: ' + (e.message || 'request failed') });
