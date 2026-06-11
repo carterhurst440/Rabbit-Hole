@@ -504,26 +504,29 @@ function renderChunkCardDisplay(c) {
   </div>`;
 }
 
-// Names of every entity of kind K present in a chunk (explicit links plus
-// auto-detected mentions). The single source of truth for "who/where is in
-// this chunk", reused by every surface that displays a chunk.
-function chunkEntityNames(K, c) {
-  return (db[K.coll] || []).filter(e => chunkEntityPresence(K, c, e).on).map(e => e.name);
+// Every entity of kind K present in a chunk (explicit links plus auto-detected
+// mentions), as {name, color} so each name can render in its own entity color.
+// The single source of truth for "who/where is in this chunk".
+function chunkEntities(K, c) {
+  return (db[K.coll] || []).filter(e => chunkEntityPresence(K, c, e).on)
+    .map(e => ({ name: e.name, color: e.color || '' }));
 }
 
-// One accent-text row ("CHARACTERS  Ada, Mara") — the shared, canonical way to
-// show a chunk's characters/locations as comma-separated accent-colored text.
-function csTextRow(label, names) {
-  if (!names.length) return '';
+// One row ("CHARACTERS  Ada, Mara") — the shared, canonical way to show a
+// chunk's characters/locations, each name tinted with its own entity color.
+function csTextRow(label, ents) {
+  if (!ents.length) return '';
+  const inner = ents.map(e =>
+    `<span style="color:${e.color || 'var(--accent)'}">${esc(e.name)}</span>`).join(', ');
   return `<div class="cs-row"><span class="cs-label">${label}</span>`
-    + `<span class="cs-vals"><span class="cs-text">${names.map(esc).join(', ')}</span></span></div>`;
+    + `<span class="cs-vals"><span class="cs-text">${inner}</span></span></div>`;
 }
 
 // Compact characters + locations line shown anywhere a chunk is surfaced
 // outside the Sections editor: timeline cards, reference rows, tag breakdown.
 function chunkCharLocLine(c) {
-  const chars = chunkEntityNames(ENTITY_KINDS.character, c);
-  const locs = chunkEntityNames(ENTITY_KINDS.location, c);
+  const chars = chunkEntities(ENTITY_KINDS.character, c);
+  const locs = chunkEntities(ENTITY_KINDS.location, c);
   if (!chars.length && !locs.length) return '';
   return `<div class="chunk-charloc">${csTextRow('CHARACTERS', chars)}${csTextRow('LOCATIONS', locs)}</div>`;
 }
@@ -536,8 +539,8 @@ function chunkSummaryHeader(c) {
     `<span class="tag" style="--lc:${labelColor(id)}">${esc(labelName(id))}</span>`).join('');
   const tagRow = `<div class="cs-row"><span class="cs-label">TAGS</span>`
     + `<span class="cs-vals">${tags || '<span class="cs-empty">—</span>'}</span></div>`;
-  const chars = chunkEntityNames(ENTITY_KINDS.character, c);
-  const locs = chunkEntityNames(ENTITY_KINDS.location, c);
+  const chars = chunkEntities(ENTITY_KINDS.character, c);
+  const locs = chunkEntities(ENTITY_KINDS.location, c);
   const orDash = (label, names) => names.length ? csTextRow(label, names)
     : `<div class="cs-row"><span class="cs-label">${label}</span><span class="cs-vals"><span class="cs-empty">—</span></span></div>`;
   return `<div class="chunk-summary">
