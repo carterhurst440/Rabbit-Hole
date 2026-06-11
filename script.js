@@ -588,63 +588,95 @@ function chunkDetectReviewModal(K, rows) {
 
 // AI read of a single hop in the context of the whole manuscript: what's
 // working, plus a few gently-delivered suggestions. Surfaced in a result modal.
+function hasAnalysis(a) { return !!a && (((a.strengths || []).length) || ((a.suggestions || []).length)); }
+
+// Call the AI to analyze one hop against the whole manuscript. Returns
+// { strengths, suggestions } (filtered), or throws.
+async function runChunkAnalysis(chunk) {
+  const proj = projectsCache.find(p => p.id === activeProjectId);
+  const context = db.chunks
+    .filter(c => c.id !== chunk.id && (c.body || '').trim())
+    .map(c => ({ title: c.title, body: c.body }));
+  const result = await aiInvoke({
+    task: 'analyze_chunk',
+    chunk: { title: chunk.title, body: chunk.body },
+    context,
+    type: proj?.type || '',
+    genre: proj?.genre || '',
+    characters: db.characters.map(c => c.name).filter(Boolean),
+    locations: (db.locations || []).map(l => l.name).filter(Boolean)
+  });
+  return {
+    strengths: (result.strengths || []).filter(Boolean),
+    suggestions: (result.suggestions || []).filter(Boolean)
+  };
+}
+
+// Entry from a hop card / edit modal. If we already saved an analysis for this
+// hop, show it instantly; otherwise generate, persist, then show.
 async function analyzeChunk(chunk, btn) {
+  if (hasAnalysis(chunk.analysis)) { analysisResultModal(chunk); return; }
   if (!(chunk.body || '').trim()) { alertModal('Write some content first.', { title: 'ANALYZE' }); return; }
   const original = btn ? btn.textContent : '';
   if (btn) { btn.disabled = true; btn.textContent = '✨ READING…'; }
   try {
-    const proj = projectsCache.find(p => p.id === activeProjectId);
-    const context = db.chunks
-      .filter(c => c.id !== chunk.id && (c.body || '').trim())
-      .map(c => ({ title: c.title, body: c.body }));
-    const result = await aiInvoke({
-      task: 'analyze_chunk',
-      chunk: { title: chunk.title, body: chunk.body },
-      context,
-      type: proj?.type || '',
-      genre: proj?.genre || '',
-      characters: db.characters.map(c => c.name).filter(Boolean),
-      locations: (db.locations || []).map(l => l.name).filter(Boolean)
-    });
+    const out = await runChunkAnalysis(chunk);
     if (btn) { btn.disabled = false; btn.textContent = original; }
-    const strengths = (result.strengths || []).filter(Boolean);
-    const suggestions = (result.suggestions || []).filter(Boolean);
-    if (!strengths.length && !suggestions.length) { alertModal('No analysis came back for this hop.', { title: 'ANALYZE' }); return; }
-    analysisResultModal(chunk, strengths, suggestions);
+    if (!hasAnalysis(out)) { alertModal('No analysis came back for this hop.', { title: 'ANALYZE' }); return; }
+    chunk.analysis = { ...out, ts: Date.now() };
+    save();
+    analysisResultModal(chunk);
   } catch (err) {
     if (btn) { btn.disabled = false; btn.textContent = original; }
     alertModal('Analysis failed.\n\n' + (err.message || ''), { title: 'ANALYZE' });
   }
 }
 
-function analysisResultModal(chunk, strengths, suggestions) {
+function analysisResultModal(chunk) {
   const overlay = document.createElement('div');
   overlay.className = 'ui-modal-overlay';
-  const list = (items, cls) => items.map(t =>
-    `<li class="analysis-item ${cls}">${esc(t)}</li>`).join('');
   overlay.innerHTML = `
     <div class="ui-modal analysis-modal">
       <div class="ui-modal-title">ANALYSIS · ${esc(chunk.title) || 'UNTITLED HOP'}</div>
-      <div class="ui-modal-scroll">
-        ${strengths.length ? `
-        <div class="analysis-group">
-          <div class="analysis-head">WHAT'S WORKING</div>
-          <ul class="analysis-list">${list(strengths, 'good')}</ul>
-        </div>` : ''}
-        ${suggestions.length ? `
-        <div class="analysis-group">
-          <div class="analysis-head">GENTLE NUDGES</div>
-          <ul class="analysis-list">${list(suggestions, 'nudge')}</ul>
-        </div>` : ''}
-      </div>
+      <div class="ui-modal-scroll" id="analysisBody"></div>
       <div class="ui-modal-actions">
+        <button class="ui-modal-btn" data-act="reanalyze">↻ REANALYZE</button>
         <button class="ui-modal-btn solid" data-act="close">Done</button>
       </div>
     </div>`;
   document.body.appendChild(overlay);
+  const body = overlay.querySelector('#analysisBody');
+  const reBtn = overlay.querySelector('[data-act="reanalyze"]');
+  const list = (items, cls) => items.map(t => `<li class="analysis-item ${cls}">${esc(t)}</li>`).join('');
+  const renderBody = () => {
+    const a = chunk.analysis || {};
+    const strengths = a.strengths || [], suggestions = a.suggestions || [];
+    const stamp = a.ts ? `<div class="analysis-stamp">Saved ${new Date(a.ts).toLocaleString()}</div>` : '';
+    body.innerHTML =
+      (strengths.length ? `<div class="analysis-group"><div class="analysis-head">WHAT'S WORKING</div><ul class="analysis-list">${list(strengths, 'good')}</ul></div>` : '') +
+      (suggestions.length ? `<div class="analysis-group"><div class="analysis-head">GENTLE NUDGES</div><ul class="analysis-list">${list(suggestions, 'nudge')}</ul></div>` : '') +
+      stamp;
+  };
+  renderBody();
   const close = () => overlay.remove();
   overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
   overlay.querySelector('[data-act="close"]').addEventListener('click', close);
+  reBtn.addEventListener('click', async () => {
+    if (!(chunk.body || '').trim()) { alertModal('Write some content first.', { title: 'REANALYZE' }); return; }
+    const orig = reBtn.textContent;
+    reBtn.disabled = true; reBtn.textContent = '✨ READING…';
+    try {
+      const out = await runChunkAnalysis(chunk);
+      if (!hasAnalysis(out)) { alertModal('No analysis came back for this hop.', { title: 'REANALYZE' }); return; }
+      chunk.analysis = { ...out, ts: Date.now() };
+      save();
+      renderBody();
+    } catch (err) {
+      alertModal('Analysis failed.\n\n' + (err.message || ''), { title: 'REANALYZE' });
+    } finally {
+      reBtn.disabled = false; reBtn.textContent = orig;
+    }
+  });
 }
 
 // 1-based narrative (N) and chronological (C) position of a hop among all
@@ -2166,7 +2198,7 @@ async function loadProject(projectId) {
       id: r.id, chapterId: r.chapter_id, title: r.title, body: r.body,
       chronoLabel: r.chrono_label || '', narrativeOrder: r.narrative_pos,
       chronoOrder: r.chrono_pos, orderInChapter: r.order_in_chapter,
-      archived: !!r.archived,
+      archived: !!r.archived, analysis: r.analysis || null,
       characterIds: cc.filter(j => j.chunk_id === r.id).map(j => j.character_id),
       locationIds: clo.filter(j => j.chunk_id === r.id).map(j => j.location_id),
       labelIds: cl.filter(j => j.chunk_id === r.id).map(j => j.label_id)
@@ -2226,7 +2258,7 @@ async function persistProject() {
   const P = activeProjectId, U = currentUser.id;
   try {
     const chapters = db.chapters.map((c, i) => ({ id: c.id, user_id: U, project_id: P, title: c.title, color: c.color, position: c.order ?? i }));
-    const chunks = db.chunks.map((c, i) => ({ id: c.id, user_id: U, project_id: P, chapter_id: c.chapterId || null, title: c.title, body: c.body, chrono_label: c.chronoLabel || null, narrative_pos: c.narrativeOrder ?? i, chrono_pos: c.chronoOrder ?? i, order_in_chapter: c.orderInChapter ?? 0, archived: !!c.archived }));
+    const chunks = db.chunks.map((c, i) => ({ id: c.id, user_id: U, project_id: P, chapter_id: c.chapterId || null, title: c.title, body: c.body, chrono_label: c.chronoLabel || null, narrative_pos: c.narrativeOrder ?? i, chrono_pos: c.chronoOrder ?? i, order_in_chapter: c.orderInChapter ?? 0, archived: !!c.archived, analysis: c.analysis || null }));
     const characters = db.characters.map(c => ({ id: c.id, user_id: U, project_id: P, name: c.name, aliases: c.aliases || [], summary: c.summary || '', notes: c.notes || [], color: c.color || null, dismissed_refs: c.dismissedRefs || [] }));
     const locations = (db.locations || []).map(c => ({ id: c.id, user_id: U, project_id: P, name: c.name, aliases: c.aliases || [], summary: c.summary || '', notes: c.notes || [], color: c.color || null, dismissed_refs: c.dismissedRefs || [] }));
     const labels = db.labels.map(l => ({ id: l.id, user_id: U, project_id: P, name: l.name, color: l.color, summary: l.summary || null }));

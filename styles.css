@@ -432,8 +432,8 @@ button, input, textarea, select { font-family: inherit; }
 .modal-overlay {
   position: fixed; inset: 0; z-index: 60;
   background: rgba(0,0,0,0.65);
-  display: flex; align-items: flex-start; justify-content: center;
-  padding: 60px 16px; overflow-y: auto;
+  display: flex; align-items: center; justify-content: center;
+  padding: 16px; overflow-y: auto;
 }
 .modal-overlay[hidden] { display: none; }
 .modal {
@@ -441,8 +441,14 @@ button, input, textarea, select { font-family: inherit; }
   width: 100%; max-width: 680px; padding: 18px;
   display: flex; flex-direction: column; gap: 12px;
   box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+  max-height: calc(100vh - 32px); overflow: hidden;
 }
-.modal-head { display: flex; align-items: center; justify-content: space-between; }
+/* Head stays pinned; everything below scrolls within the viewport-capped modal. */
+.modal-scroll {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 12px;
+}
+.modal-head { display: flex; align-items: center; justify-content: space-between; flex: none; }
 .modal-chap { font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; }
 
 /* ---------- generic dialog (prompt/confirm/alert) ---------- */
@@ -585,6 +591,7 @@ select.ui-modal-input { cursor: pointer; appearance: none; -webkit-appearance: n
 }
 .analysis-item.good { border-left-color: var(--accent); }
 .analysis-item.nudge { border-left-color: var(--accent-mid); color: var(--text); }
+.analysis-stamp { font-size: 10px; letter-spacing: 0.1em; color: var(--muted); text-transform: uppercase; }
 
 /* ---------- CHARACTERS detail ---------- */
 .char-block { background: var(--panel); border: 1px solid var(--line); padding: 14px; }
