@@ -46,6 +46,9 @@
     </div>
     <div class="header-spacer"></div>
     <div class="header-meta" id="headerMeta">—</div>
+    <button class="ai-toggle" id="aiToggle" title="AI assistant" aria-label="AI assistant">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H8l-4 4V6a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2z"/><path d="M9 10h6M9 13h4"/></svg>
+    </button>
   </header>
 
   <!-- ============ DRAWER ============ -->
@@ -222,6 +225,21 @@
       </div>
     </div>
   </div>
+
+  <!-- ============ AI SIDECAR ============ -->
+  <div class="ai-overlay" id="aiOverlay" hidden></div>
+  <aside class="ai-sidecar" id="aiSidecar" hidden aria-label="AI assistant">
+    <div class="ai-head">
+      <span class="ai-title">// ASSISTANT</span>
+      <button class="ai-clear" id="aiClear" title="New chat">CLEAR</button>
+      <button class="ai-close" id="aiClose" title="Close">✕</button>
+    </div>
+    <div class="ai-log" id="aiLog"></div>
+    <form class="ai-input-row" id="aiForm">
+      <textarea id="aiInput" rows="1" placeholder="Ask about your story…"></textarea>
+      <button class="ai-send" id="aiSend" type="submit" title="Send">↑</button>
+    </form>
+  </aside>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="supabaseClient.js"></script>

@@ -1322,5 +1322,99 @@ async function initAuth() {
   });
 }
 
+/* ---------------- AI SIDECAR ---------------- */
+const aiSidecar = document.getElementById('aiSidecar');
+const aiOverlay = document.getElementById('aiOverlay');
+const aiLog     = document.getElementById('aiLog');
+const aiInput   = document.getElementById('aiInput');
+const aiForm    = document.getElementById('aiForm');
+const aiSendBtn = document.getElementById('aiSend');
+const aiToggle  = document.getElementById('aiToggle');
+let aiMessages = [];
+let aiBusy = false;
+
+function openAI() {
+  aiOverlay.hidden = false; aiSidecar.hidden = false;
+  requestAnimationFrame(() => { aiSidecar.classList.add('open'); aiOverlay.classList.add('show'); });
+  aiToggle.classList.add('active');
+  setTimeout(() => aiInput.focus(), 60);
+}
+function closeAI() {
+  aiSidecar.classList.remove('open'); aiOverlay.classList.remove('show');
+  aiToggle.classList.remove('active');
+  setTimeout(() => { aiSidecar.hidden = true; aiOverlay.hidden = true; }, 220);
+}
+function toggleAI() { aiSidecar.classList.contains('open') ? closeAI() : openAI(); }
+
+function renderAILog() {
+  if (!aiMessages.length) {
+    aiLog.innerHTML = `<div class="ai-empty">Ask about your story — plot holes, character arcs,<br>continuity, pacing, or what to write next.</div>`;
+    return;
+  }
+  aiLog.innerHTML = aiMessages.map(m => `
+    <div class="ai-msg ${m.role}${m.pending ? ' pending' : ''}">
+      <span class="who">${m.role === 'user' ? 'you' : 'assistant'}</span>
+      <div class="bubble">${esc(m.content)}</div>
+    </div>`).join('');
+  aiLog.scrollTop = aiLog.scrollHeight;
+}
+
+// Lightweight grounding so the model knows the current book.
+function aiContext() {
+  const proj = projectsCache.find(p => p.id === activeProjectId);
+  return {
+    project: proj ? proj.name : null,
+    chapters: db.chapters.map(c => c.title),
+    characters: db.characters.map(c => ({ name: c.name, summary: c.summary || '' })),
+  };
+}
+
+async function sendAI(text) {
+  text = (text || '').trim();
+  if (aiBusy || !text) return;
+  aiBusy = true; aiSendBtn.disabled = true;
+  aiMessages.push({ role: 'user', content: text });
+  aiMessages.push({ role: 'assistant', content: 'thinking…', pending: true });
+  renderAILog();
+  try {
+    const payload = aiMessages.filter(m => !m.pending).map(m => ({ role: m.role, content: m.content }));
+    const { data, error } = await sb.functions.invoke('ai-chat', {
+      body: { messages: payload, context: aiContext() }
+    });
+    aiMessages = aiMessages.filter(m => !m.pending);
+    if (error) throw error;
+    if (data && data.error) throw new Error(data.error);
+    aiMessages.push({ role: 'assistant', content: (data && data.reply) || 'No response.' });
+  } catch (e) {
+    aiMessages = aiMessages.filter(m => !m.pending);
+    aiMessages.push({ role: 'assistant', content: 'Error: ' + (e.message || 'request failed') });
+  } finally {
+    aiBusy = false; aiSendBtn.disabled = false;
+    renderAILog();
+  }
+}
+
+aiToggle.addEventListener('click', toggleAI);
+document.getElementById('aiClose').addEventListener('click', closeAI);
+document.getElementById('aiClear').addEventListener('click', () => { aiMessages = []; renderAILog(); aiInput.focus(); });
+aiOverlay.addEventListener('click', closeAI);
+aiForm.addEventListener('submit', e => {
+  e.preventDefault();
+  const t = aiInput.value;
+  aiInput.value = ''; aiInput.style.height = 'auto';
+  sendAI(t);
+});
+aiInput.addEventListener('input', () => {
+  aiInput.style.height = 'auto';
+  aiInput.style.height = Math.min(aiInput.scrollHeight, 140) + 'px';
+});
+aiInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); aiForm.requestSubmit(); }
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && aiSidecar.classList.contains('open')) closeAI();
+});
+renderAILog();
+
 /* ---------------- boot ---------------- */
 initAuth();

@@ -292,6 +292,68 @@ button, input, textarea, select { font-family: inherit; }
 .ui-modal-btn.solid.danger { background: #c0584e; border-color: #c0584e; color: #fff; }
 .ui-modal-btn.solid.danger:hover { filter: brightness(1.08); color: #fff; }
 
+/* ---------- AI SIDECAR ---------- */
+.ai-toggle {
+  background: none; border: 1px solid var(--line-2); color: var(--text);
+  width: 30px; height: 30px; flex: none;
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+}
+.ai-toggle:hover { border-color: var(--accent-mid); color: var(--accent); }
+.ai-toggle.active { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+.ai-toggle svg { width: 17px; height: 17px; }
+
+.ai-overlay {
+  position: fixed; inset: 0; z-index: 60;
+  background: rgba(0,0,0,0.35); opacity: 0; pointer-events: none; transition: opacity 0.18s;
+}
+.ai-overlay.show { opacity: 1; pointer-events: auto; }
+
+.ai-sidecar {
+  position: fixed; top: 0; right: 0; bottom: 0; z-index: 70;
+  width: 380px; max-width: 90vw;
+  background: var(--panel); border-left: 1px solid var(--line-2);
+  display: flex; flex-direction: column;
+  transform: translateX(100%); transition: transform 0.2s ease;
+  box-shadow: -16px 0 50px rgba(0,0,0,0.5);
+}
+.ai-sidecar.open { transform: translateX(0); }
+.ai-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 14px; border-bottom: 1px solid var(--line);
+}
+.ai-title { flex: 1; font-size: 12px; letter-spacing: 0.16em; font-weight: 700; color: var(--accent); }
+.ai-clear {
+  background: none; border: 1px solid var(--line-2); color: var(--muted);
+  font-size: 9px; letter-spacing: 0.12em; padding: 4px 8px; cursor: pointer; font-family: inherit;
+}
+.ai-clear:hover { border-color: var(--accent-mid); color: var(--accent); }
+.ai-close { background: none; border: none; color: var(--muted); font-size: 15px; cursor: pointer; line-height: 1; }
+.ai-close:hover { color: var(--accent); }
+
+.ai-log { flex: 1; overflow-y: auto; padding: 16px 14px; display: flex; flex-direction: column; gap: 14px; }
+.ai-empty { margin: auto 0; color: var(--muted); font-size: 12px; line-height: 1.7; text-align: center; }
+.ai-msg { display: flex; flex-direction: column; gap: 4px; max-width: 100%; }
+.ai-msg .who { font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+.ai-msg .bubble { font-size: 13px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; padding: 8px 10px; }
+.ai-msg.user { align-items: flex-end; }
+.ai-msg.user .bubble { background: var(--accent-dim); border: 1px solid var(--accent-mid); color: var(--text-bright); max-width: 88%; }
+.ai-msg.assistant .bubble { background: var(--panel-2); border: 1px solid var(--line); color: var(--text); }
+.ai-msg.pending .bubble { color: var(--muted); font-style: italic; }
+
+.ai-input-row { display: flex; gap: 8px; align-items: flex-end; padding: 12px; border-top: 1px solid var(--line); }
+.ai-input-row textarea {
+  flex: 1; resize: none; max-height: 140px;
+  background: var(--panel-2); border: 1px solid var(--line-2); color: var(--text-bright);
+  padding: 9px 10px; font-size: 13px; line-height: 1.5;
+}
+.ai-input-row textarea:focus { outline: none; border-color: var(--accent-mid); }
+.ai-send {
+  flex: none; width: 34px; height: 34px;
+  background: var(--accent); border: none; color: #0a0a0a; font-size: 16px; font-weight: 700; cursor: pointer;
+}
+.ai-send:hover { filter: brightness(1.08); }
+.ai-send:disabled { opacity: 0.5; cursor: default; }
+
 /* ---------- CHARACTERS detail ---------- */
 .char-block { background: var(--panel); border: 1px solid var(--line); padding: 14px; }
 .char-block h3 { margin: 0 0 10px; font-size: 12px; letter-spacing: 0.14em; color: var(--accent); }
@@ -342,7 +404,9 @@ button, input, textarea, select { font-family: inherit; }
 body.locked .app-header,
 body.locked .app-main,
 body.locked .drawer,
-body.locked .drawer-overlay { display: none !important; }
+body.locked .drawer-overlay,
+body.locked .ai-sidecar,
+body.locked .ai-overlay { display: none !important; }
 
 .auth-screen {
   position: fixed; inset: 0; z-index: 100;
