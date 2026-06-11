@@ -48,48 +48,40 @@ button, input, textarea, select { font-family: inherit; }
 .header-spacer { flex: 1; }
 .header-meta { color: var(--muted); font-size: 11px; letter-spacing: 0.1em; }
 
-/* ---------- SIDE NAV (persistent on desktop) ---------- */
+/* ---------- SIDE NAV (narrow icon rail, persistent on desktop) ---------- */
+:root { --rail-w: 76px; }
 .drawer {
   position: fixed; top: 0; left: 0; bottom: 0; z-index: 50;
-  width: 240px;
+  width: var(--rail-w);
   background: var(--panel);
   border-right: 1px solid var(--line);
-  display: flex; flex-direction: column;
-  padding: 14px 0;
+  display: flex; flex-direction: column; align-items: stretch;
+  padding: 12px 0;
   overflow-y: auto;
 }
 .drawer.open { transform: translateX(0); }
-/* persistent sidebar pushes header + content to the right */
-.app-header { margin-left: 240px; }
+/* persistent rail pushes header + content to the right */
+.app-header { margin-left: var(--rail-w); }
 .drawer-toggle { display: none; }
-.drawer-head { padding: 8px 18px 14px; color: var(--muted); font-size: 11px; letter-spacing: 0.2em; }
-.project-switch { display: flex; gap: 6px; padding: 0 14px 8px; }
-.project-switch select {
-  flex: 1; min-width: 0; background: var(--panel-2); color: var(--text-bright);
-  border: 1px solid var(--line-2); padding: 7px 8px; font-family: inherit; font-size: 12px;
-}
-.project-switch select:focus { outline: none; border-color: var(--accent-mid); }
-.project-actions { display: flex; gap: 6px; padding: 0 14px 12px; border-bottom: 1px solid var(--line); margin-bottom: 6px; }
-.project-actions .ghost-btn { flex: 1; padding: 6px; }
-.drawer-link {
-  display: block; padding: 11px 18px;
-  color: var(--text); text-decoration: none;
-  font-size: 13px; letter-spacing: 0.1em;
+.nav-icon {
+  border: none; background: none; cursor: pointer; font-family: inherit;
+  display: flex; flex-direction: column; align-items: center; gap: 5px;
+  padding: 11px 4px; color: var(--muted); text-decoration: none;
   border-left: 2px solid transparent;
 }
-.drawer-link:hover { background: var(--panel-2); color: var(--text-bright); }
-.drawer-link.active { border-left-color: var(--accent); color: var(--accent); background: var(--panel-2); }
-.drawer-foot { margin-top: auto; padding: 14px 14px 4px; display: flex; flex-direction: column; gap: 8px; }
-.ghost-btn {
-  background: none; border: 1px solid var(--line-2); color: var(--muted);
-  padding: 8px; font-size: 11px; letter-spacing: 0.12em; cursor: pointer;
-}
-.ghost-btn:hover { border-color: var(--accent-mid); color: var(--accent); }
-.ghost-btn.signout { margin-top: 4px; border-color: transparent; color: var(--muted-2); }
-.ghost-btn.signout:hover { border-color: var(--accent-mid); color: var(--accent); }
-.drawer-user {
-  color: var(--muted); font-size: 11px; letter-spacing: 0.08em;
-  padding: 0 2px 6px; word-break: break-all; white-space: pre-line;
+.nav-icon svg { width: 21px; height: 21px; display: block; }
+.nav-icon span { font-size: 8.5px; letter-spacing: 0.08em; }
+.nav-icon:hover { color: var(--text-bright); background: var(--panel-2); }
+.nav-icon.active { color: var(--accent); border-left-color: var(--accent); background: var(--panel-2); }
+.nav-spacer { flex: 1 1 auto; min-height: 12px; }
+.nav-icon.signout { color: var(--muted-2); }
+.nav-icon.signout:hover { color: var(--accent); }
+.nav-user {
+  align-self: center; margin: 10px 0 2px;
+  width: 30px; height: 30px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--panel-2); border: 1px solid var(--line-2);
+  color: var(--accent); font-size: 11px; font-weight: 700; letter-spacing: 0.04em;
 }
 .drawer-overlay {
   position: fixed; inset: 0; z-index: 40;
@@ -98,8 +90,52 @@ button, input, textarea, select { font-family: inherit; }
 }
 .drawer-overlay.show { opacity: 1; pointer-events: auto; }
 
+/* ---------- header project selector ---------- */
+.header-project select {
+  background: var(--panel-2); color: var(--text-bright);
+  border: 1px solid var(--line-2); padding: 5px 8px;
+  font-family: inherit; font-size: 12px; letter-spacing: 0.06em; max-width: 220px;
+}
+.header-project select:focus { outline: none; border-color: var(--accent-mid); }
+
+/* ---------- HOME: project cards ---------- */
+.project-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px;
+}
+.project-card {
+  display: flex; flex-direction: column;
+  background: var(--panel); border: 1px solid var(--line);
+  min-height: 120px; text-align: left;
+}
+.project-card.active { border-color: var(--accent-mid); }
+.pc-body {
+  flex: 1; display: flex; flex-direction: column; gap: 6px; justify-content: flex-start;
+  padding: 16px; background: none; border: none; cursor: pointer; font-family: inherit;
+  text-align: left; color: inherit; width: 100%;
+}
+.pc-body:hover { background: var(--panel-2); }
+.pc-name { font-size: 15px; color: var(--text-bright); letter-spacing: 0.04em; }
+.pc-meta { font-size: 11px; color: var(--muted); letter-spacing: 0.06em; }
+.pc-actions { display: flex; border-top: 1px solid var(--line); }
+.pc-btn {
+  flex: 1; background: none; border: none; cursor: pointer; font-family: inherit;
+  padding: 9px; font-size: 10px; letter-spacing: 0.12em; color: var(--muted);
+}
+.pc-btn:hover { background: var(--panel-2); color: var(--accent); }
+.pc-btn.danger:hover { color: #d8746a; }
+.pc-btn + .pc-btn { border-left: 1px solid var(--line); }
+.project-card.new {
+  align-items: center; justify-content: center; gap: 8px;
+  background: none; border: 1px dashed var(--line-2); cursor: pointer;
+  color: var(--muted); font-family: inherit;
+}
+.project-card.new:hover { border-color: var(--accent-mid); color: var(--accent); }
+.pc-plus { font-size: 28px; line-height: 1; }
+.pc-new-label { font-size: 11px; letter-spacing: 0.14em; }
+
 /* ---------- MAIN / VIEWS ---------- */
-.app-main { padding: 24px clamp(16px, 4vw, 48px) 80px; max-width: 1400px; margin: 0 0 0 240px; }
+.app-main { padding: 24px clamp(16px, 4vw, 48px) 80px; max-width: 1400px; margin: 0 0 0 var(--rail-w); }
 .view-head h1 { margin: 0; font-size: 18px; letter-spacing: 0.16em; color: var(--text-bright); }
 .view-head .sub { margin: 6px 0 22px; color: var(--muted); font-size: 12px; }
 

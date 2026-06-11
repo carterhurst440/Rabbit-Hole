@@ -134,11 +134,11 @@ function wireLabelEditor(container, target) {
 }
 
 /* ---------------- ROUTING ---------------- */
-const ROUTES = ['sections', 'timelines', 'characters', 'labels', 'ideas'];
+const ROUTES = ['home', 'sections', 'timelines', 'characters', 'labels', 'ideas'];
 
 function currentRoute() {
   const h = location.hash.replace('#', '');
-  return ROUTES.includes(h) ? h : 'sections';
+  return ROUTES.includes(h) ? h : 'home';
 }
 
 function route() {
@@ -146,10 +146,11 @@ function route() {
   ROUTES.forEach(name => {
     document.getElementById('view-' + name).hidden = name !== r;
   });
-  document.querySelectorAll('.drawer-link').forEach(a => {
+  document.querySelectorAll('.nav-icon[data-route]').forEach(a => {
     a.classList.toggle('active', a.dataset.route === r);
   });
   closeDrawer();
+  if (r === 'home') renderHome();
   if (r === 'sections') renderSections();
   if (r === 'timelines') renderTimelines();
   if (r === 'characters') renderCharacters();
@@ -958,7 +959,11 @@ function showApp(session) {
   document.body.classList.remove('locked');
   const meta = currentUser.user_metadata || {};
   const who = [meta.first_name, meta.last_name].filter(Boolean).join(' ') || currentUser.email;
-  document.getElementById('drawerUser').textContent = who + '\n' + currentUser.email;
+  const initials = ([meta.first_name, meta.last_name].filter(Boolean).map(s => s[0]).join('')
+    || currentUser.email[0]).toUpperCase();
+  const userEl = document.getElementById('drawerUser');
+  userEl.textContent = initials;
+  userEl.title = who + ' · ' + currentUser.email;
   bootApp();
 }
 
@@ -1165,21 +1170,66 @@ async function initProjects() {
   const active = projects.find(p => p.id === saved) || projects[0];
   renderProjectSelector(projects, active.id);
   await loadProject(active.id);
-  if (!location.hash) location.hash = '#sections';
+  if (!location.hash) location.hash = '#home';
   renderHeaderMeta();
   route();
 }
 
-async function switchProject(id) {
-  await flushPersist();
-  await loadProject(id);
-  renderHeaderMeta();
-  route();
+// Navigate, forcing a render even if the hash is unchanged.
+function go(name) {
+  const target = '#' + name;
+  if (location.hash === target) route();
+  else location.hash = target;
 }
 
-document.getElementById('projectSelect').addEventListener('change', e => switchProject(e.target.value));
+/* ---- HOME: project cards ---- */
+function renderHome() {
+  const grid = document.getElementById('projectGrid');
+  if (!grid) return;
+  const cards = projectsCache.map(p => {
+    const active = p.id === activeProjectId;
+    const stamp = p.updated_at || p.created_at;
+    const when = stamp ? new Date(stamp).toLocaleDateString(undefined,
+      { year: 'numeric', month: 'short', day: 'numeric' }) : '';
+    return `
+      <div class="project-card ${active ? 'active' : ''}">
+        <button class="pc-body" data-open="${p.id}">
+          <span class="pc-name">${esc(p.name)}</span>
+          <span class="pc-meta">${active ? 'open · ' : ''}updated ${esc(when)}</span>
+        </button>
+        <div class="pc-actions">
+          <button class="pc-btn" data-rename="${p.id}">RENAME</button>
+          <button class="pc-btn danger" data-del="${p.id}">DELETE</button>
+        </div>
+      </div>`;
+  }).join('');
+  grid.innerHTML = cards + `
+    <button class="project-card new" id="newProjectCard">
+      <span class="pc-plus">+</span>
+      <span class="pc-new-label">NEW PROJECT</span>
+    </button>`;
+  grid.querySelectorAll('[data-open]').forEach(el =>
+    el.addEventListener('click', () => openProject(el.dataset.open)));
+  grid.querySelectorAll('[data-rename]').forEach(b =>
+    b.addEventListener('click', () => renameProjectFlow(b.dataset.rename)));
+  grid.querySelectorAll('[data-del]').forEach(b =>
+    b.addEventListener('click', () => deleteProjectFlow(b.dataset.del)));
+  grid.querySelector('#newProjectCard').addEventListener('click', createProjectFlow);
+}
 
-document.getElementById('newProjectBtn').addEventListener('click', async () => {
+/* ---- project flows ---- */
+async function openProject(id) {
+  if (id !== activeProjectId) {
+    await flushPersist();
+    await loadProject(id);
+    localStorage.setItem(activeKey(), id);
+    document.getElementById('projectSelect').value = id;
+    renderHeaderMeta();
+  }
+  go('sections');
+}
+
+async function createProjectFlow() {
   const name = await promptModal('New project name:', 'Untitled Book', { title: 'NEW PROJECT', okText: 'Create' });
   if (!name || !name.trim()) return;
   await flushPersist();
@@ -1188,35 +1238,42 @@ document.getElementById('newProjectBtn').addEventListener('click', async () => {
   const projects = await fetchProjects();
   renderProjectSelector(projects, proj.id);
   await loadProject(proj.id);
-  renderHeaderMeta(); route();
-});
+  localStorage.setItem(activeKey(), proj.id);
+  renderHeaderMeta();
+  go('sections');
+}
 
-document.getElementById('renameProjectBtn').addEventListener('click', async () => {
-  if (!activeProjectId) return;
-  const cur = projectsCache.find(p => p.id === activeProjectId);
+async function renameProjectFlow(id) {
+  const cur = projectsCache.find(p => p.id === id);
   const name = await promptModal('Rename project:', cur ? cur.name : '', { title: 'RENAME PROJECT', okText: 'Save' });
   if (!name || !name.trim()) return;
-  await sb.from('projects').update({ name: name.trim() }).eq('id', activeProjectId);
+  await sb.from('projects').update({ name: name.trim() }).eq('id', id);
   const projects = await fetchProjects();
   renderProjectSelector(projects, activeProjectId);
-});
+  if (currentRoute() === 'home') renderHome();
+}
 
-document.getElementById('delProjectBtn').addEventListener('click', async () => {
-  if (!activeProjectId) return;
+async function deleteProjectFlow(id) {
   if (!await confirmModal('Delete this project and ALL its content? This cannot be undone.')) return;
-  const goneId = activeProjectId;
-  await sb.from('projects').delete().eq('id', goneId);
+  await flushPersist();
+  await sb.from('projects').delete().eq('id', id);
   let projects = await fetchProjects();
   if (!projects.length) {
     const proj = await createProjectRow('My Book');
     await seedProjectContent(proj.id, null);
     projects = await fetchProjects();
   }
-  const next = projects[0];
-  renderProjectSelector(projects, next.id);
-  await loadProject(next.id);
-  renderHeaderMeta(); route();
-});
+  if (id === activeProjectId) {
+    const next = projects[0];
+    await loadProject(next.id);
+    localStorage.setItem(activeKey(), next.id);
+  }
+  renderProjectSelector(projects, activeProjectId);
+  renderHeaderMeta();
+  if (currentRoute() === 'home') renderHome();
+}
+
+document.getElementById('projectSelect').addEventListener('change', e => openProject(e.target.value));
 
 authForm.addEventListener('submit', async e => {
   e.preventDefault();
