@@ -70,6 +70,10 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.2"/><path d="M5 20c0-3.9 3.1-6 7-6s7 2.1 7 6"/></svg>
       <span>CHARACTERS</span>
     </a>
+    <a href="#locations" class="nav-icon" data-route="locations" title="Locations">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-6-5.3-6-10a6 6 0 0 1 12 0c0 4.7-6 10-6 10z"/><circle cx="12" cy="11" r="2.2"/></svg>
+      <span>LOCATIONS</span>
+    </a>
     <a href="#labels" class="nav-icon" data-route="labels" title="Tags">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12l8-8 9 9-8 8z"/><circle cx="8.5" cy="8.5" r="1.2"/></svg>
       <span>TAGS</span>
@@ -173,6 +177,28 @@
           <div class="chapter-list" id="charList"></div>
         </aside>
         <div class="chunk-pane" id="charPane"></div>
+      </div>
+    </section>
+
+    <!-- ============ LOCATIONS ============ -->
+    <section class="view" id="view-locations" hidden>
+      <div class="view-head">
+        <h1>LOCATIONS</h1>
+        <p class="sub">Settings and places built from every chunk that references them, plus your own notes.</p>
+        <button class="add-btn arch-toggle" data-arch>SHOW ARCHIVED</button>
+      </div>
+      <div class="sections-layout">
+        <aside class="chapter-rail">
+          <div class="rail-head">
+            <span>PLACES</span>
+            <div class="rail-actions">
+              <button class="add-btn" id="detectLocsBtn" title="AI: detect locations from your chunks">✨ DETECT</button>
+              <button class="add-btn" id="addLocBtn">+ ADD</button>
+            </div>
+          </div>
+          <div class="chapter-list" id="locList"></div>
+        </aside>
+        <div class="chunk-pane" id="locPane"></div>
       </div>
     </section>
 

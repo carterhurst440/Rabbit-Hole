@@ -24,17 +24,20 @@ function seed() {
     chapters: [{ id: chId, title: 'Chapter 1', order: 0, color: CHAPTER_PALETTE[0] }],
     chunks: [],
     characters: [],
+    locations: [],
     ideas: [],
     labels: [],
-    ui: { activeChapter: chId, activeChar: null, activeLabel: null }
+    ui: { activeChapter: chId, activeChar: null, activeLoc: null, activeLabel: null }
   };
 }
 
 // Bring older saved data up to the current shape. Idempotent + defensive.
 function migrate(d) {
   d.labels = d.labels || [];
+  d.locations = d.locations || [];
   d.ui = d.ui || {};
   (d.chunks || []).forEach(c => { if (!Array.isArray(c.labelIds)) c.labelIds = []; });
+  (d.chunks || []).forEach(c => { if (!Array.isArray(c.locationIds)) c.locationIds = []; });
   (d.ideas || []).forEach(i => {
     if (!Array.isArray(i.labelIds)) {
       i.labelIds = [];
@@ -144,7 +147,7 @@ function wireLabelEditor(container, target) {
 }
 
 /* ---------------- ROUTING ---------------- */
-const ROUTES = ['home', 'sections', 'timelines', 'characters', 'labels', 'ideas'];
+const ROUTES = ['home', 'sections', 'timelines', 'characters', 'locations', 'labels', 'ideas'];
 
 function currentRoute() {
   const h = location.hash.replace('#', '');
@@ -165,6 +168,7 @@ function route() {
   if (r === 'sections') renderSections();
   if (r === 'timelines') renderTimelines();
   if (r === 'characters') renderCharacters();
+  if (r === 'locations') renderLocations();
   if (r === 'labels') renderLabels();
   if (r === 'ideas') renderIdeas();
 }
@@ -678,31 +682,53 @@ function reorderChunk(orderKey, draggedId, beforeId) {
 }
 
 /* =====================================================================
-   CHARACTERS
+   ENTITIES — CHARACTERS + LOCATIONS (identical UI, different detection)
    ===================================================================== */
-function renderCharacters() {
-  const list = document.getElementById('charList');
-  list.innerHTML = db.characters.length
-    ? db.characters.map(c => `
-        <div class="chapter-item ${c.id === db.ui.activeChar ? 'active' : ''}" data-id="${c.id}">
+// Each "kind" is the same reference workbench (list, summary, mentions,
+// merge, AI detect) over a different collection + chunk link + AI task.
+const ENTITY_KINDS = {
+  character: {
+    coll: 'characters', link: 'characterIds', active: 'activeChar', scannedKey: 'detectScannedIds',
+    listId: 'charList', paneId: 'charPane', detectId: 'detectCharsBtn', addId: 'addCharBtn',
+    detectTask: 'detect_characters', resultKey: 'characters', sumTask: 'char_summary',
+    noun: 'character', NOUN: 'CHARACTER', NOUNS: 'CHARACTERS', newName: 'New character'
+  },
+  location: {
+    coll: 'locations', link: 'locationIds', active: 'activeLoc', scannedKey: 'detectScannedLocs',
+    listId: 'locList', paneId: 'locPane', detectId: 'detectLocsBtn', addId: 'addLocBtn',
+    detectTask: 'detect_locations', resultKey: 'locations', sumTask: 'loc_summary',
+    noun: 'location', NOUN: 'LOCATION', NOUNS: 'LOCATIONS', newName: 'New location'
+  }
+};
+
+function renderCharacters() { renderEntityList(ENTITY_KINDS.character); }
+function renderLocations() { renderEntityList(ENTITY_KINDS.location); }
+
+function renderEntityList(K) {
+  const coll = db[K.coll];
+  const list = document.getElementById(K.listId);
+  if (!list) return;
+  list.innerHTML = coll.length
+    ? coll.map(c => `
+        <div class="chapter-item ${c.id === db.ui[K.active] ? 'active' : ''}" data-id="${c.id}">
           <span class="ci-dot" style="background:${c.color || 'var(--accent)'}"></span>
           <span class="ci-title">${esc(c.name)}</span>
-          <span class="ci-count">${refsFor(c).length}</span>
+          <span class="ci-count">${refsFor(K, c).length}</span>
         </div>`).join('')
-    : `<div class="pane-empty" style="border:none">No characters yet.</div>`;
+    : `<div class="pane-empty" style="border:none">No ${K.noun}s yet.</div>`;
   list.querySelectorAll('.chapter-item').forEach(el => {
     el.addEventListener('click', () => {
-      if (db.ui.activeChar !== el.dataset.id) expandedRefs.clear();
-      db.ui.activeChar = el.dataset.id; save(); renderCharacters();
+      if (db.ui[K.active] !== el.dataset.id) expandedRefs.clear();
+      db.ui[K.active] = el.dataset.id; save(); renderEntityList(K);
     });
   });
-  renderCharPane();
+  renderEntityPane(K);
 }
 
 // Transient (not persisted): chunk ids whose reference body is expanded in the pane.
 let expandedRefs = new Set();
 
-// Every match of this character's name/aliases inside a chunk's body, in document
+// Every match of this entity's name/aliases inside a chunk's body, in document
 // order, each tagged with a stable ordinal so individual mentions can be dismissed.
 // Dismissal is keyed "chunkId:ord" in c.dismissedRefs.
 function occurrencesOf(c, chunk) {
@@ -721,25 +747,25 @@ function occurrencesOf(c, chunk) {
   return out;
 }
 
-function refStatus(c, chunk) {
+function refStatus(K, c, chunk) {
   const occ = occurrencesOf(c, chunk);
   const live = occ.filter(o => !o.dismissed).length;
-  return { occ, live, total: occ.length, linked: chunk.characterIds.includes(c.id) };
+  return { occ, live, total: occ.length, linked: (chunk[K.link] || []).includes(c.id) };
 }
 
 // Active references: explicitly linked, or with at least one live (non-dismissed) mention.
-function refsFor(c) {
+function refsFor(K, c) {
   return db.chunks.filter(isVisibleChunk).filter(chunk => {
-    const s = refStatus(c, chunk);
+    const s = refStatus(K, c, chunk);
     return s.linked || s.live > 0;
   });
 }
 
-// Chunks that mention this character but where every mention has been dismissed —
+// Chunks that mention this entity but where every mention has been dismissed —
 // hidden from the active list, surfaced under a disclosure so they can be restored.
-function dismissedRefsFor(c) {
+function dismissedRefsFor(K, c) {
   return db.chunks.filter(isVisibleChunk).filter(chunk => {
-    const s = refStatus(c, chunk);
+    const s = refStatus(K, c, chunk);
     return !s.linked && s.live === 0 && s.total > 0;
   });
 }
@@ -764,13 +790,13 @@ function renderRefBody(c, chunk) {
   return out;
 }
 
-function renderCharPane() {
-  const pane = document.getElementById('charPane');
-  const c = db.characters.find(x => x.id === db.ui.activeChar);
-  if (!c) { pane.innerHTML = `<div class="pane-empty">Select or add a character.</div>`; return; }
+function renderEntityPane(K) {
+  const pane = document.getElementById(K.paneId);
+  const c = db[K.coll].find(x => x.id === db.ui[K.active]);
+  if (!c) { pane.innerHTML = `<div class="pane-empty">Select or add a ${K.noun}.</div>`; return; }
 
-  const refs = refsFor(c);
-  const dismissedRefs = dismissedRefsFor(c);
+  const refs = refsFor(K, c);
+  const dismissedRefs = dismissedRefsFor(K, c);
   const refRow = (r, off) => {
     const open = expandedRefs.has(r.id);
     return `
@@ -787,21 +813,21 @@ function renderCharPane() {
   };
   pane.innerHTML = `
     <div class="chunk-card-head">
-      <input type="color" class="chap-color" id="charColor" value="${c.color || '#e0a96d'}" title="Character color" />
-      <input class="chunk-title-input" id="charName" value="${esc(c.name)}" />
-      <button class="add-btn" id="mergeCharBtn" title="Merge another character into this one">MERGE</button>
-      <button class="icon-btn" id="delCharBtn" title="Delete">✕</button>
+      <input type="color" class="chap-color" data-f="color" value="${c.color || '#e0a96d'}" title="${K.NOUN} color" />
+      <input class="chunk-title-input" data-f="name" value="${esc(c.name)}" />
+      <button class="add-btn" data-f="merge" title="Merge another ${K.noun} into this one">MERGE</button>
+      <button class="icon-btn" data-f="del" title="Delete">✕</button>
     </div>
     <div class="char-block">
       <h3>ALIASES <span style="color:var(--muted);font-weight:400">(comma separated — used to find references)</span></h3>
-      <input class="chunk-title-input" id="charAliases" value="${esc((c.aliases || []).join(', '))}" placeholder="nicknames, titles…" />
+      <input class="chunk-title-input" data-f="aliases" value="${esc((c.aliases || []).join(', '))}" placeholder="alternate names, nicknames…" />
     </div>
     <div class="char-block">
       <h3>SUMMARY</h3>
-      <div class="char-summary" id="charSummary">${c.summary ? esc(c.summary) : '<span style="color:var(--muted)">No summary yet.</span>'}</div>
+      <div class="char-summary">${c.summary ? esc(c.summary) : '<span style="color:var(--muted)">No summary yet.</span>'}</div>
       <div style="margin-top:10px;display:flex;gap:8px">
-        <button class="add-btn" id="genSummaryBtn" title="AI: summarize from every chunk that references this character">✨ GENERATE</button>
-        <button class="add-btn" id="editSummaryBtn">EDIT MANUALLY</button>
+        <button class="add-btn" data-f="gen" title="AI: summarize from every chunk that references this ${K.noun}">✨ GENERATE</button>
+        <button class="add-btn" data-f="editsum">EDIT MANUALLY</button>
       </div>
     </div>
     <div class="char-block">
@@ -820,42 +846,43 @@ function renderCharPane() {
     </div>
     <div class="char-block">
       <h3>NOTES</h3>
-      <div id="noteList">${(c.notes || []).map(n => `
+      <div data-f="noteList">${(c.notes || []).map(n => `
         <div class="note-row" data-nid="${n.id}">
           <span class="note-text">${esc(n.text)}</span>
           <button class="icon-btn" data-del-note>✕</button>
         </div>`).join('')}</div>
       <div style="display:flex;gap:8px;margin-top:8px">
-        <input class="chunk-title-input" id="noteInput" placeholder="Add a note…" />
-        <button class="add-btn" id="addNoteBtn">ADD</button>
+        <input class="chunk-title-input" data-f="note" placeholder="Add a note…" />
+        <button class="add-btn" data-f="addnote">ADD</button>
       </div>
     </div>`;
 
+  const q = sel => pane.querySelector(sel);
   const nameAtRender = c.name;
-  const nameInput = document.getElementById('charName');
-  nameInput.addEventListener('change', () => renameCharacterEverywhere(c, nameAtRender, nameInput.value.trim()));
-  document.getElementById('charColor').addEventListener('input', e => {
+  const nameInput = q('[data-f="name"]');
+  nameInput.addEventListener('change', () => renameEntityEverywhere(K, c, nameAtRender, nameInput.value.trim()));
+  q('[data-f="color"]').addEventListener('input', e => {
     c.color = e.target.value; save();
-    const d = document.querySelector(`#charList .chapter-item[data-id="${c.id}"] .ci-dot`);
+    const d = document.querySelector(`#${K.listId} .chapter-item[data-id="${c.id}"] .ci-dot`);
     if (d) d.style.background = c.color;
   });
-  document.getElementById('charAliases').addEventListener('input', e => {
+  q('[data-f="aliases"]').addEventListener('input', e => {
     c.aliases = e.target.value.split(',').map(s => s.trim()).filter(Boolean); save();
   });
-  document.getElementById('charAliases').addEventListener('change', renderCharacters);
-  document.getElementById('delCharBtn').addEventListener('click', async () => {
-    if (!await confirmModal('Delete this character?')) return;
-    db.chunks.forEach(ch => { ch.characterIds = ch.characterIds.filter(id => id !== c.id); });
-    db.characters = db.characters.filter(x => x.id !== c.id);
-    db.ui.activeChar = db.characters[0]?.id || null;
-    save(); renderCharacters();
+  q('[data-f="aliases"]').addEventListener('change', () => renderEntityList(K));
+  q('[data-f="del"]').addEventListener('click', async () => {
+    if (!await confirmModal(`Delete this ${K.noun}?`)) return;
+    db.chunks.forEach(ch => { ch[K.link] = (ch[K.link] || []).filter(id => id !== c.id); });
+    db[K.coll] = db[K.coll].filter(x => x.id !== c.id);
+    db.ui[K.active] = db[K.coll][0]?.id || null;
+    save(); renderEntityList(K);
   });
-  document.getElementById('mergeCharBtn').addEventListener('click', () => openMergeModal(c));
+  q('[data-f="merge"]').addEventListener('click', () => openMergeModal(K, c));
   pane.querySelectorAll('[data-ref-toggle]').forEach(btn => {
     btn.addEventListener('click', () => {
       const id = btn.closest('.ref-row').dataset.ref;
       if (expandedRefs.has(id)) expandedRefs.delete(id); else expandedRefs.add(id);
-      renderCharPane();
+      renderEntityPane(K);
     });
   });
   pane.querySelectorAll('.occ').forEach(span => {
@@ -865,34 +892,35 @@ function renderCharPane() {
       c.dismissedRefs = c.dismissedRefs || [];
       const i = c.dismissedRefs.indexOf(key);
       if (i >= 0) c.dismissedRefs.splice(i, 1); else c.dismissedRefs.push(key);
-      save(); renderCharacters();
+      save(); renderEntityList(K);
     });
   });
-  document.getElementById('genSummaryBtn').addEventListener('click', e => generateSummary(c, e.currentTarget));
-  document.getElementById('editSummaryBtn').addEventListener('click', async () => {
-    const next = await promptModal('Character summary:', c.summary || '', { okText: 'Save' });
-    if (next !== null) { c.summary = next; save(); renderCharPane(); }
+  q('[data-f="gen"]').addEventListener('click', e => generateEntitySummary(K, c, e.currentTarget));
+  q('[data-f="editsum"]').addEventListener('click', async () => {
+    const next = await promptModal(`${K.NOUN[0] + K.noun.slice(1)} summary:`, c.summary || '', { okText: 'Save' });
+    if (next !== null) { c.summary = next; save(); renderEntityPane(K); }
   });
-  document.getElementById('addNoteBtn').addEventListener('click', () => {
-    const input = document.getElementById('noteInput');
+  q('[data-f="addnote"]').addEventListener('click', () => {
+    const input = q('[data-f="note"]');
     const text = input.value.trim(); if (!text) return;
     c.notes = c.notes || []; c.notes.push({ id: uid(), text, ts: Date.now() });
-    save(); renderCharPane();
+    save(); renderEntityPane(K);
   });
   pane.querySelectorAll('[data-del-note]').forEach(btn => {
     btn.addEventListener('click', e => {
       const nid = e.target.closest('.note-row').dataset.nid;
-      c.notes = c.notes.filter(n => n.id !== nid); save(); renderCharPane();
+      c.notes = c.notes.filter(n => n.id !== nid); save(); renderEntityPane(K);
     });
   });
 }
 
 // Merge `secondary` into `primary`: primary keeps `primaryName`, every other name
 // (the loser's name + both alias sets) becomes an alias, chunk links + notes +
-// dismissed refs are unioned, then the secondary character is deleted.
-function mergeCharacters(primaryId, secondaryId, primaryName) {
-  const primary = db.characters.find(c => c.id === primaryId);
-  const secondary = db.characters.find(c => c.id === secondaryId);
+// dismissed refs are unioned, then the secondary entity is deleted.
+function mergeEntities(K, primaryId, secondaryId, primaryName) {
+  const coll = db[K.coll];
+  const primary = coll.find(c => c.id === primaryId);
+  const secondary = coll.find(c => c.id === secondaryId);
   if (!primary || !secondary || primary === secondary) return;
 
   const winner = primaryName || primary.name;
@@ -912,31 +940,32 @@ function mergeCharacters(primaryId, secondaryId, primaryName) {
   primary.dismissedRefs = [...dismissed];
 
   db.chunks.forEach(ch => {
-    if (ch.characterIds.includes(secondary.id)) {
-      ch.characterIds = ch.characterIds.filter(id => id !== secondary.id);
-      if (!ch.characterIds.includes(primary.id)) ch.characterIds.push(primary.id);
+    const ids = ch[K.link] || [];
+    if (ids.includes(secondary.id)) {
+      ch[K.link] = ids.filter(id => id !== secondary.id);
+      if (!ch[K.link].includes(primary.id)) ch[K.link].push(primary.id);
     }
   });
 
-  db.characters = db.characters.filter(c => c.id !== secondary.id);
-  db.ui.activeChar = primary.id;
+  db[K.coll] = coll.filter(c => c.id !== secondary.id);
+  db.ui[K.active] = primary.id;
   expandedRefs.clear();
-  save(); renderCharacters();
+  save(); renderEntityList(K);
 }
 
-// Modal: pick another character to fold into `c`, then choose which of the two
+// Modal: pick another entity to fold into `c`, then choose which of the two
 // names survives as the primary (the other becomes an alias).
-function openMergeModal(c) {
-  const others = db.characters.filter(x => x.id !== c.id);
-  if (!others.length) { alertModal('Need at least two characters to merge.', { title: 'MERGE CHARACTERS' }); return; }
+function openMergeModal(K, c) {
+  const others = db[K.coll].filter(x => x.id !== c.id);
+  if (!others.length) { alertModal(`Need at least two ${K.noun}s to merge.`, { title: `MERGE ${K.NOUNS}` }); return; }
   const overlay = document.createElement('div');
   overlay.className = 'ui-modal-overlay';
   overlay.innerHTML = `
     <div class="ui-modal merge-modal">
-      <div class="ui-modal-title">MERGE CHARACTERS</div>
-      <div class="ui-modal-msg">Fold another character into <strong>${esc(c.name)}</strong>. Their references and notes move over; the unused name becomes an alias.</div>
+      <div class="ui-modal-title">MERGE ${K.NOUNS}</div>
+      <div class="ui-modal-msg">Fold another ${K.noun} into <strong>${esc(c.name)}</strong>. Their references and notes move over; the unused name becomes an alias.</div>
       <div class="merge-field">
-        <label class="merge-label">Merge this character in</label>
+        <label class="merge-label">Merge this ${K.noun} in</label>
         <select class="chunk-title-input" id="mergeOther">
           ${others.map(o => `<option value="${o.id}">${esc(o.name)}</option>`).join('')}
         </select>
@@ -955,7 +984,7 @@ function openMergeModal(c) {
   const otherSel = overlay.querySelector('#mergeOther');
   const namesBox = overlay.querySelector('#mergeNames');
   function renderNames() {
-    const other = db.characters.find(x => x.id === otherSel.value);
+    const other = db[K.coll].find(x => x.id === otherSel.value);
     const opts = [c.name, other ? other.name : ''].filter(Boolean);
     namesBox.innerHTML = opts.map((n, i) => `
       <label class="merge-name-opt">
@@ -973,36 +1002,36 @@ function openMergeModal(c) {
     const otherId = otherSel.value;
     const primaryName = (overlay.querySelector('input[name="mergePrimary"]:checked') || {}).value || c.name;
     close();
-    const other = db.characters.find(x => x.id === otherId);
-    if (!await confirmModal(`Merge "${other.name}" into "${primaryName}"? This cannot be undone.`, { title: 'MERGE CHARACTERS', okText: 'Merge' })) return;
-    mergeCharacters(c.id, otherId, primaryName);
+    const other = db[K.coll].find(x => x.id === otherId);
+    if (!await confirmModal(`Merge "${other.name}" into "${primaryName}"? This cannot be undone.`, { title: `MERGE ${K.NOUNS}`, okText: 'Merge' })) return;
+    mergeEntities(K, c.id, otherId, primaryName);
   });
 }
 
-// AI summary — sends every chunk that references the character to the model.
-async function generateSummary(c, btn) {
-  const refs = refsFor(c);
-  if (!refs.length) { alertModal('No chunks reference this character yet.', { title: 'AI SUMMARY' }); return; }
+// AI summary — sends every chunk that references the entity to the model.
+async function generateEntitySummary(K, c, btn) {
+  const refs = refsFor(K, c);
+  if (!refs.length) { alertModal(`No chunks reference this ${K.noun} yet.`, { title: 'AI SUMMARY' }); return; }
   const original = btn ? btn.textContent : '';
   if (btn) { btn.disabled = true; btn.textContent = '✨ THINKING…'; }
   try {
     const { reply } = await aiInvoke({
-      task: 'char_summary',
+      task: K.sumTask,
       name: c.name,
       aliases: c.aliases || [],
       chunks: refs.map(r => ({ title: r.title, body: r.body }))
     });
-    c.summary = reply || ''; save(); renderCharPane();
+    c.summary = reply || ''; save(); renderEntityPane(K);
   } catch (err) {
     if (btn) { btn.disabled = false; btn.textContent = original; }
     alertModal('Could not generate summary.\n\n' + (err.message || ''), { title: 'AI SUMMARY' });
   }
 }
 
-// Rename a character and propagate the change into prose, with a confirmation that
+// Rename an entity and propagate the change into prose, with a confirmation that
 // shows how many occurrences will be rewritten. Cancel reverts (no change at all).
-async function renameCharacterEverywhere(c, oldName, newName) {
-  if (!newName || newName === oldName) { renderCharPane(); return; }
+async function renameEntityEverywhere(K, c, oldName, newName) {
+  if (!newName || newName === oldName) { renderEntityPane(K); return; }
   const re = new RegExp('\\b' + escapeReg(oldName) + '\\b', 'g');
   let occ = 0, hits = 0;
   db.chunks.forEach(ch => {
@@ -1012,78 +1041,83 @@ async function renameCharacterEverywhere(c, oldName, newName) {
   if (occ > 0) {
     const ok = await confirmModal(
       `Replace ${occ} occurrence${occ === 1 ? '' : 's'} of "${oldName}" with "${newName}" across ${hits} chunk${hits === 1 ? '' : 's'}?`,
-      { title: 'RENAME CHARACTER', okText: 'Replace', danger: false }
+      { title: `RENAME ${K.NOUN}`, okText: 'Replace', danger: false }
     );
-    if (!ok) { renderCharPane(); return; }
+    if (!ok) { renderEntityPane(K); return; }
     db.chunks.forEach(ch => {
       if (ch.body) ch.body = ch.body.replace(re, () => newName);
       if (ch.title) ch.title = ch.title.replace(re, () => newName);
     });
   }
   c.name = newName;
-  save(); renderCharacters();
+  save(); renderEntityList(K);
 }
 
-document.getElementById('addCharBtn').addEventListener('click', () => {
-  const id = uid();
-  const color = CHAPTER_PALETTE[db.characters.length % CHAPTER_PALETTE.length];
-  db.characters.push({ id, name: 'New character', aliases: [], summary: '', notes: [], color });
-  db.ui.activeChar = id; save(); renderCharacters();
-});
+function wireEntityRail(K) {
+  const addBtn = document.getElementById(K.addId);
+  if (addBtn) addBtn.addEventListener('click', () => {
+    const id = uid();
+    const color = CHAPTER_PALETTE[db[K.coll].length % CHAPTER_PALETTE.length];
+    db[K.coll].push({ id, name: K.newName, aliases: [], summary: '', notes: [], color, dismissedRefs: [] });
+    db.ui[K.active] = id; save(); renderEntityList(K);
+  });
+  const detectBtn = document.getElementById(K.detectId);
+  if (detectBtn) detectBtn.addEventListener('click', () => detectEntities(K));
+}
+wireEntityRail(ENTITY_KINDS.character);
+wireEntityRail(ENTITY_KINDS.location);
 
-document.getElementById('detectCharsBtn').addEventListener('click', detectCharacters);
-
-// Scan every chunk's text, ask the model for named characters, then let the
+// Scan chunk text, ask the model for named entities of this kind, then let the
 // author pick which new ones to add via a review modal.
-async function detectCharacters() {
-  const btn = document.getElementById('detectCharsBtn');
+async function detectEntities(K) {
+  const btn = document.getElementById(K.detectId);
   const all = db.chunks.filter(c => (c.body || '').trim() || (c.title || '').trim());
-  if (!all.length) { alertModal('No chunk text to scan yet.', { title: 'DETECT CHARACTERS' }); return; }
+  if (!all.length) { alertModal('No chunk text to scan yet.', { title: `DETECT ${K.NOUNS}` }); return; }
 
-  const scanned = new Set(db.ui.detectScannedIds || []);
+  const scanned = new Set(db.ui[K.scannedKey] || []);
   const fresh = all.filter(c => !scanned.has(c.id));
-  // Let the author limit the scan to content added since the last run — this
-  // avoids re-surfacing characters whose references they previously dismissed.
-  const scope = await detectScopeModal(fresh.length, all.length);
+  // Limit the scan to content added since the last run — this avoids re-surfacing
+  // entities whose references the author previously dismissed.
+  const scope = await detectScopeModal(K, fresh.length, all.length);
   if (!scope) return;
   const chunks = scope === 'new' ? fresh : all;
-  if (!chunks.length) { alertModal('No new content since the last scan.', { title: 'DETECT CHARACTERS' }); return; }
+  if (!chunks.length) { alertModal('No new content since the last scan.', { title: `DETECT ${K.NOUNS}` }); return; }
 
   const original = btn.textContent;
   btn.disabled = true; btn.textContent = '✨ SCANNING…';
   try {
-    const { characters } = await aiInvoke({
-      task: 'detect_characters',
+    const result = await aiInvoke({
+      task: K.detectTask,
       chunks: chunks.map(c => ({ title: c.title, body: c.body })),
-      existing: db.characters.map(c => c.name)
+      existing: db[K.coll].map(c => c.name)
     });
+    const found = result[K.resultKey] || [];
     btn.disabled = false; btn.textContent = original;
-    // Mark everything we just scanned (or, for an ALL scan, the whole project).
-    const nowScanned = new Set([...(db.ui.detectScannedIds || []), ...chunks.map(c => c.id)]);
-    db.ui.detectScannedIds = [...nowScanned];
+    const nowScanned = new Set([...(db.ui[K.scannedKey] || []), ...chunks.map(c => c.id)]);
+    db.ui[K.scannedKey] = [...nowScanned];
 
-    const known = new Set(db.characters.flatMap(c => [c.name, ...(c.aliases || [])]).map(s => s.toLowerCase()));
-    const candidates = (characters || []).filter(c => c.name && !known.has(c.name.toLowerCase()));
-    if (!candidates.length) { save(); alertModal('No new characters found.', { title: 'DETECT CHARACTERS' }); return; }
-    const chosen = await characterReviewModal(candidates);
+    const known = new Set(db[K.coll].flatMap(c => [c.name, ...(c.aliases || [])]).map(s => s.toLowerCase()));
+    const candidates = found.filter(c => c.name && !known.has(c.name.toLowerCase()));
+    if (!candidates.length) { save(); alertModal(`No new ${K.noun}s found.`, { title: `DETECT ${K.NOUNS}` }); return; }
+    const chosen = await entityReviewModal(K, candidates);
     if (!chosen || !chosen.length) { save(); return; }
-    chosen.forEach(cand => db.characters.push({ id: uid(), name: cand.name, aliases: cand.aliases || [], summary: '', notes: [], color: CHAPTER_PALETTE[db.characters.length % CHAPTER_PALETTE.length], dismissedRefs: [] }));
-    db.ui.activeChar = db.characters[db.characters.length - 1].id;
-    save(); renderCharacters();
+    chosen.forEach(cand => db[K.coll].push({ id: uid(), name: cand.name, aliases: cand.aliases || [], summary: '', notes: [], color: CHAPTER_PALETTE[db[K.coll].length % CHAPTER_PALETTE.length], dismissedRefs: [] }));
+    db.ui[K.active] = db[K.coll][db[K.coll].length - 1].id;
+    save(); renderEntityList(K);
   } catch (err) {
     btn.disabled = false; btn.textContent = original;
-    alertModal('Detection failed.\n\n' + (err.message || ''), { title: 'DETECT CHARACTERS' });
+    alertModal('Detection failed.\n\n' + (err.message || ''), { title: `DETECT ${K.NOUNS}` });
   }
 }
 
 // Ask whether to scan only content added since the last DETECT, or everything.
-function detectScopeModal(newCount, allCount) {
+function detectScopeModal(K, newCount, allCount) {
   return new Promise(resolve => {
     const overlay = document.createElement('div');
     overlay.className = 'ui-modal-overlay';
     overlay.innerHTML = `
       <div class="ui-modal">
-        <div class="ui-modal-title">DETECT CHARACTERS</div>
+        <div class="ui-modal-title">DETECT ${K.NOUNS}</div>
         <div class="ui-modal-msg">Scan only what's new since the last run, or re-scan everything?</div>
         <div class="ui-modal-actions" style="flex-wrap:wrap">
           <button class="ui-modal-btn" data-act="cancel">Cancel</button>
@@ -1100,13 +1134,13 @@ function detectScopeModal(newCount, allCount) {
   });
 }
 
-function characterReviewModal(candidates) {
+function entityReviewModal(K, candidates) {
   return new Promise(resolve => {
     const overlay = document.createElement('div');
     overlay.className = 'ui-modal-overlay';
     overlay.innerHTML = `
       <div class="ui-modal detect-modal">
-        <div class="ui-modal-title">DETECTED CHARACTERS</div>
+        <div class="ui-modal-title">DETECTED ${K.NOUNS}</div>
         <div class="ui-modal-msg">Select which to add. You can edit names and aliases afterward.</div>
         <div class="detect-list">
           ${candidates.map((c, i) => `
@@ -1708,14 +1742,16 @@ async function seedProjectContent(projectId, data) {
         ...c, id: rid(c.id),
         chapterId: c.chapterId ? rid(c.chapterId) : null,
         labelIds: (c.labelIds || []).map(rid),
-        characterIds: (c.characterIds || []).map(rid)
+        characterIds: (c.characterIds || []).map(rid),
+        locationIds: (c.locationIds || []).map(rid)
       })),
       characters: (data.characters || []).map(c => ({ ...c, id: rid(c.id) })),
+      locations: (data.locations || []).map(c => ({ ...c, id: rid(c.id) })),
       labels: (data.labels || []).map(l => ({ ...l, id: rid(l.id) })),
       ideas: (data.ideas || []).map(i => ({ ...i, id: rid(i.id), labelIds: (i.labelIds || []).map(rid) })),
       ui: {}
     };
-    d.ui = { activeChapter: d.chapters[0]?.id || null, activeChar: null, activeLabel: null };
+    d.ui = { activeChapter: d.chapters[0]?.id || null, activeChar: null, activeLoc: null, activeLabel: null };
   } else {
     d = seed();
   }
@@ -1726,22 +1762,24 @@ async function seedProjectContent(projectId, data) {
 
 async function loadProject(projectId) {
   activeProjectId = projectId;
-  const [proj, chapters, chunks, characters, labels, ideas] = await Promise.all([
+  const [proj, chapters, chunks, characters, locations, labels, ideas] = await Promise.all([
     sb.from('projects').select('*').eq('id', projectId).single(),
     sb.from('chapters').select('*').eq('project_id', projectId),
     sb.from('chunks').select('*').eq('project_id', projectId),
     sb.from('characters').select('*').eq('project_id', projectId),
+    sb.from('locations').select('*').eq('project_id', projectId),
     sb.from('tags').select('*').eq('project_id', projectId),
     sb.from('ideas').select('*').eq('project_id', projectId)
   ]);
   const chunkIds = (chunks.data || []).map(r => r.id);
   const ideaIds = (ideas.data || []).map(r => r.id);
-  const [cLabels, cChars, iLabels] = await Promise.all([
+  const [cLabels, cChars, cLocs, iLabels] = await Promise.all([
     chunkIds.length ? sb.from('chunk_labels').select('*').in('chunk_id', chunkIds) : { data: [] },
     chunkIds.length ? sb.from('chunk_chars').select('*').in('chunk_id', chunkIds) : { data: [] },
+    chunkIds.length ? sb.from('chunk_locations').select('*').in('chunk_id', chunkIds) : { data: [] },
     ideaIds.length ? sb.from('idea_labels').select('*').in('idea_id', ideaIds) : { data: [] }
   ]);
-  const cl = cLabels.data || [], cc = cChars.data || [], il = iLabels.data || [];
+  const cl = cLabels.data || [], cc = cChars.data || [], clo = cLocs.data || [], il = iLabels.data || [];
   db = {
     chapters: (chapters.data || []).map(r => ({ id: r.id, title: r.title, color: r.color, order: r.position })),
     chunks: (chunks.data || []).map(r => ({
@@ -1750,9 +1788,11 @@ async function loadProject(projectId) {
       chronoOrder: r.chrono_pos, orderInChapter: r.order_in_chapter,
       archived: !!r.archived,
       characterIds: cc.filter(j => j.chunk_id === r.id).map(j => j.character_id),
+      locationIds: clo.filter(j => j.chunk_id === r.id).map(j => j.location_id),
       labelIds: cl.filter(j => j.chunk_id === r.id).map(j => j.label_id)
     })),
     characters: (characters.data || []).map(r => ({ id: r.id, name: r.name, aliases: r.aliases || [], summary: r.summary || '', notes: r.notes || [], color: r.color || '', dismissedRefs: r.dismissed_refs || [] })),
+    locations: (locations.data || []).map(r => ({ id: r.id, name: r.name, aliases: r.aliases || [], summary: r.summary || '', notes: r.notes || [], color: r.color || '', dismissedRefs: r.dismissed_refs || [] })),
     labels: (labels.data || []).map(r => ({ id: r.id, name: (r.name || '').toUpperCase(), color: r.color, summary: r.summary || '' })),
     ideas: (ideas.data || []).map(r => ({ id: r.id, text: r.text, ts: r.ts || Date.parse(r.created_at), labelIds: il.filter(j => j.idea_id === r.id).map(j => j.label_id) })),
     ui: (proj.data && proj.data.ui) || {}
@@ -1808,23 +1848,26 @@ async function persistProject() {
     const chapters = db.chapters.map((c, i) => ({ id: c.id, user_id: U, project_id: P, title: c.title, color: c.color, position: c.order ?? i }));
     const chunks = db.chunks.map((c, i) => ({ id: c.id, user_id: U, project_id: P, chapter_id: c.chapterId || null, title: c.title, body: c.body, chrono_label: c.chronoLabel || null, narrative_pos: c.narrativeOrder ?? i, chrono_pos: c.chronoOrder ?? i, order_in_chapter: c.orderInChapter ?? 0, archived: !!c.archived }));
     const characters = db.characters.map(c => ({ id: c.id, user_id: U, project_id: P, name: c.name, aliases: c.aliases || [], summary: c.summary || '', notes: c.notes || [], color: c.color || null, dismissed_refs: c.dismissedRefs || [] }));
+    const locations = (db.locations || []).map(c => ({ id: c.id, user_id: U, project_id: P, name: c.name, aliases: c.aliases || [], summary: c.summary || '', notes: c.notes || [], color: c.color || null, dismissed_refs: c.dismissedRefs || [] }));
     const labels = db.labels.map(l => ({ id: l.id, user_id: U, project_id: P, name: l.name, color: l.color, summary: l.summary || null }));
     const ideas = db.ideas.map(i => ({ id: i.id, user_id: U, project_id: P, text: i.text, ts: i.ts || Date.now() }));
 
     await upsertSync('chapters', chapters, P);
-    await Promise.all([upsertSync('tags', labels, P), upsertSync('characters', characters, P)]);
+    await Promise.all([upsertSync('tags', labels, P), upsertSync('characters', characters, P), upsertSync('locations', locations, P)]);
     await Promise.all([upsertSync('chunks', chunks, P), upsertSync('ideas', ideas, P)]);
 
-    const chunkLabels = [], chunkChars = [], ideaLabels = [];
+    const chunkLabels = [], chunkChars = [], chunkLocs = [], ideaLabels = [];
     db.chunks.forEach(c => {
       (c.labelIds || []).forEach(lid => chunkLabels.push({ chunk_id: c.id, label_id: lid, user_id: U }));
       (c.characterIds || []).forEach(chid => chunkChars.push({ chunk_id: c.id, character_id: chid, user_id: U }));
+      (c.locationIds || []).forEach(lid => chunkLocs.push({ chunk_id: c.id, location_id: lid, user_id: U }));
     });
     db.ideas.forEach(i => (i.labelIds || []).forEach(lid => ideaLabels.push({ idea_id: i.id, label_id: lid, user_id: U })));
     const chunkIds = db.chunks.map(c => c.id), ideaIds = db.ideas.map(i => i.id);
     await Promise.all([
       clearAndInsert('chunk_labels', 'chunk_id', chunkIds, chunkLabels),
       clearAndInsert('chunk_chars', 'chunk_id', chunkIds, chunkChars),
+      clearAndInsert('chunk_locations', 'chunk_id', chunkIds, chunkLocs),
       clearAndInsert('idea_labels', 'idea_id', ideaIds, ideaLabels)
     ]);
     await sb.from('projects').update({ ui: db.ui, updated_at: new Date().toISOString() }).eq('id', P);
