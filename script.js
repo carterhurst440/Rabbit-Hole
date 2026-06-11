@@ -2406,11 +2406,16 @@ function matchChapter(name) {
 
 async function fetchSuggestedChunks() {
   if (suggestLoading) return;
+  // Pin the request to the project that was active when it started so results
+  // are never applied to a different project the user may have switched to.
+  const reqProject = activeProjectId;
+  if (!reqProject) return;
   suggestLoading = true;
   renderSuggestedChunks();
+  let result;
   try {
-    const proj = projectsCache.find(p => p.id === activeProjectId);
-    const { chunks } = await aiInvoke({
+    const proj = projectsCache.find(p => p.id === reqProject);
+    result = await aiInvoke({
       task: 'suggest_chunks',
       type: proj?.type || '',
       genre: proj?.genre || '',
@@ -2419,16 +2424,22 @@ async function fetchSuggestedChunks() {
       locations: (db.locations || []).map(l => l.name).filter(Boolean),
       chunks: db.chunks.filter(c => (c.body || '').trim()).map(c => ({ title: c.title, body: c.body }))
     });
-    suggestedChunks = Array.isArray(chunks) ? chunks : [];
-    suggestedFor = activeProjectId;
   } catch (err) {
-    suggestedChunks = [];
     suggestLoading = false;
-    renderSuggestedChunks();
-    alertModal('Could not suggest next hops.\n\n' + (err.message || ''), { title: 'SUGGESTED NEXT HOPS' });
+    if (activeProjectId === reqProject) {
+      suggestedChunks = [];
+      renderSuggestedChunks();
+      alertModal('Could not suggest next hops.\n\n' + (err.message || ''), { title: 'SUGGESTED NEXT HOPS' });
+    } else {
+      renderSuggestedChunks();
+    }
     return;
   }
   suggestLoading = false;
+  // Discard if the user switched projects while the request was in flight.
+  if (activeProjectId !== reqProject) { renderSuggestedChunks(); return; }
+  suggestedChunks = Array.isArray(result.chunks) ? result.chunks : [];
+  suggestedFor = reqProject;
   renderSuggestedChunks();
 }
 
