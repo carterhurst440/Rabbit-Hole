@@ -116,6 +116,7 @@ button, input, textarea, select { font-family: inherit; }
 }
 .pc-body:hover { background: var(--panel-2); }
 .pc-name { font-size: 15px; color: var(--text-bright); letter-spacing: 0.04em; }
+.pc-kind { font-size: 11px; color: var(--accent); letter-spacing: 0.08em; text-transform: uppercase; }
 .pc-meta { font-size: 11px; color: var(--muted); letter-spacing: 0.06em; }
 .pc-actions { display: flex; border-top: 1px solid var(--line); }
 .pc-btn {
@@ -282,6 +283,9 @@ button, input, textarea, select { font-family: inherit; }
   padding: 10px 12px; font-family: inherit; font-size: 13px; width: 100%;
 }
 .ui-modal-input:focus { outline: none; border-color: var(--accent-mid); }
+select.ui-modal-input { cursor: pointer; appearance: none; -webkit-appearance: none; }
+.ps-field { display: flex; flex-direction: column; gap: 6px; }
+.ps-label { font-size: 10px; letter-spacing: 0.14em; color: var(--muted); }
 .ui-modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 2px; }
 .ui-modal-btn {
   background: none; border: 1px solid var(--line-2); color: var(--muted);

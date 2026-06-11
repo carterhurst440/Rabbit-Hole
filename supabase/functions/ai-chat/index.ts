@@ -107,17 +107,20 @@ async function doDetect(apiKey: string, body: { chunks?: Chunk[]; existing?: str
   return json({ characters });
 }
 
-async function doSuggestIdeas(apiKey: string, body: { chunks?: Chunk[] }) {
+async function doSuggestIdeas(apiKey: string, body: { chunks?: Chunk[]; type?: string; genre?: string }) {
   const chunks = body.chunks || [];
   if (!chunks.length) return json({ error: "No chunk text to read." }, 400);
+  const kind = [body.type, body.genre].filter(Boolean).join(" / ");
   const system =
-    "You are a brainstorming partner inside RABBIT HOLE, a book workbench. Read the manuscript " +
+    "You are a brainstorming partner inside RABBIT HOLE, a book workbench. Read the work " +
     "so far and propose fresh, concrete ideas for what could happen next \u2014 scenes, beats, " +
-    "complications, reveals, or whole new chunks the author could write. Each idea is one or two " +
+    "complications, reveals, or whole new sections the author could write. Each idea is one or two " +
     "sentences, specific to THIS story (reference its characters and situations), and distinct from " +
-    "the others. Offer 6-10 ideas. Respond with ONLY a JSON object of the form " +
+    "the others. " +
+    (kind ? `This is a ${kind}; keep ideas appropriate to that format and genre. ` : "") +
+    "Offer 6-10 ideas. Respond with ONLY a JSON object of the form " +
     `{"ideas":["...","..."]}. No markdown, no commentary.`;
-  const user = `MANUSCRIPT SO FAR:\n\n${joinChunks(chunks)}`;
+  const user = `WORK SO FAR:\n\n${joinChunks(chunks)}`;
   const raw = await callClaude(apiKey, { system, messages: [{ role: "user", content: user }], max_tokens: 1200 });
   const parsed = parseJsonObject(raw);
   const ideas = Array.isArray(parsed?.ideas)
@@ -127,7 +130,7 @@ async function doSuggestIdeas(apiKey: string, body: { chunks?: Chunk[] }) {
 }
 
 /* ---------------- helpers ---------------- */
-type Ctx = { project?: string | null; chapters?: string[]; characters?: { name: string; summary?: string }[] };
+type Ctx = { project?: string | null; type?: string; genre?: string; chapters?: string[]; characters?: { name: string; summary?: string }[] };
 
 async function callClaude(
   apiKey: string,
@@ -175,6 +178,8 @@ function buildSystem(ctx: Ctx): string {
     "Be concise and concrete. Ask a clarifying question only when truly necessary.",
   ];
   if (ctx.project) lines.push(`\nCurrent project: ${ctx.project}`);
+  if (ctx.type) lines.push(`Format: ${ctx.type}`);
+  if (ctx.genre) lines.push(`Genre: ${ctx.genre}`);
   if (ctx.chapters?.length) lines.push(`Chapters: ${ctx.chapters.join(", ")}`);
   if (ctx.characters?.length) {
     lines.push("Characters:");

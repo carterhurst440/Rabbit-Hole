@@ -10,6 +10,14 @@ const uid = () => crypto.randomUUID();
 
 const CHAPTER_PALETTE = ['#e0a96d', '#6da9e0', '#9ad06b', '#d06b9a', '#c9a227', '#6bd0c0', '#b58be0', '#e07a5f'];
 
+const PROJECT_TYPES = ['Book', 'Movie', 'Play', 'Show', 'Short Story', 'Other'];
+const GENRES = [
+  'Literary Fiction', 'Fantasy', 'Science Fiction', 'Mystery', 'Thriller',
+  'Horror', 'Romance', 'Historical Fiction', 'Adventure', 'Young Adult',
+  'Crime', 'Drama', 'Comedy', 'Action', 'Dystopian', 'Memoir',
+  'Biography', 'Nonfiction', 'Poetry', 'Other',
+];
+
 function seed() {
   const chId = uid();
   return {
@@ -995,8 +1003,11 @@ async function generateIdeaSuggestions() {
   const original = btn.textContent;
   btn.disabled = true; btn.textContent = '✨ THINKING…';
   try {
+    const proj = projectsCache.find(p => p.id === activeProjectId);
     const { ideas } = await aiInvoke({
       task: 'suggest_ideas',
+      type: proj?.type || '',
+      genre: proj?.genre || '',
       chunks: chunks.map(c => ({ title: c.title, body: c.body }))
     });
     btn.disabled = false; btn.textContent = original;
@@ -1159,6 +1170,50 @@ const promptModal = (message, defaultValue = '', opts = {}) =>
 const alertModal = (message, opts = {}) =>
   uiModal({ message, cancelText: '', ...opts });
 
+// Name + type + genre editor. Resolves to { name, type, genre } or null on cancel.
+function projectSettingsModal({ title = 'PROJECT', name = '', type = '', genre = '', okText = 'Save' } = {}) {
+  return new Promise(resolve => {
+    const typeOpts = PROJECT_TYPES.map(t =>
+      `<option value="${esc(t)}" ${t === type ? 'selected' : ''}>${esc(t)}</option>`).join('');
+    const genreOpts = `<option value="" ${!genre ? 'selected' : ''}>— none —</option>` +
+      GENRES.map(g => `<option value="${esc(g)}" ${g === genre ? 'selected' : ''}>${esc(g)}</option>`).join('');
+    const overlay = document.createElement('div');
+    overlay.className = 'ui-modal-overlay';
+    overlay.innerHTML = `
+      <div class="ui-modal" role="dialog" aria-modal="true">
+        <div class="ui-modal-title">${esc(title)}</div>
+        <label class="ps-field"><span class="ps-label">NAME</span>
+          <input class="ui-modal-input" id="psName" type="text" />
+        </label>
+        <label class="ps-field"><span class="ps-label">TYPE</span>
+          <select class="ui-modal-input" id="psType">${typeOpts}</select>
+        </label>
+        <label class="ps-field"><span class="ps-label">GENRE</span>
+          <select class="ui-modal-input" id="psGenre">${genreOpts}</select>
+        </label>
+        <div class="ui-modal-actions">
+          <button class="ui-modal-btn" data-act="cancel">Cancel</button>
+          <button class="ui-modal-btn solid" data-act="ok">${esc(okText)}</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    const nameEl = overlay.querySelector('#psName');
+    nameEl.value = name;
+    const done = val => { document.removeEventListener('keydown', onKey); overlay.remove(); resolve(val); };
+    const onOk = () => {
+      const n = nameEl.value.trim();
+      if (!n) { nameEl.focus(); return; }
+      done({ name: n, type: overlay.querySelector('#psType').value, genre: overlay.querySelector('#psGenre').value });
+    };
+    overlay.querySelector('[data-act="ok"]').addEventListener('click', onOk);
+    overlay.querySelector('[data-act="cancel"]').addEventListener('click', () => done(null));
+    overlay.addEventListener('mousedown', e => { if (e.target === overlay) done(null); });
+    function onKey(e) { if (e.key === 'Escape') { e.preventDefault(); done(null); } }
+    document.addEventListener('keydown', onKey);
+    nameEl.focus(); nameEl.select();
+  });
+}
+
 /* ---------------- AUTH ---------------- */
 const authScreen = document.getElementById('authScreen');
 const authForm   = document.getElementById('authForm');
@@ -1246,9 +1301,9 @@ async function fetchProjects() {
   return data || [];
 }
 
-async function createProjectRow(name) {
+async function createProjectRow(name, type = 'Book', genre = '') {
   const { data, error } = await sb.from('projects')
-    .insert({ user_id: currentUser.id, name, ui: {} }).select().single();
+    .insert({ user_id: currentUser.id, name, type, genre: genre || null, ui: {} }).select().single();
   if (error) throw error;
   return data;
 }
@@ -1433,14 +1488,16 @@ function renderHome() {
     const stamp = p.updated_at || p.created_at;
     const when = stamp ? new Date(stamp).toLocaleDateString(undefined,
       { year: 'numeric', month: 'short', day: 'numeric' }) : '';
+    const kind = [p.type, p.genre].filter(Boolean).join(' · ');
     return `
       <div class="project-card ${active ? 'active' : ''}">
         <button class="pc-body" data-open="${p.id}">
           <span class="pc-name">${esc(p.name)}</span>
+          ${kind ? `<span class="pc-kind">${esc(kind)}</span>` : ''}
           <span class="pc-meta">${active ? 'open · ' : ''}updated ${esc(when)}</span>
         </button>
         <div class="pc-actions">
-          <button class="pc-btn" data-rename="${p.id}">RENAME</button>
+          <button class="pc-btn" data-edit="${p.id}">EDIT</button>
           <button class="pc-btn danger" data-del="${p.id}">DELETE</button>
         </div>
       </div>`;
@@ -1452,8 +1509,8 @@ function renderHome() {
     </button>`;
   grid.querySelectorAll('[data-open]').forEach(el =>
     el.addEventListener('click', () => openProject(el.dataset.open)));
-  grid.querySelectorAll('[data-rename]').forEach(b =>
-    b.addEventListener('click', () => renameProjectFlow(b.dataset.rename)));
+  grid.querySelectorAll('[data-edit]').forEach(b =>
+    b.addEventListener('click', () => editProjectFlow(b.dataset.edit)));
   grid.querySelectorAll('[data-del]').forEach(b =>
     b.addEventListener('click', () => deleteProjectFlow(b.dataset.del)));
   grid.querySelector('#newProjectCard').addEventListener('click', createProjectFlow);
@@ -1472,10 +1529,10 @@ async function openProject(id) {
 }
 
 async function createProjectFlow() {
-  const name = await promptModal('New project name:', 'Untitled Book', { title: 'NEW PROJECT', okText: 'Create' });
-  if (!name || !name.trim()) return;
+  const res = await projectSettingsModal({ title: 'NEW PROJECT', name: 'Untitled', type: 'Book', okText: 'Create' });
+  if (!res) return;
   await flushPersist();
-  const proj = await createProjectRow(name.trim());
+  const proj = await createProjectRow(res.name, res.type, res.genre);
   await seedProjectContent(proj.id, null);
   const projects = await fetchProjects();
   renderProjectSelector(projects, proj.id);
@@ -1485,11 +1542,14 @@ async function createProjectFlow() {
   go('sections');
 }
 
-async function renameProjectFlow(id) {
+async function editProjectFlow(id) {
   const cur = projectsCache.find(p => p.id === id);
-  const name = await promptModal('Rename project:', cur ? cur.name : '', { title: 'RENAME PROJECT', okText: 'Save' });
-  if (!name || !name.trim()) return;
-  await sb.from('projects').update({ name: name.trim() }).eq('id', id);
+  if (!cur) return;
+  const res = await projectSettingsModal({
+    title: 'EDIT PROJECT', name: cur.name, type: cur.type || 'Book', genre: cur.genre || '', okText: 'Save'
+  });
+  if (!res) return;
+  await sb.from('projects').update({ name: res.name, type: res.type, genre: res.genre || null }).eq('id', id);
   const projects = await fetchProjects();
   renderProjectSelector(projects, activeProjectId);
   if (currentRoute() === 'home') renderHome();
@@ -1606,6 +1666,8 @@ function aiContext() {
   const proj = projectsCache.find(p => p.id === activeProjectId);
   return {
     project: proj ? proj.name : null,
+    type: proj ? (proj.type || '') : '',
+    genre: proj ? (proj.genre || '') : '',
     chapters: db.chapters.map(c => c.title),
     characters: db.characters.map(c => ({ name: c.name, summary: c.summary || '' })),
   };
