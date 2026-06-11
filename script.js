@@ -282,6 +282,76 @@ function renderChunkPane() {
   });
 
   pane.querySelectorAll('.chunk-card').forEach(card => wireChunkCard(card));
+  enableChunkDragReorder(pane, ch.id);
+}
+
+/* ---- drag-and-drop reorder of chunks within a chapter ---- */
+function clearChunkDropMarkers(pane) {
+  pane.querySelectorAll('.chunk-card').forEach(c => c.classList.remove('drop-before', 'drop-after'));
+}
+
+function chunkDragAfter(pane, y) {
+  const cards = [...pane.querySelectorAll('.chunk-card[draggable="true"]:not(.dragging)')];
+  return cards.reduce((closest, child) => {
+    const box = child.getBoundingClientRect();
+    const offset = y - box.top - box.height / 2;
+    if (offset < 0 && offset > closest.offset) return { offset, element: child };
+    return closest;
+  }, { offset: -Infinity, element: null }).element;
+}
+
+function enableChunkDragReorder(pane, chapterId) {
+  let draggingId = null;
+
+  pane.querySelectorAll('.chunk-card[draggable="true"]').forEach(card => {
+    card.addEventListener('dragstart', e => {
+      draggingId = card.dataset.id;
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', draggingId);
+      requestAnimationFrame(() => card.classList.add('dragging'));
+    });
+    card.addEventListener('dragend', () => {
+      card.classList.remove('dragging');
+      clearChunkDropMarkers(pane);
+      draggingId = null;
+    });
+  });
+
+  // assigned (not addEventListener) so re-renders don't stack duplicate handlers
+  pane.ondragover = e => {
+    if (!draggingId) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    clearChunkDropMarkers(pane);
+    const after = chunkDragAfter(pane, e.clientY);
+    if (after) after.classList.add('drop-before');
+    else {
+      const cards = pane.querySelectorAll('.chunk-card[draggable="true"]:not(.dragging)');
+      if (cards.length) cards[cards.length - 1].classList.add('drop-after');
+    }
+  };
+  pane.ondrop = e => {
+    if (!draggingId) return;
+    e.preventDefault();
+    const id = e.dataTransfer.getData('text/plain') || draggingId;
+    const after = chunkDragAfter(pane, e.clientY);
+    clearChunkDropMarkers(pane);
+    if (id) reorderChunkInChapter(chapterId, id, after ? after.dataset.id : null);
+  };
+}
+
+// Move dragged chunk before `beforeId` (or to the end if null) within its
+// chapter, then renumber orderInChapter. Archived chunks keep their slots.
+function reorderChunkInChapter(chapterId, draggedId, beforeId) {
+  const ordered = chunksOf(chapterId);
+  const dragged = ordered.find(c => c.id === draggedId);
+  if (!dragged || draggedId === beforeId) return;
+  const without = ordered.filter(c => c.id !== draggedId);
+  const insertIdx = beforeId ? without.findIndex(c => c.id === beforeId) : without.length;
+  without.splice(insertIdx < 0 ? without.length : insertIdx, 0, dragged);
+  without.forEach((c, idx) => c.orderInChapter = idx);
+  save();
+  renderSections();
 }
 
 function renderChunkCard(c) {
@@ -302,8 +372,9 @@ function renderChunkCardDisplay(c) {
     ? `<div class="chunk-disp-body">${c.body ? highlightNames(c.body, characterTerms()) : '<span class="muted">(no content yet)</span>'}</div>`
     : '';
   return `
-  <div class="chunk-card collapsed ${expanded ? 'is-expanded' : ''} ${c.archived ? 'archived' : ''}" data-id="${c.id}">
+  <div class="chunk-card collapsed ${expanded ? 'is-expanded' : ''} ${c.archived ? 'archived' : ''}" data-id="${c.id}" draggable="true">
     <div class="chunk-display" data-f="open">
+      <span class="chunk-grip" data-f="grip" title="Drag to reorder">⠿</span>
       <span class="chunk-chevron">${expanded ? '▾' : '▸'}</span>
       <span class="chunk-disp-title">${esc(c.title) || '<em>Untitled chunk</em>'}</span>
       ${c.archived ? '<span class="arch-badge">ARCHIVED</span>' : ''}
@@ -360,6 +431,7 @@ function wireChunkCard(card) {
 
   if (card.classList.contains('collapsed')) {
     card.querySelector('.chunk-display').addEventListener('click', e => {
+      if (e.target.closest('[data-f="grip"]')) { e.stopPropagation(); return; }
       if (e.target.closest('[data-f="del"]')) { e.stopPropagation(); del(); return; }
       if (e.target.closest('[data-f="archive"]')) {
         e.stopPropagation(); c.archived = !c.archived; save(); renderSections(); return;

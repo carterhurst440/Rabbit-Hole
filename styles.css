@@ -315,6 +315,12 @@ button, input, textarea, select { font-family: inherit; }
 .tl-card.drop-after { box-shadow: inset 0 -2px 0 var(--accent); }
 .tl-card .tl-grip { color: var(--muted-2); cursor: grab; font-size: 13px; user-select: none; }
 .tl-card .tl-grip:active { cursor: grabbing; }
+
+.chunk-card.dragging { opacity: 0.4; }
+.chunk-card.drop-before { box-shadow: inset 0 2px 0 var(--accent); }
+.chunk-card.drop-after { box-shadow: inset 0 -2px 0 var(--accent); }
+.chunk-grip { color: var(--muted-2); cursor: grab; font-size: 13px; user-select: none; }
+.chunk-grip:active { cursor: grabbing; }
 .tl-card .tl-idx { font-size: 11px; color: var(--muted); width: 20px; }
 .tl-card .tl-name { flex: 1; font-size: 12px; color: var(--text-bright); }
 .tl-card .tl-chap { font-size: 10px; color: var(--muted); }
