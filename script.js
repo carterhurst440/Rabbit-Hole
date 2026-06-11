@@ -1523,34 +1523,38 @@ function go(name) {
 }
 
 /* ---- HOME: writing streak ---- */
+// Minimal rabbit icon (ears + head + body), inherits currentColor.
+const RABBIT_ICON =
+  '<svg class="icon-rabbit" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">' +
+  '<ellipse cx="9" cy="6" rx="1.6" ry="4.2"/>' +
+  '<ellipse cx="15" cy="6" rx="1.6" ry="4.2"/>' +
+  '<circle cx="12" cy="11" r="4.2"/>' +
+  '<ellipse cx="12" cy="17.5" rx="5.5" ry="4.5"/>' +
+  '</svg>';
+
 function renderStreakBar() {
   const el = document.getElementById('streakBar');
   if (!el) return;
   const streak = computeStreak(writingDaysCache);
-  const today = localDayKey();
   const DAYS = 14;
+  // The strip is a streak-progress bar: filled cells = streak length, so the
+  // count, the filled squares, and the rabbit on the leading cell all agree.
+  const filled = Math.min(streak, DAYS);
   const cells = [];
-  const cursor = new Date();
-  cursor.setDate(cursor.getDate() - (DAYS - 1));
   for (let i = 0; i < DAYS; i++) {
-    const key = localDayKey(cursor);
-    const on = writingDaysCache.has(key);
-    const isToday = key === today;
-    cells.push(
-      `<span class="streak-cell${on ? ' on' : ''}${isToday ? ' today' : ''}" title="${key}"></span>`
-    );
-    cursor.setDate(cursor.getDate() + 1);
+    const on = i < filled;
+    const lead = on && i === filled - 1;
+    cells.push(`<span class="streak-cell${on ? ' on' : ''}${lead ? ' lead' : ''}"></span>`);
   }
-  const label = streak === 1 ? '1 day streak' : `${streak} day streak`;
-  // The rabbit starts far left and hops one cell to the right per streak day.
-  // CELL (14) + GAP (4) = 18px stride; +7 centers it over a cell.
-  const pos = Math.min(streak - 1, DAYS - 1);
+  // Rabbit perches on the leading filled cell. CELL (14) + GAP (4) = 18px
+  // stride; +7 centers it over a cell.
+  const pos = filled - 1;
   const rabbit = streak > 0
-    ? `<span class="streak-rabbit" style="left:${pos * 18 + 7}px">🐇</span>`
+    ? `<span class="streak-rabbit" style="left:${pos * 18 + 7}px">${RABBIT_ICON}</span>`
     : '';
   el.innerHTML = `
     <div class="streak-bar">
-      <span class="streak-count">🔥 ${esc(label)}</span>
+      <span class="streak-count">${RABBIT_ICON}<strong>${streak}</strong> HOP STREAK</span>
       <div class="streak-cells">${rabbit}${cells.join('')}</div>
     </div>`;
 }
