@@ -275,7 +275,7 @@ function renderChunkCardDisplay(c) {
     c.characterIds.length ? `${c.characterIds.length} char` : ''
   ].filter(Boolean).join(' · ');
   const body = expanded
-    ? `<div class="chunk-disp-body">${c.body ? esc(c.body) : '<span class="muted">(no content yet)</span>'}</div>`
+    ? `<div class="chunk-disp-body">${c.body ? highlightNames(c.body, characterTerms()) : '<span class="muted">(no content yet)</span>'}</div>`
     : '';
   return `
   <div class="chunk-card collapsed ${expanded ? 'is-expanded' : ''}" data-id="${c.id}">
@@ -605,7 +605,7 @@ function renderCharPane() {
       <h3>SUMMARY</h3>
       <div class="char-summary" id="charSummary">${c.summary ? esc(c.summary) : '<span style="color:var(--muted)">No summary yet.</span>'}</div>
       <div style="margin-top:10px;display:flex;gap:8px">
-        <button class="add-btn" id="genSummaryBtn" title="AI generation wires up once an API key is set">✨ GENERATE (AI — not wired yet)</button>
+        <button class="add-btn" id="genSummaryBtn" title="AI: summarize from every chunk that references this character">✨ GENERATE</button>
         <button class="add-btn" id="editSummaryBtn">EDIT MANUALLY</button>
       </div>
     </div>
@@ -631,8 +631,9 @@ function renderCharPane() {
       </div>
     </div>`;
 
-  document.getElementById('charName').addEventListener('input', e => { c.name = e.target.value; save();
-    const t = document.querySelector(`#charList .chapter-item[data-id="${c.id}"] .ci-title`); if (t) t.textContent = c.name; });
+  const nameAtRender = c.name;
+  const nameInput = document.getElementById('charName');
+  nameInput.addEventListener('change', () => renameCharacterEverywhere(c, nameAtRender, nameInput.value.trim()));
   document.getElementById('charAliases').addEventListener('input', e => {
     c.aliases = e.target.value.split(',').map(s => s.trim()).filter(Boolean); save();
   });
@@ -644,7 +645,7 @@ function renderCharPane() {
     db.ui.activeChar = db.characters[0]?.id || null;
     save(); renderCharacters();
   });
-  document.getElementById('genSummaryBtn').addEventListener('click', () => generateSummary(c));
+  document.getElementById('genSummaryBtn').addEventListener('click', e => generateSummary(c, e.currentTarget));
   document.getElementById('editSummaryBtn').addEventListener('click', async () => {
     const next = await promptModal('Character summary:', c.summary || '', { okText: 'Save' });
     if (next !== null) { c.summary = next; save(); renderCharPane(); }
@@ -663,17 +664,49 @@ function renderCharPane() {
   });
 }
 
-// Placeholder for AI summary — assembles the context an LLM would use.
-function generateSummary(c) {
+// AI summary — sends every chunk that references the character to the model.
+async function generateSummary(c, btn) {
   const refs = refsFor(c);
-  const context = refs.map(r => `[${chapterTitle(r.chapterId)}] ${r.title}\n${r.body}`).join('\n\n');
-  alertModal(
-    `AI generation is not wired to an API yet.\n\n` +
-    `When connected, RABBIT HOLE will send the ${refs.length} reference chunk(s) below ` +
-    `for "${c.name}" to the model and write the summary here.\n\n` +
-    `Context length: ${context.length} chars.`,
-    { title: 'AI SUMMARY' }
-  );
+  if (!refs.length) { alertModal('No chunks reference this character yet.', { title: 'AI SUMMARY' }); return; }
+  const original = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = '✨ THINKING…'; }
+  try {
+    const { reply } = await aiInvoke({
+      task: 'char_summary',
+      name: c.name,
+      aliases: c.aliases || [],
+      chunks: refs.map(r => ({ title: r.title, body: r.body }))
+    });
+    c.summary = reply || ''; save(); renderCharPane();
+  } catch (err) {
+    if (btn) { btn.disabled = false; btn.textContent = original; }
+    alertModal('Could not generate summary.\n\n' + (err.message || ''), { title: 'AI SUMMARY' });
+  }
+}
+
+// Rename a character and propagate the change into prose, with a confirmation that
+// shows how many occurrences will be rewritten. Cancel reverts (no change at all).
+async function renameCharacterEverywhere(c, oldName, newName) {
+  if (!newName || newName === oldName) { renderCharPane(); return; }
+  const re = new RegExp('\\b' + escapeReg(oldName) + '\\b', 'g');
+  let occ = 0, hits = 0;
+  db.chunks.forEach(ch => {
+    const n = ((ch.body || '').match(re) || []).length + ((ch.title || '').match(re) || []).length;
+    if (n) { occ += n; hits += 1; }
+  });
+  if (occ > 0) {
+    const ok = await confirmModal(
+      `Replace ${occ} occurrence${occ === 1 ? '' : 's'} of "${oldName}" with "${newName}" across ${hits} chunk${hits === 1 ? '' : 's'}?`,
+      { title: 'RENAME CHARACTER', okText: 'Replace', danger: false }
+    );
+    if (!ok) { renderCharPane(); return; }
+    db.chunks.forEach(ch => {
+      if (ch.body) ch.body = ch.body.replace(re, () => newName);
+      if (ch.title) ch.title = ch.title.replace(re, () => newName);
+    });
+  }
+  c.name = newName;
+  save(); renderCharacters();
 }
 
 document.getElementById('addCharBtn').addEventListener('click', () => {
@@ -681,6 +714,69 @@ document.getElementById('addCharBtn').addEventListener('click', () => {
   db.characters.push({ id, name: 'New character', aliases: [], summary: '', notes: [] });
   db.ui.activeChar = id; save(); renderCharacters();
 });
+
+document.getElementById('detectCharsBtn').addEventListener('click', detectCharacters);
+
+// Scan every chunk's text, ask the model for named characters, then let the
+// author pick which new ones to add via a review modal.
+async function detectCharacters() {
+  const btn = document.getElementById('detectCharsBtn');
+  const chunks = db.chunks.filter(c => (c.body || '').trim() || (c.title || '').trim());
+  if (!chunks.length) { alertModal('No chunk text to scan yet.', { title: 'DETECT CHARACTERS' }); return; }
+  const original = btn.textContent;
+  btn.disabled = true; btn.textContent = '✨ SCANNING…';
+  try {
+    const { characters } = await aiInvoke({
+      task: 'detect_characters',
+      chunks: chunks.map(c => ({ title: c.title, body: c.body })),
+      existing: db.characters.map(c => c.name)
+    });
+    btn.disabled = false; btn.textContent = original;
+    const known = new Set(db.characters.flatMap(c => [c.name, ...(c.aliases || [])]).map(s => s.toLowerCase()));
+    const candidates = (characters || []).filter(c => c.name && !known.has(c.name.toLowerCase()));
+    if (!candidates.length) { alertModal('No new characters found.', { title: 'DETECT CHARACTERS' }); return; }
+    const chosen = await characterReviewModal(candidates);
+    if (!chosen || !chosen.length) return;
+    chosen.forEach(cand => db.characters.push({ id: uid(), name: cand.name, aliases: cand.aliases || [], summary: '', notes: [] }));
+    db.ui.activeChar = db.characters[db.characters.length - 1].id;
+    save(); renderCharacters();
+  } catch (err) {
+    btn.disabled = false; btn.textContent = original;
+    alertModal('Detection failed.\n\n' + (err.message || ''), { title: 'DETECT CHARACTERS' });
+  }
+}
+
+function characterReviewModal(candidates) {
+  return new Promise(resolve => {
+    const overlay = document.createElement('div');
+    overlay.className = 'ui-modal-overlay';
+    overlay.innerHTML = `
+      <div class="ui-modal detect-modal">
+        <div class="ui-modal-title">DETECTED CHARACTERS</div>
+        <div class="ui-modal-msg">Select which to add. You can edit names and aliases afterward.</div>
+        <div class="detect-list">
+          ${candidates.map((c, i) => `
+            <label class="detect-row">
+              <input type="checkbox" data-i="${i}" checked />
+              <span class="detect-name">${esc(c.name)}</span>
+              ${(c.aliases && c.aliases.length) ? `<span class="detect-aliases">${esc(c.aliases.join(', '))}</span>` : ''}
+            </label>`).join('')}
+        </div>
+        <div class="ui-modal-actions">
+          <button class="ui-modal-btn" data-act="cancel">Cancel</button>
+          <button class="ui-modal-btn solid" data-act="add">Add selected</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    const close = val => { overlay.remove(); resolve(val); };
+    overlay.addEventListener('click', e => { if (e.target === overlay) close(null); });
+    overlay.querySelector('[data-act="cancel"]').addEventListener('click', () => close(null));
+    overlay.querySelector('[data-act="add"]').addEventListener('click', () => {
+      const picked = [...overlay.querySelectorAll('.detect-row input:checked')].map(inp => candidates[+inp.dataset.i]);
+      close(picked);
+    });
+  });
+}
 
 /* =====================================================================
    LABELS
@@ -719,6 +815,14 @@ function renderLabelPane() {
       <button class="icon-btn" id="delLabelBtn" title="Delete label">✕</button>
     </div>
     <div class="char-block">
+      <h3>SUMMARY <span style="color:var(--muted);font-weight:400">(AI — themes across tagged chunks)</span></h3>
+      <div class="char-summary" id="tagSummary">${l.summary ? esc(l.summary) : '<span style="color:var(--muted)">No summary yet.</span>'}</div>
+      <div style="margin-top:10px;display:flex;gap:8px">
+        <button class="add-btn" id="genTagSummaryBtn">✨ GENERATE</button>
+        <button class="add-btn" id="editTagSummaryBtn">EDIT MANUALLY</button>
+      </div>
+    </div>
+    <div class="char-block">
       <h3>CHUNKS (${chunks.length})</h3>
       <div class="char-refs">
         ${chunks.length ? chunks.map(c => `
@@ -754,6 +858,29 @@ function renderLabelPane() {
     db.ui.activeLabel = db.labels[0]?.id || null;
     save(); renderLabels();
   });
+  document.getElementById('genTagSummaryBtn').addEventListener('click', e => generateTagSummary(l, e.currentTarget));
+  document.getElementById('editTagSummaryBtn').addEventListener('click', async () => {
+    const next = await promptModal('Tag summary:', l.summary || '', { title: 'TAG SUMMARY', okText: 'Save' });
+    if (next !== null) { l.summary = next; save(); renderLabelPane(); }
+  });
+}
+
+async function generateTagSummary(l, btn) {
+  const chunks = labelUsage(l.id).chunks;
+  if (!chunks.length) { alertModal('No chunks use this tag yet.', { title: 'TAG SUMMARY' }); return; }
+  const original = btn.textContent;
+  btn.disabled = true; btn.textContent = '✨ THINKING…';
+  try {
+    const { reply } = await aiInvoke({
+      task: 'tag_summary',
+      tagName: l.name,
+      chunks: chunks.map(c => ({ title: c.title, body: c.body }))
+    });
+    l.summary = reply || ''; save(); renderLabelPane();
+  } catch (err) {
+    btn.disabled = false; btn.textContent = original;
+    alertModal('Could not generate summary.\n\n' + (err.message || ''), { title: 'TAG SUMMARY' });
+  }
 }
 
 document.getElementById('addLabelBtn').addEventListener('click', () => {
@@ -874,6 +1001,49 @@ document.getElementById('importFile').addEventListener('change', e => {
 function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, m =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
+}
+
+function escapeReg(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+// All character names + aliases, longest-first, deduped — for highlighting/matching.
+function characterTerms() {
+  const seen = new Set(), terms = [];
+  db.characters.forEach(c => {
+    [c.name, ...(c.aliases || [])].forEach(t => {
+      const v = (t || '').trim();
+      if (v && !seen.has(v)) { seen.add(v); terms.push(v); }
+    });
+  });
+  return terms.sort((a, b) => b.length - a.length);
+}
+
+// Escape `raw` for HTML while wrapping any character name/alias in a highlight span.
+function highlightNames(raw, terms) {
+  raw = String(raw ?? '');
+  if (!terms || !terms.length) return esc(raw);
+  const re = new RegExp('\\b(' + terms.map(escapeReg).join('|') + ')\\b', 'g');
+  let out = '', last = 0, m;
+  while ((m = re.exec(raw)) !== null) {
+    out += esc(raw.slice(last, m.index));
+    out += '<span class="char-ref">' + esc(m[0]) + '</span>';
+    last = m.index + m[0].length;
+    if (re.lastIndex === m.index) re.lastIndex++; // guard against zero-width
+  }
+  out += esc(raw.slice(last));
+  return out;
+}
+
+// Single entry point for the ai-chat edge function. Throws on error.
+async function aiInvoke(payload) {
+  const { data, error } = await sb.functions.invoke('ai-chat', { body: payload });
+  if (error) {
+    // Surface the function's JSON error body when present.
+    let detail = error.message || 'request failed';
+    try { const ctx = await error.context?.json?.(); if (ctx?.error) detail = ctx.error; } catch (_) {}
+    throw new Error(detail);
+  }
+  if (data && data.error) throw new Error(data.error);
+  return data || {};
 }
 
 /* ---------------- modal dialogs (replace native prompt/confirm/alert) ---------------- */
@@ -1047,7 +1217,7 @@ async function loadProject(projectId) {
     sb.from('chapters').select('*').eq('project_id', projectId),
     sb.from('chunks').select('*').eq('project_id', projectId),
     sb.from('characters').select('*').eq('project_id', projectId),
-    sb.from('labels').select('*').eq('project_id', projectId),
+    sb.from('tags').select('*').eq('project_id', projectId),
     sb.from('ideas').select('*').eq('project_id', projectId)
   ]);
   const chunkIds = (chunks.data || []).map(r => r.id);
@@ -1068,7 +1238,7 @@ async function loadProject(projectId) {
       labelIds: cl.filter(j => j.chunk_id === r.id).map(j => j.label_id)
     })),
     characters: (characters.data || []).map(r => ({ id: r.id, name: r.name, aliases: r.aliases || [], summary: r.summary || '', notes: r.notes || [] })),
-    labels: (labels.data || []).map(r => ({ id: r.id, name: r.name, color: r.color })),
+    labels: (labels.data || []).map(r => ({ id: r.id, name: r.name, color: r.color, summary: r.summary || '' })),
     ideas: (ideas.data || []).map(r => ({ id: r.id, text: r.text, ts: r.ts || Date.parse(r.created_at), labelIds: il.filter(j => j.idea_id === r.id).map(j => j.label_id) })),
     ui: (proj.data && proj.data.ui) || {}
   };
@@ -1123,11 +1293,11 @@ async function persistProject() {
     const chapters = db.chapters.map((c, i) => ({ id: c.id, user_id: U, project_id: P, title: c.title, color: c.color, position: c.order ?? i }));
     const chunks = db.chunks.map((c, i) => ({ id: c.id, user_id: U, project_id: P, chapter_id: c.chapterId || null, title: c.title, body: c.body, chrono_label: c.chronoLabel || null, narrative_pos: c.narrativeOrder ?? i, chrono_pos: c.chronoOrder ?? i, order_in_chapter: c.orderInChapter ?? 0 }));
     const characters = db.characters.map(c => ({ id: c.id, user_id: U, project_id: P, name: c.name, aliases: c.aliases || [], summary: c.summary || '', notes: c.notes || [] }));
-    const labels = db.labels.map(l => ({ id: l.id, user_id: U, project_id: P, name: l.name, color: l.color }));
+    const labels = db.labels.map(l => ({ id: l.id, user_id: U, project_id: P, name: l.name, color: l.color, summary: l.summary || null }));
     const ideas = db.ideas.map(i => ({ id: i.id, user_id: U, project_id: P, text: i.text, ts: i.ts || Date.now() }));
 
     await upsertSync('chapters', chapters, P);
-    await Promise.all([upsertSync('labels', labels, P), upsertSync('characters', characters, P)]);
+    await Promise.all([upsertSync('tags', labels, P), upsertSync('characters', characters, P)]);
     await Promise.all([upsertSync('chunks', chunks, P), upsertSync('ideas', ideas, P)]);
 
     const chunkLabels = [], chunkChars = [], ideaLabels = [];
