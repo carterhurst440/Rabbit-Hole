@@ -56,6 +56,7 @@ function migrate(d) {
 let db = seed();
 let activeProjectId = null;
 let projectsCache = [];
+let writingDaysCache = new Set();
 
 // Pull any legacy localStorage data so it can become the user's first project.
 function importableLocalData() {
@@ -256,6 +257,7 @@ function renderChunkPane() {
     });
     editingChunks.add(id);
     save(); renderSections();
+    recordWritingDay();
   });
   document.getElementById('delChapBtn').addEventListener('click', async () => {
     if (!await confirmModal('Delete this chapter and its chunks?')) return;
@@ -1301,6 +1303,46 @@ async function fetchProjects() {
   return data || [];
 }
 
+// Local YYYY-MM-DD (not UTC) so a "day" matches the writer's wall clock.
+function localDayKey(d = new Date()) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+async function fetchWritingDays() {
+  if (!currentUser) return;
+  const { data, error } = await sb.from('writing_days').select('day');
+  if (error) { console.warn('writing_days fetch failed', error); return; }
+  writingDaysCache = new Set((data || []).map(r => r.day));
+}
+
+// Mark today as a writing day (account-wide). Upserts so repeat adds are cheap.
+async function recordWritingDay() {
+  if (!currentUser) return;
+  const today = localDayKey();
+  if (writingDaysCache.has(today)) return;
+  writingDaysCache.add(today);
+  renderHome();
+  const { error } = await sb.from('writing_days')
+    .upsert({ user_id: currentUser.id, day: today }, { onConflict: 'user_id,day' });
+  if (error) console.warn('writing_days upsert failed', error);
+}
+
+// Consecutive days ending today (or yesterday if today not yet written).
+function computeStreak(set) {
+  if (!set.size) return 0;
+  const cursor = new Date();
+  if (!set.has(localDayKey(cursor))) cursor.setDate(cursor.getDate() - 1);
+  let n = 0;
+  while (set.has(localDayKey(cursor))) {
+    n++;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return n;
+}
+
 async function createProjectRow(name, type = 'Book', genre = '') {
   const { data, error } = await sb.from('projects')
     .insert({ user_id: currentUser.id, name, type, genre: genre || null, ui: {} }).select().single();
@@ -1457,6 +1499,7 @@ function renderProjectSelector(projects, activeId) {
 }
 
 async function initProjects() {
+  await fetchWritingDays();
   let projects = await fetchProjects();
   if (!projects.length) {
     const proj = await createProjectRow('My Book');
@@ -1479,8 +1522,36 @@ function go(name) {
   else location.hash = target;
 }
 
+/* ---- HOME: writing streak ---- */
+function renderStreakBar() {
+  const el = document.getElementById('streakBar');
+  if (!el) return;
+  const streak = computeStreak(writingDaysCache);
+  const today = localDayKey();
+  const DAYS = 14;
+  const cells = [];
+  const cursor = new Date();
+  cursor.setDate(cursor.getDate() - (DAYS - 1));
+  for (let i = 0; i < DAYS; i++) {
+    const key = localDayKey(cursor);
+    const on = writingDaysCache.has(key);
+    const isToday = key === today;
+    cells.push(
+      `<span class="streak-cell${on ? ' on' : ''}${isToday ? ' today' : ''}" title="${key}"></span>`
+    );
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  const label = streak === 1 ? '1 day streak' : `${streak} day streak`;
+  el.innerHTML = `
+    <div class="streak-bar">
+      <span class="streak-count">🔥 ${esc(label)}</span>
+      <div class="streak-cells">${cells.join('')}</div>
+    </div>`;
+}
+
 /* ---- HOME: project cards ---- */
 function renderHome() {
+  renderStreakBar();
   const grid = document.getElementById('projectGrid');
   if (!grid) return;
   const cards = projectsCache.map(p => {
