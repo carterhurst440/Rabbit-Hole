@@ -109,7 +109,7 @@ button, input, textarea, select { font-family: inherit; }
   font-size: 13px; font-weight: 700; letter-spacing: 0.06em;
   text-transform: uppercase; color: var(--accent); white-space: nowrap;
 }
-.streak-count .icon-rabbit { width: 16px; height: 16px; }
+.streak-count .icon-rabbit { width: 24px; height: 14px; }
 .streak-count strong { font-weight: 700; }
 .streak-cells { display: flex; gap: 4px; position: relative; padding-top: 22px; }
 .streak-rabbit {
@@ -119,7 +119,7 @@ button, input, textarea, select { font-family: inherit; }
   animation: rabbit-hop 1.6s ease-in-out infinite;
   pointer-events: none;
 }
-.streak-rabbit .icon-rabbit { width: 15px; height: 15px; display: block; }
+.streak-rabbit .icon-rabbit { width: 20px; height: 11px; display: block; }
 @keyframes rabbit-hop {
   0%, 70%, 100% { transform: translateX(-50%) translateY(0); }
   82% { transform: translateX(-50%) translateY(-5px); }
