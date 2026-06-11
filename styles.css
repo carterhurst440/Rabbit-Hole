@@ -136,8 +136,10 @@ button, input, textarea, select { font-family: inherit; }
 
 /* ---------- MAIN / VIEWS ---------- */
 .app-main { padding: 24px clamp(16px, 4vw, 48px) 80px; max-width: 1400px; margin: 0 0 0 var(--rail-w); }
+.view-head { position: relative; }
 .view-head h1 { margin: 0; font-size: 18px; letter-spacing: 0.16em; color: var(--text-bright); }
 .view-head .sub { margin: 6px 0 22px; color: var(--muted); font-size: 12px; }
+#suggestIdeasBtn { position: absolute; top: 0; right: 0; }
 
 /* ---------- SECTIONS / CHARACTERS shared two-pane ---------- */
 .sections-layout { display: grid; grid-template-columns: 240px 1fr; gap: 20px; align-items: start; }

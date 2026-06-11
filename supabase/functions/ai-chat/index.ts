@@ -7,6 +7,7 @@
 //   tag_summary       { tagName, chunks }              -> { reply }
 //   char_summary      { name, aliases, chunks }        -> { reply }
 //   detect_characters { chunks, existing }             -> { characters: [{ name, aliases }] }
+//   suggest_ideas     { chunks }                        -> { ideas: [string] }
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
 const CORS = {
@@ -34,8 +35,10 @@ Deno.serve(async (req) => {
     if (task === "tag_summary") return await doTagSummary(apiKey, body);
     if (task === "char_summary") return await doCharSummary(apiKey, body);
     if (task === "detect_characters") return await doDetect(apiKey, body);
+    if (task === "suggest_ideas") return await doSuggestIdeas(apiKey, body);
     return json({ error: `Unknown task: ${task}` }, 400);
   } catch (e) {
+    console.error("ai-chat error:", (e as Error)?.message || e);
     return json({ error: String((e as Error)?.message || e) }, 500);
   }
 });
@@ -104,6 +107,25 @@ async function doDetect(apiKey: string, body: { chunks?: Chunk[]; existing?: str
   return json({ characters });
 }
 
+async function doSuggestIdeas(apiKey: string, body: { chunks?: Chunk[] }) {
+  const chunks = body.chunks || [];
+  if (!chunks.length) return json({ error: "No chunk text to read." }, 400);
+  const system =
+    "You are a brainstorming partner inside RABBIT HOLE, a book workbench. Read the manuscript " +
+    "so far and propose fresh, concrete ideas for what could happen next \u2014 scenes, beats, " +
+    "complications, reveals, or whole new chunks the author could write. Each idea is one or two " +
+    "sentences, specific to THIS story (reference its characters and situations), and distinct from " +
+    "the others. Offer 6-10 ideas. Respond with ONLY a JSON object of the form " +
+    `{"ideas":["...","..."]}. No markdown, no commentary.`;
+  const user = `MANUSCRIPT SO FAR:\n\n${joinChunks(chunks)}`;
+  const raw = await callClaude(apiKey, { system, messages: [{ role: "user", content: user }], max_tokens: 1200 });
+  const parsed = parseJsonObject(raw);
+  const ideas = Array.isArray(parsed?.ideas)
+    ? (parsed.ideas as unknown[]).filter((s) => typeof s === "string" && s.trim()).map((s) => (s as string).trim())
+    : [];
+  return json({ ideas });
+}
+
 /* ---------------- helpers ---------------- */
 type Ctx = { project?: string | null; chapters?: string[]; characters?: { name: string; summary?: string }[] };
 
@@ -135,7 +157,7 @@ function joinChunks(chunks: Chunk[]): string {
     .join("\n\n");
 }
 
-function parseJsonObject(s: string): { characters?: unknown[] } | null {
+function parseJsonObject(s: string): { characters?: unknown[]; ideas?: unknown[] } | null {
   try {
     const start = s.indexOf("{");
     const end = s.lastIndexOf("}");

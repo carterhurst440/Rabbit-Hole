@@ -984,6 +984,65 @@ document.getElementById('addIdeaBtn').addEventListener('click', () => {
   save(); renderIdeas();
 });
 
+document.getElementById('suggestIdeasBtn').addEventListener('click', generateIdeaSuggestions);
+
+// Read every chunk with body text, ask the model for next-chunk ideas, then let
+// the author pick which to pin to the backlog.
+async function generateIdeaSuggestions() {
+  const btn = document.getElementById('suggestIdeasBtn');
+  const chunks = db.chunks.filter(c => (c.body || '').trim());
+  if (!chunks.length) { alertModal('No chunk content to read yet.', { title: 'GENERATE IDEAS' }); return; }
+  const original = btn.textContent;
+  btn.disabled = true; btn.textContent = '✨ THINKING…';
+  try {
+    const { ideas } = await aiInvoke({
+      task: 'suggest_ideas',
+      chunks: chunks.map(c => ({ title: c.title, body: c.body }))
+    });
+    btn.disabled = false; btn.textContent = original;
+    if (!ideas || !ideas.length) { alertModal('No ideas came back. Try again.', { title: 'GENERATE IDEAS' }); return; }
+    const chosen = await ideaReviewModal(ideas);
+    if (!chosen || !chosen.length) return;
+    const now = Date.now();
+    chosen.forEach((text, i) => db.ideas.push({ id: uid(), text, labelIds: [], ts: now + i }));
+    save(); renderIdeas();
+  } catch (err) {
+    btn.disabled = false; btn.textContent = original;
+    alertModal('Could not generate ideas.\n\n' + (err.message || ''), { title: 'GENERATE IDEAS' });
+  }
+}
+
+function ideaReviewModal(suggestions) {
+  return new Promise(resolve => {
+    const overlay = document.createElement('div');
+    overlay.className = 'ui-modal-overlay';
+    overlay.innerHTML = `
+      <div class="ui-modal detect-modal">
+        <div class="ui-modal-title">SUGGESTED IDEAS</div>
+        <div class="ui-modal-msg">Pick the ones worth keeping. They'll be pinned to your backlog.</div>
+        <div class="detect-list">
+          ${suggestions.map((s, i) => `
+            <label class="detect-row">
+              <input type="checkbox" data-i="${i}" checked />
+              <span class="detect-name" style="font-weight:400">${esc(s)}</span>
+            </label>`).join('')}
+        </div>
+        <div class="ui-modal-actions">
+          <button class="ui-modal-btn" data-act="cancel">Cancel</button>
+          <button class="ui-modal-btn solid" data-act="add">Pin selected</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    const close = val => { overlay.remove(); resolve(val); };
+    overlay.addEventListener('click', e => { if (e.target === overlay) close(null); });
+    overlay.querySelector('[data-act="cancel"]').addEventListener('click', () => close(null));
+    overlay.querySelector('[data-act="add"]').addEventListener('click', () => {
+      const picked = [...overlay.querySelectorAll('.detect-row input:checked')].map(inp => suggestions[+inp.dataset.i]);
+      close(picked);
+    });
+  });
+}
+
 /* =====================================================================
    EXPORT / IMPORT
    ===================================================================== */
