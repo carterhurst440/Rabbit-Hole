@@ -2505,11 +2505,16 @@ function renderSuggestedChunks() {
         <div class="sc-chap" style="color:${chapColor}">${esc(chapName)}${ch ? '' : ' · NEW'}</div>
         <div class="sc-title">${esc(s.title || 'Untitled scene')}</div>
         <div class="sc-desc">${esc(s.description || '')}</div>
-        <button class="add-btn solid sc-add" data-i="${i}">+ ADD HOP</button>
+        <div class="sc-actions">
+          <button class="add-btn solid sc-add" data-i="${i}">+ ADD HOP</button>
+          <button class="add-btn sc-idea" data-i="${i}" title="Save this as an idea for later">+ ADD IDEA</button>
+        </div>
       </div>`;
   }).join('');
   grid.querySelectorAll('.sc-add').forEach(b =>
     b.addEventListener('click', () => addSuggestedChunk(suggestedChunks[+b.dataset.i])));
+  grid.querySelectorAll('.sc-idea').forEach(b =>
+    b.addEventListener('click', () => saveSuggestedAsIdea(suggestedChunks[+b.dataset.i])));
 }
 
 // Find an existing chapter whose title matches the AI's suggested chapter name.
@@ -2582,6 +2587,23 @@ function addSuggestedChunk(s) {
     renderSuggestedChunks();
   }
   openChunkModal(id);
+}
+
+// Park a suggested scene in the Idea Backlog instead of writing it now, so it
+// isn't lost when the suggestion list refreshes.
+function saveSuggestedAsIdea(s) {
+  if (!s) return;
+  const title = (s.title || '').trim();
+  const desc = (s.description || '').trim();
+  const text = title && desc ? `${title} — ${desc}` : (title || desc);
+  if (!text) return;
+  db.ideas.push({ id: uid(), text, labelIds: [], ts: Date.now() });
+  save();
+  recordWritingActivity();
+  if (Array.isArray(suggestedChunks)) {
+    suggestedChunks = suggestedChunks.filter(x => x !== s);
+    renderSuggestedChunks();
+  }
 }
 
 /* ---- project flows ---- */

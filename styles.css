@@ -233,7 +233,7 @@ button, input, textarea, select { font-family: inherit; }
 .sc-chap { font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; }
 .sc-title { font-size: 14px; color: var(--text-bright); letter-spacing: 0.03em; }
 .sc-desc { font-size: 12px; color: var(--muted); line-height: 1.6; flex: 1; }
-.sc-add { align-self: flex-start; margin-top: 4px; }
+.sc-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
 .suggest-empty { color: var(--muted); font-size: 12px; padding: 8px 0; }
 
 .modal-head-meta { display: flex; align-items: baseline; gap: 12px; margin-right: auto; min-width: 0; }
