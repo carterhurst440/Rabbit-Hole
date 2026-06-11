@@ -147,7 +147,7 @@ function wireLabelEditor(container, target) {
 }
 
 /* ---------------- ROUTING ---------------- */
-const ROUTES = ['home', 'sections', 'timelines', 'characters', 'locations', 'labels', 'ideas'];
+const ROUTES = ['home', 'sections', 'timelines', 'characters', 'locations', 'labels', 'ideas', 'settings'];
 
 function currentRoute() {
   const h = location.hash.replace('#', '');
@@ -171,6 +171,21 @@ function route() {
   if (r === 'locations') renderLocations();
   if (r === 'labels') renderLabels();
   if (r === 'ideas') renderIdeas();
+  if (r === 'settings') renderSettings();
+}
+
+// Populate the Settings profile card from the signed-in user.
+function renderSettings() {
+  if (!currentUser) return;
+  const meta = currentUser.user_metadata || {};
+  const who = [meta.first_name, meta.last_name].filter(Boolean).join(' ') || currentUser.email;
+  const initials = ([meta.first_name, meta.last_name].filter(Boolean).map(s => s[0]).join('')
+    || currentUser.email[0]).toUpperCase();
+  const set = (id, txt) => { const el = document.getElementById(id); if (el) el.textContent = txt; };
+  set('settingsAvatar', initials);
+  set('settingsName', who);
+  set('settingsEmail', currentUser.email);
+  set('settingsEmail2', currentUser.email);
 }
 
 window.addEventListener('hashchange', route);
