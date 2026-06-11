@@ -1529,15 +1529,12 @@ function go(name) {
 }
 
 /* ---- HOME: writing streak ---- */
-// Leaping-hare silhouette (side profile, bounding to the right), currentColor.
+// Simple rabbit head: two ears and a round face, inherits currentColor.
 const RABBIT_ICON =
-  '<svg class="icon-rabbit" viewBox="0 0 64 36" fill="currentColor" aria-hidden="true">' +
-  '<path d="M10 22 C10 16 16 13 24 13 C32 13 38 13 43 15 ' +
-  'C44 10 47 5 50 6 C51 8 51 11 50 13 C52 9 55 6 58 8 ' +
-  'C61 10 61 15 58 18 C61 19 62 22 60 24 C58 26 55 26 53 25 ' +
-  'C53 28 52 31 50 33 C49 35 46 35 45 32 C44 29 43 27 41 26 ' +
-  'C35 28 28 29 22 27 C21 30 19 33 16 34 C14 35 12 34 12 31 ' +
-  'C12 28 11 26 9 26 C7 26 6 24 7 23 C8 22 9 22 10 22 Z"/>' +
+  '<svg class="icon-rabbit" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">' +
+  '<ellipse cx="9" cy="7" rx="2" ry="5"/>' +
+  '<ellipse cx="15" cy="7" rx="2" ry="5"/>' +
+  '<circle cx="12" cy="15" r="6"/>' +
   '</svg>';
 
 function renderStreakBar() {
