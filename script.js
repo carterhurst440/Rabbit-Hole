@@ -81,9 +81,10 @@ function chapterColor(chId) {
 
 /* ---------------- LABELS ---------------- */
 function ensureLabelIn(d, rawName) {
-  const name = String(rawName || '').trim();
+  // Labels are canonically uppercase so the same word never splits by case.
+  const name = String(rawName || '').trim().toUpperCase();
   if (!name) return null;
-  let lab = d.labels.find(l => l.name.toLowerCase() === name.toLowerCase());
+  let lab = d.labels.find(l => l.name.toUpperCase() === name);
   if (!lab) {
     lab = { id: uid(), name, color: CHAPTER_PALETTE[d.labels.length % CHAPTER_PALETTE.length] };
     d.labels.push(lab);
@@ -894,6 +895,9 @@ function renderLabelPane() {
     </div>`;
 
   document.getElementById('labelName').addEventListener('input', e => {
+    const caret = e.target.selectionStart;
+    e.target.value = e.target.value.toUpperCase();
+    e.target.setSelectionRange(caret, caret);
     l.name = e.target.value; save();
     const t = document.querySelector(`#labelList .chapter-item[data-id="${l.id}"] .ci-title`);
     if (t) t.textContent = l.name;
@@ -937,7 +941,7 @@ async function generateTagSummary(l, btn) {
 }
 
 document.getElementById('addLabelBtn').addEventListener('click', () => {
-  const lab = { id: uid(), name: 'New label', color: CHAPTER_PALETTE[db.labels.length % CHAPTER_PALETTE.length] };
+  const lab = { id: uid(), name: 'NEW LABEL', color: CHAPTER_PALETTE[db.labels.length % CHAPTER_PALETTE.length] };
   db.labels.push(lab);
   db.ui.activeLabel = lab.id;
   save(); renderLabels();
@@ -1449,7 +1453,7 @@ async function loadProject(projectId) {
       labelIds: cl.filter(j => j.chunk_id === r.id).map(j => j.label_id)
     })),
     characters: (characters.data || []).map(r => ({ id: r.id, name: r.name, aliases: r.aliases || [], summary: r.summary || '', notes: r.notes || [], color: r.color || '' })),
-    labels: (labels.data || []).map(r => ({ id: r.id, name: r.name, color: r.color, summary: r.summary || '' })),
+    labels: (labels.data || []).map(r => ({ id: r.id, name: (r.name || '').toUpperCase(), color: r.color, summary: r.summary || '' })),
     ideas: (ideas.data || []).map(r => ({ id: r.id, text: r.text, ts: r.ts || Date.parse(r.created_at), labelIds: il.filter(j => j.idea_id === r.id).map(j => j.label_id) })),
     ui: (proj.data && proj.data.ui) || {}
   };
