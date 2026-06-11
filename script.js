@@ -1547,13 +1547,13 @@ async function sendAI(text) {
   aiMessages.push({ role: 'assistant', content: 'thinking…', pending: true });
   renderAILog();
   try {
-    const payload = aiMessages.filter(m => !m.pending).map(m => ({ role: m.role, content: m.content }));
+    const payload = aiMessages.filter(m => !m.pending && !m.error).map(m => ({ role: m.role, content: m.content }));
     const data = await aiInvoke({ messages: payload, context: aiContext() });
     aiMessages = aiMessages.filter(m => !m.pending);
     aiMessages.push({ role: 'assistant', content: data.reply || 'No response.' });
   } catch (e) {
     aiMessages = aiMessages.filter(m => !m.pending);
-    aiMessages.push({ role: 'assistant', content: 'Error: ' + (e.message || 'request failed') });
+    aiMessages.push({ role: 'assistant', content: 'Error: ' + (e.message || 'request failed'), error: true });
   } finally {
     aiBusy = false; aiSendBtn.disabled = false;
     renderAILog();
