@@ -147,7 +147,7 @@ function wireLabelEditor(container, target) {
 }
 
 /* ---------------- ROUTING ---------------- */
-const ROUTES = ['home', 'sections', 'timelines', 'characters', 'locations', 'labels', 'ideas', 'settings'];
+const ROUTES = ['home', 'sections', 'timelines', 'characters', 'locations', 'labels', 'ideas'];
 
 function currentRoute() {
   const h = location.hash.replace('#', '');
@@ -171,10 +171,9 @@ function route() {
   if (r === 'locations') renderLocations();
   if (r === 'labels') renderLabels();
   if (r === 'ideas') renderIdeas();
-  if (r === 'settings') renderSettings();
 }
 
-// Populate the Settings profile card from the signed-in user.
+// Populate the account menu (profile card) from the signed-in user.
 function renderSettings() {
   if (!currentUser) return;
   const meta = currentUser.user_metadata || {};
@@ -185,7 +184,6 @@ function renderSettings() {
   set('settingsAvatar', initials);
   set('settingsName', who);
   set('settingsEmail', currentUser.email);
-  set('settingsEmail2', currentUser.email);
 }
 
 window.addEventListener('hashchange', route);
@@ -627,16 +625,18 @@ function analysisResultModal(chunk, strengths, suggestions) {
   overlay.innerHTML = `
     <div class="ui-modal analysis-modal">
       <div class="ui-modal-title">ANALYSIS · ${esc(chunk.title) || 'UNTITLED HOP'}</div>
-      ${strengths.length ? `
-      <div class="analysis-group">
-        <div class="analysis-head">WHAT'S WORKING</div>
-        <ul class="analysis-list">${list(strengths, 'good')}</ul>
-      </div>` : ''}
-      ${suggestions.length ? `
-      <div class="analysis-group">
-        <div class="analysis-head">GENTLE NUDGES</div>
-        <ul class="analysis-list">${list(suggestions, 'nudge')}</ul>
-      </div>` : ''}
+      <div class="ui-modal-scroll">
+        ${strengths.length ? `
+        <div class="analysis-group">
+          <div class="analysis-head">WHAT'S WORKING</div>
+          <ul class="analysis-list">${list(strengths, 'good')}</ul>
+        </div>` : ''}
+        ${suggestions.length ? `
+        <div class="analysis-group">
+          <div class="analysis-head">GENTLE NUDGES</div>
+          <ul class="analysis-list">${list(suggestions, 'nudge')}</ul>
+        </div>` : ''}
+      </div>
       <div class="ui-modal-actions">
         <button class="ui-modal-btn solid" data-act="close">Done</button>
       </div>
@@ -2014,9 +2014,10 @@ function showApp(session) {
   const who = [meta.first_name, meta.last_name].filter(Boolean).join(' ') || currentUser.email;
   const initials = ([meta.first_name, meta.last_name].filter(Boolean).map(s => s[0]).join('')
     || currentUser.email[0]).toUpperCase();
-  const userEl = document.getElementById('drawerUser');
+  const userEl = document.getElementById('profileInitials');
   userEl.textContent = initials;
-  userEl.title = who + ' · ' + currentUser.email;
+  document.getElementById('profileBtn').title = who + ' · ' + currentUser.email;
+  renderSettings();
   bootApp();
 }
 
@@ -2732,6 +2733,29 @@ async function sendAI(text) {
 }
 
 aiToggle.addEventListener('click', toggleAI);
+
+/* ---------------- ACCOUNT MENU ---------------- */
+const profileBtn = document.getElementById('profileBtn');
+const accountMenu = document.getElementById('accountMenu');
+function openAccount() {
+  accountMenu.hidden = false;
+  profileBtn.classList.add('active');
+  profileBtn.setAttribute('aria-expanded', 'true');
+}
+function closeAccount() {
+  accountMenu.hidden = true;
+  profileBtn.classList.remove('active');
+  profileBtn.setAttribute('aria-expanded', 'false');
+}
+profileBtn.addEventListener('click', e => {
+  e.stopPropagation();
+  accountMenu.hidden ? openAccount() : closeAccount();
+});
+document.addEventListener('click', e => {
+  if (!accountMenu.hidden && !accountMenu.contains(e.target) && e.target !== profileBtn) closeAccount();
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !accountMenu.hidden) closeAccount(); });
+
 document.getElementById('aiClose').addEventListener('click', closeAI);
 document.getElementById('aiClear').addEventListener('click', () => { aiMessages = []; renderAILog(); aiInput.focus(); });
 aiOverlay.addEventListener('click', closeAI);

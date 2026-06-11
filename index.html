@@ -50,6 +50,29 @@
     <button class="ai-toggle" id="aiToggle" title="AI assistant" aria-label="AI assistant">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H8l-4 4V6a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2z"/><path d="M9 10h6M9 13h4"/></svg>
     </button>
+    <button class="header-profile" id="profileBtn" title="Account" aria-label="Account" aria-haspopup="true" aria-expanded="false">
+      <span id="profileInitials">—</span>
+    </button>
+    <div class="account-menu" id="accountMenu" hidden>
+      <div class="account-head">
+        <div class="profile-avatar" id="settingsAvatar">—</div>
+        <div class="profile-meta">
+          <div class="profile-name" id="settingsName">—</div>
+          <div class="profile-email" id="settingsEmail">—</div>
+        </div>
+      </div>
+      <div class="account-section">
+        <div class="account-label">DATA</div>
+        <div class="settings-actions">
+          <button class="add-btn" id="exportBtn">↓ EXPORT JSON</button>
+          <button class="add-btn" id="importBtn">↑ IMPORT JSON</button>
+        </div>
+      </div>
+      <div class="account-section">
+        <button class="add-btn danger" id="signOutBtn">SIGN OUT</button>
+      </div>
+      <input type="file" id="importFile" accept="application/json" hidden />
+    </div>
   </header>
 
   <!-- ============ DRAWER ============ -->
@@ -83,13 +106,6 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-4 10.5c.8.8 1 1.5 1 2.5h6c0-1 .2-1.7 1-2.5A6 6 0 0 0 12 3z"/></svg>
       <span>IDEAS</span>
     </a>
-    <div class="nav-spacer"></div>
-    <a href="#settings" class="nav-icon" data-route="settings" title="Settings">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-      <span>SETTINGS</span>
-    </a>
-    <input type="file" id="importFile" accept="application/json" hidden />
-    <div class="nav-user" id="drawerUser" title="—"></div>
   </nav>
 
   <main class="app-main">
@@ -239,41 +255,6 @@
       </div>
       <div class="idea-filter" id="ideaLabelFilter"></div>
       <div class="idea-grid" id="ideaGrid"></div>
-    </section>
-
-    <!-- ============ SETTINGS ============ -->
-    <section class="view" id="view-settings" hidden>
-      <div class="view-head">
-        <h1>SETTINGS</h1>
-        <p class="sub">Your profile, your data, and your session.</p>
-      </div>
-      <div class="settings-layout">
-        <div class="settings-card">
-          <div class="settings-card-head">PROFILE</div>
-          <div class="profile-row">
-            <div class="profile-avatar" id="settingsAvatar">—</div>
-            <div class="profile-meta">
-              <div class="profile-name" id="settingsName">—</div>
-              <div class="profile-email" id="settingsEmail">—</div>
-            </div>
-          </div>
-        </div>
-        <div class="settings-card">
-          <div class="settings-card-head">DATA</div>
-          <p class="settings-note">Download a JSON backup of your work, or restore from a file.</p>
-          <div class="settings-actions">
-            <button class="add-btn" id="exportBtn">↓ EXPORT JSON</button>
-            <button class="add-btn" id="importBtn">↑ IMPORT JSON</button>
-          </div>
-        </div>
-        <div class="settings-card">
-          <div class="settings-card-head">SESSION</div>
-          <p class="settings-note">Signed in as <span id="settingsEmail2">—</span>.</p>
-          <div class="settings-actions">
-            <button class="add-btn danger" id="signOutBtn">SIGN OUT</button>
-          </div>
-        </div>
-      </div>
     </section>
 
   </main>
