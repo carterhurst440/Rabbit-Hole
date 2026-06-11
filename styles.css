@@ -697,7 +697,7 @@ body.locked .ai-overlay { display: none !important; }
   color: var(--text-bright); padding: 9px 10px; font-family: inherit; font-size: 13px;
 }
 .auth-form input:focus { outline: none; border-color: var(--accent-mid); }
-.auth-names { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.auth-names { display: grid; grid-template-columns: 1fr; gap: 12px; }
 .auth-screen:not(.mode-signup) .signup-only { display: none; }
 .auth-submit {
   margin-top: 4px; background: var(--accent); border: none; color: #0a0a0a;
