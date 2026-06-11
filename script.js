@@ -612,6 +612,14 @@ async function runChunkAnalysis(chunk) {
   };
 }
 
+// After an analysis is first saved, flip the hop's ANALYZE buttons to VIEW
+// ANALYSIS — both the open edit modal and the rendered card surfaces.
+function refreshAnalyzeButtons(chunk) {
+  const az = document.getElementById('chunkModalAnalyze');
+  if (az && modalChunkId === chunk.id) az.textContent = '✨ VIEW ANALYSIS';
+  rerenderActiveView();
+}
+
 // Entry from a hop card / edit modal. If we already saved an analysis for this
 // hop, show it instantly; otherwise generate, persist, then show.
 async function analyzeChunk(chunk, btn) {
@@ -625,6 +633,7 @@ async function analyzeChunk(chunk, btn) {
     if (!hasAnalysis(out)) { alertModal('No analysis came back for this hop.', { title: 'ANALYZE' }); return; }
     chunk.analysis = { ...out, ts: Date.now() };
     save();
+    refreshAnalyzeButtons(chunk);
     analysisResultModal(chunk);
   } catch (err) {
     if (btn) { btn.disabled = false; btn.textContent = original; }
@@ -713,7 +722,7 @@ function renderChunkCardDisplay(c) {
       ${c.archived ? '<span class="arch-badge">ARCHIVED</span>' : ''}
       <span class="chunk-disp-meta">${meta}</span>
       <span class="chunk-disp-actions">
-        <button class="add-btn" data-f="analyze" title="AI: analyze this hop">✨ ANALYZE</button>
+        <button class="add-btn" data-f="analyze" title="AI: analyze this hop">${hasAnalysis(c.analysis) ? '✨ VIEW ANALYSIS' : '✨ ANALYZE'}</button>
         <button class="add-btn" data-f="archive">${c.archived ? 'UNARCHIVE' : 'ARCHIVE'}</button>
         <button class="add-btn" data-f="edit">EDIT</button>
         <button class="icon-btn" data-f="del" title="Delete hop">✕</button>
@@ -996,12 +1005,15 @@ function openChunkModal(chunkId) {
   };
 
   const az = document.getElementById('chunkModalAnalyze');
-  if (az) az.onclick = () => {
-    // Analyze the live editor text, not the last-saved body.
-    c.title = document.getElementById('chunkModalTitle').value;
-    c.body = document.getElementById('chunkModalBody').value;
-    analyzeChunk(c, az);
-  };
+  if (az) {
+    az.textContent = hasAnalysis(c.analysis) ? '✨ VIEW ANALYSIS' : '✨ ANALYZE';
+    az.onclick = () => {
+      // Analyze the live editor text, not the last-saved body.
+      c.title = document.getElementById('chunkModalTitle').value;
+      c.body = document.getElementById('chunkModalBody').value;
+      analyzeChunk(c, az);
+    };
+  }
 
   document.getElementById('chunkModalOverlay').hidden = false;
 }
