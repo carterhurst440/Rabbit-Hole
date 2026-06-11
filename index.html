@@ -113,6 +113,7 @@
       <div class="view-head">
         <h1>SECTIONS</h1>
         <p class="sub">Chapters and the chunks inside them. This is your source of truth.</p>
+        <button class="add-btn arch-toggle" data-arch>SHOW ARCHIVED</button>
       </div>
       <div class="sections-layout">
         <aside class="chapter-rail">
@@ -131,6 +132,7 @@
       <div class="view-head">
         <h1>TIMELINES</h1>
         <p class="sub">Narrative order (what the reader sees) vs chronological order (what actually happens).</p>
+        <button class="add-btn arch-toggle" data-arch>SHOW ARCHIVED</button>
       </div>
       <div class="timeline-controls">
         <label>FILTER BY CHARACTER
@@ -157,6 +159,7 @@
       <div class="view-head">
         <h1>CHARACTERS</h1>
         <p class="sub">Summaries built from every chunk that references them, plus your own notes.</p>
+        <button class="add-btn arch-toggle" data-arch>SHOW ARCHIVED</button>
       </div>
       <div class="sections-layout">
         <aside class="chapter-rail">
@@ -178,6 +181,7 @@
       <div class="view-head">
         <h1>TAGS</h1>
         <p class="sub">Manual tags. Rename here and it updates everywhere; see every chunk and idea using each one.</p>
+        <button class="add-btn arch-toggle" data-arch>SHOW ARCHIVED</button>
       </div>
       <div class="sections-layout">
         <aside class="chapter-rail">
@@ -214,6 +218,7 @@
     <div class="modal" role="dialog" aria-modal="true">
       <div class="modal-head">
         <span id="chunkModalChapter" class="modal-chap">—</span>
+        <button class="add-btn" id="chunkModalArchive">ARCHIVE</button>
         <button class="icon-btn" id="chunkModalClose" title="Close">✕</button>
       </div>
       <input class="chunk-title-input" id="chunkModalTitle" placeholder="Chunk title" />

@@ -159,6 +159,7 @@ function route() {
     a.classList.toggle('active', a.dataset.route === r);
   });
   closeDrawer();
+  updateArchiveToggles();
   if (r === 'home') renderHome();
   if (r === 'sections') renderSections();
   if (r === 'timelines') renderTimelines();
@@ -198,6 +199,18 @@ function chunksOf(chapterId) {
     .sort((a, b) => (a.orderInChapter ?? 0) - (b.orderInChapter ?? 0));
 }
 
+// Archived chunks are hidden everywhere unless the SHOW ARCHIVED toggle is on.
+function isVisibleChunk(c) { return !!db.ui.showArchived || !c.archived; }
+
+// Sync every SHOW/HIDE ARCHIVED toggle button to the shared ui state.
+function updateArchiveToggles() {
+  const on = !!db.ui.showArchived;
+  document.querySelectorAll('[data-arch]').forEach(btn => {
+    btn.textContent = on ? 'HIDE ARCHIVED' : 'SHOW ARCHIVED';
+    btn.classList.toggle('on', on);
+  });
+}
+
 function renderSections() {
   const list = document.getElementById('chapterList');
   list.innerHTML = db.chapters
@@ -206,7 +219,7 @@ function renderSections() {
       <div class="chapter-item ${ch.id === db.ui.activeChapter ? 'active' : ''}" data-id="${ch.id}">
         <span class="ci-dot" style="background:${chapterColor(ch.id)}"></span>
         <span class="ci-title">${esc(ch.title)}</span>
-        <span class="ci-count">${chunksOf(ch.id).length}</span>
+        <span class="ci-count">${chunksOf(ch.id).filter(isVisibleChunk).length}</span>
       </div>`).join('');
   list.querySelectorAll('.chapter-item').forEach(el => {
     el.addEventListener('click', () => { db.ui.activeChapter = el.dataset.id; save(); renderSections(); });
@@ -219,7 +232,7 @@ function renderChunkPane() {
   const ch = db.chapters.find(c => c.id === db.ui.activeChapter);
   if (!ch) { pane.innerHTML = `<div class="pane-empty">Add a chapter to begin.</div>`; return; }
 
-  const chunks = chunksOf(ch.id);
+  const chunks = chunksOf(ch.id).filter(isVisibleChunk);
   const head = `
     <div class="chunk-card-head">
       <input type="color" class="chap-color" id="chapColor" value="${chapterColor(ch.id)}" title="Chapter accent color" />
@@ -248,7 +261,7 @@ function renderChunkPane() {
     const id = uid();
     db.chunks.push({
       id, chapterId: ch.id, title: '', body: '',
-      orderInChapter: chunks.length,
+      orderInChapter: chunksOf(ch.id).length,
       narrativeOrder: db.chunks.length,
       chronoOrder: db.chunks.length,
       chronoLabel: '',
@@ -288,13 +301,15 @@ function renderChunkCardDisplay(c) {
     ? `<div class="chunk-disp-body">${c.body ? highlightNames(c.body, characterTerms()) : '<span class="muted">(no content yet)</span>'}</div>`
     : '';
   return `
-  <div class="chunk-card collapsed ${expanded ? 'is-expanded' : ''}" data-id="${c.id}">
+  <div class="chunk-card collapsed ${expanded ? 'is-expanded' : ''} ${c.archived ? 'archived' : ''}" data-id="${c.id}">
     <div class="chunk-display" data-f="open">
       <span class="chunk-chevron">${expanded ? '▾' : '▸'}</span>
       <span class="chunk-disp-title">${esc(c.title) || '<em>Untitled chunk</em>'}</span>
+      ${c.archived ? '<span class="arch-badge">ARCHIVED</span>' : ''}
       ${labelTags ? `<span class="chunk-disp-tags">${labelTags}</span>` : ''}
       <span class="chunk-disp-meta">${meta}</span>
       <span class="chunk-disp-actions">
+        <button class="add-btn" data-f="archive">${c.archived ? 'UNARCHIVE' : 'ARCHIVE'}</button>
         <button class="add-btn" data-f="edit">EDIT</button>
         <button class="icon-btn" data-f="del" title="Delete chunk">✕</button>
       </span>
@@ -345,6 +360,9 @@ function wireChunkCard(card) {
   if (card.classList.contains('collapsed')) {
     card.querySelector('.chunk-display').addEventListener('click', e => {
       if (e.target.closest('[data-f="del"]')) { e.stopPropagation(); del(); return; }
+      if (e.target.closest('[data-f="archive"]')) {
+        e.stopPropagation(); c.archived = !c.archived; save(); renderSections(); return;
+      }
       if (e.target.closest('[data-f="edit"]')) { editingChunks.add(id); renderSections(); return; }
       if (expandedChunks.has(id)) expandedChunks.delete(id); else expandedChunks.add(id);
       renderSections();
@@ -382,6 +400,15 @@ document.getElementById('addChapterBtn').addEventListener('click', () => {
   save(); renderSections();
 });
 
+// SHOW/HIDE ARCHIVED: shared toggle across sections, timelines, characters, labels.
+document.querySelectorAll('[data-arch]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    db.ui.showArchived = !db.ui.showArchived;
+    save();
+    route();
+  });
+});
+
 /* =====================================================================
    TIMELINES
    ===================================================================== */
@@ -412,20 +439,22 @@ function renderTimelines() {
 
 function drawTrack(elId, orderKey, filterChar, filterLabel) {
   const track = document.getElementById(elId);
-  const ordered = [...db.chunks].sort((a, b) => (a[orderKey] ?? 0) - (b[orderKey] ?? 0));
+  const ordered = [...db.chunks].filter(isVisibleChunk).sort((a, b) => (a[orderKey] ?? 0) - (b[orderKey] ?? 0));
   if (!ordered.length) { track.innerHTML = `<div class="pane-empty">No chunks yet.</div>`; return; }
 
   track.innerHTML = ordered.map((c, i) => {
     const hideChar = filterChar && !c.characterIds.includes(filterChar);
     const hideLabel = filterLabel && !(c.labelIds || []).includes(filterLabel);
     const dim = (hideChar || hideLabel) ? 'dim' : '';
+    const arch = c.archived ? 'archived' : '';
     const label = orderKey === 'chronoOrder' && c.chronoLabel ? ` · ${esc(c.chronoLabel)}` : '';
     const color = chapterColor(c.chapterId);
     return `
-    <div class="tl-card ${dim}" data-id="${c.id}" draggable="true" style="border-left:3px solid ${color}">
+    <div class="tl-card ${dim} ${arch}" data-id="${c.id}" draggable="true" style="border-left:3px solid ${color}">
       <span class="tl-grip" title="Drag to reorder">⠿</span>
       <span class="tl-idx">${i + 1}</span>
       <span class="tl-name">${esc(c.title)}</span>
+      ${c.archived ? '<span class="arch-badge">ARCHIVED</span>' : ''}
       <span class="tl-chap" style="color:${color}">${esc(chapterTitle(c.chapterId))}${label}</span>
     </div>`;
   }).join('');
@@ -504,6 +533,7 @@ function openChunkModal(chunkId) {
   document.getElementById('chunkModalTitle').value = c.title;
   document.getElementById('chunkModalBody').value = c.body;
   document.getElementById('chunkModalChrono').value = c.chronoLabel || '';
+  document.getElementById('chunkModalArchive').textContent = c.archived ? 'UNARCHIVE' : 'ARCHIVE';
   document.getElementById('chunkModalChapter').textContent = chapterTitle(c.chapterId);
   document.getElementById('chunkModalChapter').style.color = chapterColor(c.chapterId);
 
@@ -546,6 +576,11 @@ function closeChunkModal() {
     save();
     document.getElementById('chunkModalChapter').textContent = chapterTitle(c.chapterId);
     document.getElementById('chunkModalChapter').style.color = chapterColor(c.chapterId);
+  });
+  document.getElementById('chunkModalArchive').addEventListener('click', e => {
+    const c = cur(); if (!c) return;
+    c.archived = !c.archived; save();
+    e.currentTarget.textContent = c.archived ? 'UNARCHIVE' : 'ARCHIVE';
   });
   document.getElementById('chunkModalClose').addEventListener('click', closeChunkModal);
   document.getElementById('chunkModalOverlay').addEventListener('click', e => {
@@ -590,7 +625,7 @@ function renderCharacters() {
 
 function refsFor(c) {
   const terms = [c.name, ...(c.aliases || [])].filter(Boolean).map(t => t.toLowerCase());
-  return db.chunks.filter(chunk => {
+  return db.chunks.filter(isVisibleChunk).filter(chunk => {
     if (chunk.characterIds.includes(c.id)) return true;
     const hay = (chunk.title + ' ' + chunk.body).toLowerCase();
     return terms.some(t => t && hay.includes(t));
@@ -800,7 +835,7 @@ function characterReviewModal(candidates) {
    LABELS
    ===================================================================== */
 function labelUsage(id) {
-  const chunks = db.chunks.filter(c => (c.labelIds || []).includes(id));
+  const chunks = db.chunks.filter(isVisibleChunk).filter(c => (c.labelIds || []).includes(id));
   const ideas = db.ideas.filter(i => (i.labelIds || []).includes(id));
   return { chunks, ideas, count: chunks.length + ideas.length };
 }
@@ -1409,6 +1444,7 @@ async function loadProject(projectId) {
       id: r.id, chapterId: r.chapter_id, title: r.title, body: r.body,
       chronoLabel: r.chrono_label || '', narrativeOrder: r.narrative_pos,
       chronoOrder: r.chrono_pos, orderInChapter: r.order_in_chapter,
+      archived: !!r.archived,
       characterIds: cc.filter(j => j.chunk_id === r.id).map(j => j.character_id),
       labelIds: cl.filter(j => j.chunk_id === r.id).map(j => j.label_id)
     })),
@@ -1466,7 +1502,7 @@ async function persistProject() {
   const P = activeProjectId, U = currentUser.id;
   try {
     const chapters = db.chapters.map((c, i) => ({ id: c.id, user_id: U, project_id: P, title: c.title, color: c.color, position: c.order ?? i }));
-    const chunks = db.chunks.map((c, i) => ({ id: c.id, user_id: U, project_id: P, chapter_id: c.chapterId || null, title: c.title, body: c.body, chrono_label: c.chronoLabel || null, narrative_pos: c.narrativeOrder ?? i, chrono_pos: c.chronoOrder ?? i, order_in_chapter: c.orderInChapter ?? 0 }));
+    const chunks = db.chunks.map((c, i) => ({ id: c.id, user_id: U, project_id: P, chapter_id: c.chapterId || null, title: c.title, body: c.body, chrono_label: c.chronoLabel || null, narrative_pos: c.narrativeOrder ?? i, chrono_pos: c.chronoOrder ?? i, order_in_chapter: c.orderInChapter ?? 0, archived: !!c.archived }));
     const characters = db.characters.map(c => ({ id: c.id, user_id: U, project_id: P, name: c.name, aliases: c.aliases || [], summary: c.summary || '', notes: c.notes || [], color: c.color || null }));
     const labels = db.labels.map(l => ({ id: l.id, user_id: U, project_id: P, name: l.name, color: l.color, summary: l.summary || null }));
     const ideas = db.ideas.map(i => ({ id: i.id, user_id: U, project_id: P, text: i.text, ts: i.ts || Date.now() }));
