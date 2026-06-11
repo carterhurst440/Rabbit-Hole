@@ -281,6 +281,11 @@ button, input, textarea, select { font-family: inherit; }
 .cs-vals { display: flex; flex-wrap: wrap; gap: 4px; flex: 1; align-items: baseline; }
 .cs-text { color: var(--accent); font-size: 12px; line-height: 1.5; }
 .cs-empty { color: var(--muted); font-size: 11px; }
+/* Compact characters/locations line reused on timeline cards, reference rows,
+   and the tag breakdown — same accent-text styling as the chunk summary. */
+.chunk-charloc { display: flex; flex-direction: column; gap: 4px; }
+.chunk-charloc .cs-label { flex: 0 0 76px; }
+.tl-card .chunk-charloc { padding-left: 31px; }
 .chunk-card-head { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; }
 .chunk-title-input {
   flex: 1; background: var(--panel-2); border: 1px solid var(--line); color: var(--text-bright);
@@ -324,8 +329,9 @@ button, input, textarea, select { font-family: inherit; }
 .tl-track { display: flex; flex-direction: column; padding: 10px; gap: 8px; min-height: 120px; }
 .tl-card {
   background: var(--panel-2); border: 1px solid var(--line-2); padding: 10px 12px;
-  display: flex; align-items: center; gap: 10px; cursor: pointer;
+  display: flex; flex-direction: column; align-items: stretch; gap: 7px; cursor: pointer;
 }
+.tl-card .tl-row { display: flex; align-items: center; gap: 10px; }
 .tl-card:hover { border-color: var(--accent-mid); }
 .tl-card.dim { opacity: 0.28; }
 .tl-card.dragging { opacity: 0.4; }

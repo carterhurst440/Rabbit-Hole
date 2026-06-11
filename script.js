@@ -508,21 +508,46 @@ function renderChunkCardDisplay(c) {
   </div>`;
 }
 
+// Names of every entity of kind K present in a chunk (explicit links plus
+// auto-detected mentions). The single source of truth for "who/where is in
+// this chunk", reused by every surface that displays a chunk.
+function chunkEntityNames(K, c) {
+  return (db[K.coll] || []).filter(e => chunkEntityPresence(K, c, e).on).map(e => e.name);
+}
+
+// One accent-text row ("CHARACTERS  Ada, Mara") — the shared, canonical way to
+// show a chunk's characters/locations as comma-separated accent-colored text.
+function csTextRow(label, names) {
+  if (!names.length) return '';
+  return `<div class="cs-row"><span class="cs-label">${label}</span>`
+    + `<span class="cs-vals"><span class="cs-text">${names.map(esc).join(', ')}</span></span></div>`;
+}
+
+// Compact characters + locations line shown anywhere a chunk is surfaced
+// outside the Sections editor: timeline cards, reference rows, tag breakdown.
+function chunkCharLocLine(c) {
+  const chars = chunkEntityNames(ENTITY_KINDS.character, c);
+  const locs = chunkEntityNames(ENTITY_KINDS.location, c);
+  if (!chars.length && !locs.length) return '';
+  return `<div class="chunk-charloc">${csTextRow('CHARACTERS', chars)}${csTextRow('LOCATIONS', locs)}</div>`;
+}
+
 // Header shown at the top of an expanded chunk: current tags, characters, and
 // locations attached to this scene (explicit links plus auto-detected mentions).
 // Tags are chips; characters and locations are plain accent-colored text.
 function chunkSummaryHeader(c) {
   const tags = (c.labelIds || []).map(id =>
     `<span class="tag" style="--lc:${labelColor(id)}">${esc(labelName(id))}</span>`).join('');
-  const charNames = db.characters.filter(ch => chunkEntityPresence(ENTITY_KINDS.character, c, ch).on).map(ch => esc(ch.name));
-  const locNames = (db.locations || []).filter(l => chunkEntityPresence(ENTITY_KINDS.location, c, l).on).map(l => esc(l.name));
-  const text = names => names.length ? `<span class="cs-text">${names.join(', ')}</span>` : '';
-  const row = (label, html) =>
-    `<div class="cs-row"><span class="cs-label">${label}</span><span class="cs-vals">${html || '<span class="cs-empty">—</span>'}</span></div>`;
+  const tagRow = `<div class="cs-row"><span class="cs-label">TAGS</span>`
+    + `<span class="cs-vals">${tags || '<span class="cs-empty">—</span>'}</span></div>`;
+  const chars = chunkEntityNames(ENTITY_KINDS.character, c);
+  const locs = chunkEntityNames(ENTITY_KINDS.location, c);
+  const orDash = (label, names) => names.length ? csTextRow(label, names)
+    : `<div class="cs-row"><span class="cs-label">${label}</span><span class="cs-vals"><span class="cs-empty">—</span></span></div>`;
   return `<div class="chunk-summary">
-    ${row('TAGS', tags)}
-    ${row('CHARACTERS', text(charNames))}
-    ${row('LOCATIONS', text(locNames))}
+    ${tagRow}
+    ${orDash('CHARACTERS', chars)}
+    ${orDash('LOCATIONS', locs)}
   </div>`;
 }
 
@@ -657,11 +682,14 @@ function drawTrack(elId, orderKey, filterChar, filterLabel) {
     const color = chapterColor(c.chapterId);
     return `
     <div class="tl-card ${dim} ${arch}" data-id="${c.id}" draggable="true" style="border-left:3px solid ${color}">
-      <span class="tl-grip" title="Drag to reorder">⠿</span>
-      <span class="tl-idx">${i + 1}</span>
-      <span class="tl-name">${esc(c.title)}</span>
-      ${c.archived ? '<span class="arch-badge">ARCHIVED</span>' : ''}
-      <span class="tl-chap" style="color:${color}">${esc(chapterTitle(c.chapterId))}${label}</span>
+      <div class="tl-row">
+        <span class="tl-grip" title="Drag to reorder">⠿</span>
+        <span class="tl-idx">${i + 1}</span>
+        <span class="tl-name">${esc(c.title)}</span>
+        ${c.archived ? '<span class="arch-badge">ARCHIVED</span>' : ''}
+        <span class="tl-chap" style="color:${color}">${esc(chapterTitle(c.chapterId))}${label}</span>
+      </div>
+      ${chunkCharLocLine(c)}
     </div>`;
   }).join('');
 
@@ -937,6 +965,7 @@ function renderEntityPane(K) {
           <div class="ref-meta">
             <div class="ref-title">${esc(r.title || 'Untitled')}</div>
             <div class="ref-where">${esc(chapterTitle(r.chapterId))}${r.chronoLabel ? ' · ' + esc(r.chronoLabel) : ''}</div>
+            ${chunkCharLocLine(r)}
           </div>
         </div>
         ${open ? `<div class="ref-body">${renderRefBody(c, r)}</div>` : ''}
@@ -1347,6 +1376,7 @@ function renderLabelPane() {
         ${chunks.length ? chunks.map(c => `
           <div class="ref-row">${esc(c.title) || 'Untitled chunk'}
             <div class="ref-where">${esc(chapterTitle(c.chapterId))}${c.chronoLabel ? ' · ' + esc(c.chronoLabel) : ''}</div>
+            ${chunkCharLocLine(c)}
           </div>`).join('') : '<span style="color:var(--muted)">No chunks tagged.</span>'}
       </div>
     </div>
