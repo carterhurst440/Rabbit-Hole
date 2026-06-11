@@ -293,6 +293,12 @@ button, input, textarea, select { font-family: inherit; }
   color: var(--muted); cursor: pointer; user-select: none;
 }
 .char-chip.on { border-color: var(--cc, var(--accent)); color: var(--cc, var(--accent)); background: rgba(255,255,255,0.04); }
+.char-chip.auto { border-style: dashed; }
+.char-chip .chip-auto {
+  margin-left: 6px; font-size: 8px; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--cc, var(--accent)); opacity: 0.7; vertical-align: middle;
+}
+.meta-field-head { display: flex; align-items: center; gap: 10px; }
 .icon-btn { background: none; border: none; color: var(--muted-2); cursor: pointer; font-size: 14px; padding: 4px; }
 .icon-btn:hover { color: var(--danger); }
 

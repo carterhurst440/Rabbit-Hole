@@ -6,8 +6,11 @@
 //   chat              { messages, context }            -> { reply }
 //   tag_summary       { tagName, chunks }              -> { reply }
 //   char_summary      { name, aliases, chunks }        -> { reply }
+//   loc_summary       { name, aliases, chunks }        -> { reply }
 //   detect_characters { chunks, existing }             -> { characters: [{ name, aliases }] }
-//   suggest_ideas     { chunks }                        -> { ideas: [string] }
+//   detect_locations  { chunks, existing }             -> { locations: [{ name, aliases }] }
+//   suggest_tags      { chunk, existing }              -> { assign: [string], suggest: [string] }
+//   suggest_ideas     { chunks, type, genre }          -> { ideas: [string] }
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
 const CORS = {
@@ -34,7 +37,10 @@ Deno.serve(async (req) => {
     if (task === "chat") return await doChat(apiKey, body);
     if (task === "tag_summary") return await doTagSummary(apiKey, body);
     if (task === "char_summary") return await doCharSummary(apiKey, body);
+    if (task === "loc_summary") return await doLocSummary(apiKey, body);
     if (task === "detect_characters") return await doDetect(apiKey, body);
+    if (task === "detect_locations") return await doDetectLocations(apiKey, body);
+    if (task === "suggest_tags") return await doSuggestTags(apiKey, body);
     if (task === "suggest_ideas") return await doSuggestIdeas(apiKey, body);
     return json({ error: `Unknown task: ${task}` }, 400);
   } catch (e) {
@@ -81,6 +87,23 @@ async function doCharSummary(apiKey: string, body: { name?: string; aliases?: st
   return json({ reply });
 }
 
+async function doLocSummary(apiKey: string, body: { name?: string; aliases?: string[]; chunks?: Chunk[] }) {
+  const chunks = body.chunks || [];
+  if (!chunks.length) return json({ error: "No reference chunks for this location." }, 400);
+  const aliases = (body.aliases || []).filter(Boolean);
+  const system =
+    "You are a story-bible assistant inside RABBIT HOLE. Given a location/setting and every excerpt " +
+    "that references it, write a concise place summary (3-6 sentences): what the place is, its " +
+    "atmosphere and significance, what happens there, and how it figures in the story so far. " +
+    "Use only what the excerpts support. No preamble.";
+  const user =
+    `LOCATION: ${body.name || "(unnamed)"}` +
+    (aliases.length ? `\nALSO KNOWN AS: ${aliases.join(", ")}` : "") +
+    `\n\nEXCERPTS:\n\n${joinChunks(chunks)}`;
+  const reply = await callClaude(apiKey, { system, messages: [{ role: "user", content: user }], max_tokens: 700 });
+  return json({ reply });
+}
+
 async function doDetect(apiKey: string, body: { chunks?: Chunk[]; existing?: string[] }) {
   const chunks = body.chunks || [];
   if (!chunks.length) return json({ error: "No chunk text to scan." }, 400);
@@ -107,13 +130,78 @@ async function doDetect(apiKey: string, body: { chunks?: Chunk[]; existing?: str
   return json({ characters });
 }
 
+async function doDetectLocations(apiKey: string, body: { chunks?: Chunk[]; existing?: string[] }) {
+  const chunks = body.chunks || [];
+  if (!chunks.length) return json({ error: "No chunk text to scan." }, 400);
+  const existing = (body.existing || []).filter(Boolean);
+  const system =
+    "You are a setting/location extractor inside RABBIT HOLE, a book workbench. Read the manuscript " +
+    "excerpts and identify the distinct named places and settings — cities, towns, regions, " +
+    "buildings, rooms, landmarks, planets, realms, named natural features. For each, give the " +
+    "canonical name and any aliases/alternate names/nicknames used for the same place. Ignore " +
+    "people, objects, organizations, and generic references (e.g. 'the house' with no name). " +
+    "Respond with ONLY a JSON object of the form " +
+    `{"locations":[{"name":"Rivermouth","aliases":["the Mouth"]}]}. No markdown, no commentary.`;
+  const user =
+    (existing.length ? `Locations already tracked (still list them if present, but focus on new ones): ${existing.join(", ")}\n\n` : "") +
+    `EXCERPTS:\n\n${joinChunks(chunks)}`;
+  const raw = await callClaude(apiKey, { system, messages: [{ role: "user", content: user }], max_tokens: 1500 });
+  const parsed = parseJsonObject(raw);
+  const locations = Array.isArray(parsed?.locations)
+    ? parsed.locations
+        .filter((c: { name?: string }) => c && typeof c.name === "string" && c.name.trim())
+        .map((c: { name: string; aliases?: string[] }) => ({
+          name: c.name.trim(),
+          aliases: Array.isArray(c.aliases) ? c.aliases.filter((a) => typeof a === "string" && a.trim()).map((a) => a.trim()) : [],
+        }))
+    : [];
+  return json({ locations });
+}
+
+async function doSuggestTags(apiKey: string, body: { chunk?: Chunk; existing?: string[] }) {
+  const text = (body.chunk?.body || "").trim();
+  if (!text) return json({ error: "No chunk text to read." }, 400);
+  const existing = (body.existing || []).filter(Boolean);
+  const system =
+    "You are a tagging assistant inside RABBIT HOLE, a book workbench. Tags are short labels (themes, " +
+    "motifs, tones, plot functions, recurring elements) an author uses to file scenes. Given one scene " +
+    "and the author's existing tag vocabulary, decide which EXISTING tags genuinely apply, and propose " +
+    "a few NEW tags worth adding. Strongly prefer reusing existing tags; only suggest new ones when " +
+    "nothing fits well. Tags are 1-3 words. Be selective — quality over quantity. Respond with ONLY a " +
+    `JSON object of the form {"assign":["EXISTING TAG"],"suggest":["NEW TAG"]}. No markdown, no commentary.`;
+  const user =
+    `EXISTING TAGS: ${existing.length ? existing.join(", ") : "(none yet)"}\n\n` +
+    `SCENE${body.chunk?.title ? `: ${body.chunk.title}` : ""}\n${body.chunk?.body || ""}`;
+  const raw = await callClaude(apiKey, { system, messages: [{ role: "user", content: user }], max_tokens: 400 });
+  const parsed = parseJsonObject(raw);
+  const norm = (arr: unknown) =>
+    Array.isArray(arr)
+      ? (arr as unknown[]).filter((s) => typeof s === "string" && (s as string).trim()).map((s) => (s as string).trim())
+      : [];
+  const existingLower = new Set(existing.map((s) => s.toLowerCase()));
+  const rawAssign = norm(parsed?.assign);
+  const rawSuggest = norm(parsed?.suggest);
+  // Keep `assign` strictly to existing tags; anything novel the model put there
+  // spills into `suggest` so it goes through the "create new" path.
+  const assign = rawAssign.filter((t) => existingLower.has(t.toLowerCase()));
+  const spill = rawAssign.filter((t) => !existingLower.has(t.toLowerCase()));
+  const seen = new Set<string>();
+  const suggest = [...rawSuggest, ...spill].filter((t) => {
+    const k = t.toLowerCase();
+    if (existingLower.has(k) || seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+  return json({ assign, suggest });
+}
+
 async function doSuggestIdeas(apiKey: string, body: { chunks?: Chunk[]; type?: string; genre?: string }) {
   const chunks = body.chunks || [];
   if (!chunks.length) return json({ error: "No chunk text to read." }, 400);
   const kind = [body.type, body.genre].filter(Boolean).join(" / ");
   const system =
     "You are a brainstorming partner inside RABBIT HOLE, a book workbench. Read the work " +
-    "so far and propose fresh, concrete ideas for what could happen next \u2014 scenes, beats, " +
+    "so far and propose fresh, concrete ideas for what could happen next — scenes, beats, " +
     "complications, reveals, or whole new sections the author could write. Each idea is one or two " +
     "sentences, specific to THIS story (reference its characters and situations), and distinct from " +
     "the others. " +
@@ -160,7 +248,7 @@ function joinChunks(chunks: Chunk[]): string {
     .join("\n\n");
 }
 
-function parseJsonObject(s: string): { characters?: unknown[]; ideas?: unknown[] } | null {
+function parseJsonObject(s: string): { characters?: unknown[]; locations?: unknown[]; ideas?: unknown[]; assign?: unknown[]; suggest?: unknown[] } | null {
   try {
     const start = s.indexOf("{");
     const end = s.lastIndexOf("}");

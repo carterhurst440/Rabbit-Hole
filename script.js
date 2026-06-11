@@ -362,15 +362,132 @@ function renderChunkCard(c) {
   return editingChunks.has(c.id) ? renderChunkCardEdit(c) : renderChunkCardDisplay(c);
 }
 
+// Is this character/location present in this chunk? Either the author explicitly
+// linked it, or its name/alias literally shows up (a live, non-dismissed mention).
+// "auto" flags the mention-only case so the editor can show it as detected.
+function chunkEntityPresence(K, chunk, ent) {
+  const linked = (chunk[K.link] || []).includes(ent.id);
+  const live = occurrencesOf(ent, chunk).some(o => !o.dismissed);
+  return { linked, live, on: linked || live, auto: live && !linked };
+}
+
+function entityChipsHTML(K, chunk) {
+  const coll = db[K.coll];
+  if (!coll.length) return `<span class="ci-count">no ${K.noun}s yet — add them in ${K.NOUNS}</span>`;
+  return coll.map(ent => {
+    const { on, auto } = chunkEntityPresence(K, chunk, ent);
+    return `<span class="char-chip ${on ? 'on' : ''} ${auto ? 'auto' : ''}" data-ent="${ent.id}" style="--cc:${ent.color || 'var(--accent)'}"${auto ? ' title="Auto-detected in this scene\u2019s text"' : ''}>${esc(ent.name)}${auto ? '<span class="chip-auto">auto</span>' : ''}</span>`;
+  }).join('');
+}
+
+// Toggling a chip flips the explicit link. A mention-only ("auto") chip stays on
+// after toggling off (it's still in the text) — that's what the references
+// workbench dismiss is for. Re-render in place so the auto/linked state stays honest.
+function wireEntityChips(container, K, chunk) {
+  container.querySelectorAll('.char-chip[data-ent]').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const id = chip.dataset.ent;
+      if (!Array.isArray(chunk[K.link])) chunk[K.link] = [];
+      const arr = chunk[K.link];
+      const i = arr.indexOf(id);
+      if (i >= 0) arr.splice(i, 1); else arr.push(id);
+      save();
+      const fresh = container.cloneNode(false);
+      fresh.innerHTML = entityChipsHTML(K, chunk);
+      container.replaceWith(fresh);
+      wireEntityChips(fresh, K, chunk);
+    });
+  });
+}
+
+function entityChipsField(K, chunk) {
+  return `<div class="meta-field" style="flex:1">${K.NOUNS} IN THIS CHUNK
+    <div class="char-chips" data-ent-kind="${K.noun}">${entityChipsHTML(K, chunk)}</div>
+  </div>`;
+}
+
+// Ask the model which existing tags fit this scene and what new tags to add,
+// then let the author confirm before applying.
+async function generateChunkTags(chunk, btn) {
+  if (!(chunk.body || '').trim()) { alertModal('Write some content first.', { title: 'GENERATE TAGS' }); return; }
+  const original = btn.textContent;
+  btn.disabled = true; btn.textContent = '✨ THINKING…';
+  try {
+    const result = await aiInvoke({
+      task: 'suggest_tags',
+      chunk: { title: chunk.title, body: chunk.body },
+      existing: db.labels.map(l => l.name)
+    });
+    btn.disabled = false; btn.textContent = original;
+    const assign = (result.assign || []).filter(Boolean);
+    const suggest = (result.suggest || []).filter(Boolean);
+    if (!assign.length && !suggest.length) { alertModal('No tags suggested for this scene.', { title: 'GENERATE TAGS' }); return; }
+    const chosen = await tagReviewModal(assign, suggest);
+    if (!chosen || !chosen.length) return;
+    if (!Array.isArray(chunk.labelIds)) chunk.labelIds = [];
+    chosen.forEach(name => {
+      const lab = ensureLabel(name);
+      if (lab && !chunk.labelIds.includes(lab.id)) chunk.labelIds.push(lab.id);
+    });
+    save(); renderSections();
+    if (modalChunkId === chunk.id) {
+      const lw = document.getElementById('chunkModalLabels');
+      if (lw) { lw.innerHTML = labelEditorHTML(chunk.labelIds || []); const le = lw.querySelector('.label-editor'); if (le) wireLabelEditor(le, chunk); }
+    }
+  } catch (err) {
+    btn.disabled = false; btn.textContent = original;
+    alertModal('Tag generation failed.\n\n' + (err.message || ''), { title: 'GENERATE TAGS' });
+  }
+}
+
+function tagReviewModal(assign, suggest) {
+  return new Promise(resolve => {
+    const rows = [
+      ...assign.map(n => ({ name: n, isNew: false })),
+      ...suggest.map(n => ({ name: n, isNew: true }))
+    ];
+    const overlay = document.createElement('div');
+    overlay.className = 'ui-modal-overlay';
+    overlay.innerHTML = `
+      <div class="ui-modal detect-modal">
+        <div class="ui-modal-title">SUGGESTED TAGS</div>
+        <div class="ui-modal-msg">Existing tags that fit, plus new ones to create. Uncheck any you don't want.</div>
+        <div class="detect-list">
+          ${rows.map((r, i) => `
+            <label class="detect-row">
+              <input type="checkbox" data-i="${i}" checked />
+              <span class="detect-name">${esc(r.name)}</span>
+              <span class="detect-aliases">${r.isNew ? 'new' : 'existing'}</span>
+            </label>`).join('')}
+        </div>
+        <div class="ui-modal-actions">
+          <button class="ui-modal-btn" data-act="cancel">Cancel</button>
+          <button class="ui-modal-btn solid" data-act="add">Apply selected</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    const close = val => { overlay.remove(); resolve(val); };
+    overlay.addEventListener('click', e => { if (e.target === overlay) close(null); });
+    overlay.querySelector('[data-act="cancel"]').addEventListener('click', () => close(null));
+    overlay.querySelector('[data-act="add"]').addEventListener('click', () => {
+      const picked = [...overlay.querySelectorAll('.detect-row input:checked')].map(inp => rows[+inp.dataset.i].name);
+      close(picked);
+    });
+  });
+}
+
 function renderChunkCardDisplay(c) {
   const expanded = expandedChunks.has(c.id);
   const words = (c.body || '').trim().split(/\s+/).filter(Boolean).length;
   const labelTags = (c.labelIds || []).map(id =>
     `<span class="tag" style="--lc:${labelColor(id)}">${esc(labelName(id))}</span>`).join('');
+  const charCount = db.characters.filter(ch => chunkEntityPresence(ENTITY_KINDS.character, c, ch).on).length;
+  const locCount = (db.locations || []).filter(l => chunkEntityPresence(ENTITY_KINDS.location, c, l).on).length;
   const meta = [
     `${words} ${words === 1 ? 'word' : 'words'}`,
     c.chronoLabel ? esc(c.chronoLabel) : '',
-    c.characterIds.length ? `${c.characterIds.length} char` : ''
+    charCount ? `${charCount} char` : '',
+    locCount ? `${locCount} loc` : ''
   ].filter(Boolean).join(' · ');
   const body = expanded
     ? `<div class="chunk-disp-body">${c.body ? highlightNames(c.body, characterTerms()) : '<span class="muted">(no content yet)</span>'}</div>`
@@ -395,10 +512,6 @@ function renderChunkCardDisplay(c) {
 }
 
 function renderChunkCardEdit(c) {
-  const chips = db.characters.map(ch =>
-    `<span class="char-chip ${c.characterIds.includes(ch.id) ? 'on' : ''}" data-char="${ch.id}" style="--cc:${ch.color || 'var(--accent)'}">${esc(ch.name)}</span>`
-  ).join('') || `<span class="ci-count">no characters yet — add them in CHARACTERS</span>`;
-
   return `
   <div class="chunk-card" data-id="${c.id}">
     <div class="chunk-card-head">
@@ -411,11 +524,15 @@ function renderChunkCardEdit(c) {
       <div class="meta-field">CHRONO LABEL
         <input data-f="chronoLabel" value="${esc(c.chronoLabel || '')}" placeholder="e.g. Day 3, 1991, before the fall" />
       </div>
-      <div class="meta-field" style="flex:1">CHARACTERS IN THIS CHUNK
-        <div class="char-chips">${chips}</div>
-      </div>
     </div>
-    <div class="meta-field" style="margin-top:10px">LABELS
+    <div class="chunk-meta">
+      ${entityChipsField(ENTITY_KINDS.character, c)}
+      ${entityChipsField(ENTITY_KINDS.location, c)}
+    </div>
+    <div class="meta-field" style="margin-top:10px">
+      <div class="meta-field-head">LABELS
+        <button class="add-btn" data-f="gentags" title="AI: suggest tags from this scene">✨ GENERATE TAGS</button>
+      </div>
       ${labelEditorHTML(c.labelIds || [])}
     </div>
   </div>`;
@@ -456,15 +573,12 @@ function wireChunkCard(card) {
     save(); renderSections();
   });
   card.querySelector('[data-f="del"]').addEventListener('click', del);
-  card.querySelectorAll('.char-chip[data-char]').forEach(chip => {
-    chip.addEventListener('click', () => {
-      const cid = chip.dataset.char;
-      const i = c.characterIds.indexOf(cid);
-      if (i >= 0) c.characterIds.splice(i, 1); else c.characterIds.push(cid);
-      chip.classList.toggle('on');
-      save();
-    });
+  card.querySelectorAll('.char-chips[data-ent-kind]').forEach(cont => {
+    const K = cont.dataset.entKind === 'location' ? ENTITY_KINDS.location : ENTITY_KINDS.character;
+    wireEntityChips(cont, K, c);
   });
+  const gt = card.querySelector('[data-f="gentags"]');
+  if (gt) gt.addEventListener('click', () => generateChunkTags(c, gt));
   const le = card.querySelector('.label-editor');
   if (le) wireLabelEditor(le, c);
 }
@@ -618,19 +732,21 @@ function openChunkModal(chunkId) {
   sel.innerHTML = db.chapters.map(ch =>
     `<option value="${ch.id}" ${ch.id === c.chapterId ? 'selected' : ''}>${esc(ch.title)}</option>`).join('');
 
-  const chips = document.getElementById('chunkModalChars');
-  chips.innerHTML = db.characters.map(ch =>
-    `<span class="char-chip ${c.characterIds.includes(ch.id) ? 'on' : ''}" data-char="${ch.id}" style="--cc:${ch.color || 'var(--accent)'}">${esc(ch.name)}</span>`
-  ).join('') || `<span class="ci-count">no characters yet</span>`;
-  chips.querySelectorAll('.char-chip[data-char]').forEach(chip => {
-    chip.onclick = () => {
-      const cid = chip.dataset.char;
-      const i = c.characterIds.indexOf(cid);
-      if (i >= 0) c.characterIds.splice(i, 1); else c.characterIds.push(cid);
-      chip.classList.toggle('on');
-      save();
-    };
-  });
+  const charChips = document.getElementById('chunkModalChars');
+  charChips.innerHTML = entityChipsHTML(ENTITY_KINDS.character, c);
+  wireEntityChips(charChips, ENTITY_KINDS.character, c);
+
+  const locChips = document.getElementById('chunkModalLocs');
+  locChips.innerHTML = entityChipsHTML(ENTITY_KINDS.location, c);
+  wireEntityChips(locChips, ENTITY_KINDS.location, c);
+
+  const labelsWrap = document.getElementById('chunkModalLabels');
+  labelsWrap.innerHTML = labelEditorHTML(c.labelIds || []);
+  const le = labelsWrap.querySelector('.label-editor');
+  if (le) wireLabelEditor(le, c);
+
+  const gt = document.getElementById('chunkModalGenTags');
+  gt.onclick = () => generateChunkTags(c, gt);
 
   document.getElementById('chunkModalOverlay').hidden = false;
 }
