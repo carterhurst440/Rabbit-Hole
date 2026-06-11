@@ -196,6 +196,8 @@ function renderHeaderMeta() {
 // transient UI state (not persisted): which chunks are expanded for read-only
 // preview in display mode. Editing always happens in the chunk modal.
 const expandedChunks = new Set();
+// which timeline rows are expanded to reveal tags/characters/locations + text
+const expandedTimeline = new Set();
 
 function chunksOf(chapterId) {
   return db.chunks
@@ -618,30 +620,46 @@ function drawTrack(elId, orderKey, filterChar, filterLabel) {
   const ordered = [...db.chunks].filter(isVisibleChunk).sort((a, b) => (a[orderKey] ?? 0) - (b[orderKey] ?? 0));
   if (!ordered.length) { track.innerHTML = `<div class="pane-empty">No chunks yet.</div>`; return; }
 
+  // Filter by presence (explicit link OR live mention), matching what's displayed.
+  const charEnt = filterChar ? db.characters.find(x => x.id === filterChar) : null;
+
   track.innerHTML = ordered.map((c, i) => {
-    const hideChar = filterChar && !c.characterIds.includes(filterChar);
+    const hideChar = charEnt && !chunkEntityPresence(ENTITY_KINDS.character, c, charEnt).on;
     const hideLabel = filterLabel && !(c.labelIds || []).includes(filterLabel);
     const dim = (hideChar || hideLabel) ? 'dim' : '';
     const arch = c.archived ? 'archived' : '';
     const label = orderKey === 'chronoOrder' && c.chronoLabel ? ` · ${esc(c.chronoLabel)}` : '';
     const color = chapterColor(c.chapterId);
+    const open = expandedTimeline.has(c.id);
     return `
-    <div class="tl-card ${dim} ${arch}" data-id="${c.id}" draggable="true" style="border-left:3px solid ${color}">
+    <div class="tl-card ${dim} ${arch} ${open ? 'is-expanded' : ''}" data-id="${c.id}" draggable="true" style="border-left:3px solid ${color}">
       <div class="tl-row">
         <span class="tl-grip" title="Drag to reorder">⠿</span>
         <span class="tl-idx">${i + 1}</span>
+        <button class="tl-chevron" data-f="toggle" title="${open ? 'Collapse' : 'Expand'}">${open ? '▾' : '▸'}</button>
         <span class="tl-name">${esc(c.title)}</span>
         ${c.archived ? '<span class="arch-badge">ARCHIVED</span>' : ''}
         <span class="tl-chap" style="color:${color}">${esc(chapterTitle(c.chapterId))}${label}</span>
       </div>
-      ${chunkCharLocLine(c)}
+      ${open ? `
+      <div class="tl-detail">
+        ${chunkSummaryHeader(c)}
+        <div class="tl-body">${c.body ? highlightNames(c.body, entityHighlightTerms()) : '<span class="muted">(no content yet)</span>'}</div>
+      </div>` : ''}
     </div>`;
   }).join('');
 
   track.querySelectorAll('.tl-card').forEach(card => {
-    card.addEventListener('click', e => {
-      if (e.target.classList.contains('tl-grip')) return;
-      openChunkModal(card.dataset.id);
+    const id = card.dataset.id;
+    card.querySelector('.tl-row').addEventListener('click', e => {
+      if (e.target.closest('[data-f="grip"]') || e.target.classList.contains('tl-grip')) return;
+      if (e.target.closest('[data-f="toggle"]')) {
+        e.stopPropagation();
+        if (expandedTimeline.has(id)) expandedTimeline.delete(id); else expandedTimeline.add(id);
+        renderTimelines();
+        return;
+      }
+      openChunkModal(id);
     });
   });
 

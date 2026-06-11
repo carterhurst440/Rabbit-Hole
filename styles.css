@@ -309,7 +309,6 @@ button, input, textarea, select { font-family: inherit; }
    and the tag breakdown — same accent-text styling as the chunk summary. */
 .chunk-charloc { display: flex; flex-direction: column; gap: 4px; }
 .chunk-charloc .cs-label { flex: 0 0 76px; }
-.tl-card .chunk-charloc { padding-left: 31px; }
 .chunk-card-head { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; }
 .chunk-title-input {
   flex: 1; background: var(--panel-2); border: 1px solid var(--line); color: var(--text-bright);
@@ -353,9 +352,10 @@ button, input, textarea, select { font-family: inherit; }
 .tl-track { display: flex; flex-direction: column; padding: 10px; gap: 8px; min-height: 120px; }
 .tl-card {
   background: var(--panel-2); border: 1px solid var(--line-2); padding: 10px 12px;
-  display: flex; flex-direction: column; align-items: stretch; gap: 7px; cursor: pointer;
+  display: flex; flex-direction: column; align-items: stretch; gap: 9px;
 }
-.tl-card .tl-row { display: flex; align-items: center; gap: 10px; }
+.tl-card .tl-row { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+.tl-card.is-expanded { border-color: var(--accent-mid); }
 .tl-card:hover { border-color: var(--accent-mid); }
 .tl-card.dim { opacity: 0.28; }
 .tl-card.dragging { opacity: 0.4; }
@@ -372,6 +372,20 @@ button, input, textarea, select { font-family: inherit; }
 .tl-card .tl-idx { font-size: 11px; color: var(--muted); width: 20px; }
 .tl-card .tl-name { flex: 1; font-size: 12px; color: var(--text-bright); }
 .tl-card .tl-chap { font-size: 10px; color: var(--muted); }
+.tl-chevron {
+  background: none; border: none; color: var(--muted); font-size: 10px;
+  cursor: pointer; padding: 2px 4px; line-height: 1;
+}
+.tl-chevron:hover { color: var(--accent); }
+.tl-detail {
+  display: flex; flex-direction: column; gap: 10px;
+  padding-left: 31px; border-top: 1px solid var(--line); padding-top: 9px;
+}
+.tl-body {
+  max-height: 220px; overflow-y: auto; white-space: pre-wrap;
+  font-size: 13px; line-height: 1.65; color: var(--text);
+  padding: 8px 10px; background: var(--panel); border: 1px solid var(--line);
+}
 
 /* ---------- MODAL ---------- */
 .modal-overlay {
