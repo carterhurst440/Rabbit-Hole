@@ -248,8 +248,8 @@ function renderChunkPane() {
     editingChunks.add(id);
     save(); renderSections();
   });
-  document.getElementById('delChapBtn').addEventListener('click', () => {
-    if (!confirm('Delete this chapter and its chunks?')) return;
+  document.getElementById('delChapBtn').addEventListener('click', async () => {
+    if (!await confirmModal('Delete this chapter and its chunks?')) return;
     db.chunks = db.chunks.filter(c => c.chapterId !== ch.id);
     db.chapters = db.chapters.filter(c => c.id !== ch.id);
     db.ui.activeChapter = db.chapters[0]?.id || null;
@@ -324,8 +324,8 @@ function wireChunkCard(card) {
   const c = db.chunks.find(x => x.id === id);
   if (!c) return;
 
-  const del = () => {
-    if (!confirm('Delete this chunk?')) return;
+  const del = async () => {
+    if (!await confirmModal('Delete this chunk?')) return;
     db.chunks = db.chunks.filter(x => x.id !== id);
     editingChunks.delete(id);
     save(); renderSections();
@@ -636,16 +636,16 @@ function renderCharPane() {
     c.aliases = e.target.value.split(',').map(s => s.trim()).filter(Boolean); save();
   });
   document.getElementById('charAliases').addEventListener('change', renderCharacters);
-  document.getElementById('delCharBtn').addEventListener('click', () => {
-    if (!confirm('Delete this character?')) return;
+  document.getElementById('delCharBtn').addEventListener('click', async () => {
+    if (!await confirmModal('Delete this character?')) return;
     db.chunks.forEach(ch => { ch.characterIds = ch.characterIds.filter(id => id !== c.id); });
     db.characters = db.characters.filter(x => x.id !== c.id);
     db.ui.activeChar = db.characters[0]?.id || null;
     save(); renderCharacters();
   });
   document.getElementById('genSummaryBtn').addEventListener('click', () => generateSummary(c));
-  document.getElementById('editSummaryBtn').addEventListener('click', () => {
-    const next = prompt('Character summary:', c.summary || '');
+  document.getElementById('editSummaryBtn').addEventListener('click', async () => {
+    const next = await promptModal('Character summary:', c.summary || '', { okText: 'Save' });
     if (next !== null) { c.summary = next; save(); renderCharPane(); }
   });
   document.getElementById('addNoteBtn').addEventListener('click', () => {
@@ -666,11 +666,12 @@ function renderCharPane() {
 function generateSummary(c) {
   const refs = refsFor(c);
   const context = refs.map(r => `[${chapterTitle(r.chapterId)}] ${r.title}\n${r.body}`).join('\n\n');
-  alert(
+  alertModal(
     `AI generation is not wired to an API yet.\n\n` +
     `When connected, RABBIT HOLE will send the ${refs.length} reference chunk(s) below ` +
     `for "${c.name}" to the model and write the summary here.\n\n` +
-    `Context length: ${context.length} chars.`
+    `Context length: ${context.length} chars.`,
+    { title: 'AI SUMMARY' }
   );
 }
 
@@ -744,8 +745,8 @@ function renderLabelPane() {
     const d = document.querySelector(`#labelList .chapter-item[data-id="${l.id}"] .ci-dot`);
     if (d) d.style.background = l.color;
   });
-  document.getElementById('delLabelBtn').addEventListener('click', () => {
-    if (!confirm('Delete this label? It will be removed from all chunks and ideas.')) return;
+  document.getElementById('delLabelBtn').addEventListener('click', async () => {
+    if (!await confirmModal('Delete this label? It will be removed from all chunks and ideas.')) return;
     db.chunks.forEach(c => { if (c.labelIds) c.labelIds = c.labelIds.filter(id => id !== l.id); });
     db.ideas.forEach(i => { if (i.labelIds) i.labelIds = i.labelIds.filter(id => id !== l.id); });
     db.labels = db.labels.filter(x => x.id !== l.id);
@@ -863,7 +864,7 @@ document.getElementById('importFile').addEventListener('change', e => {
   const reader = new FileReader();
   reader.onload = () => {
     try { db = JSON.parse(reader.result); save(); route(); }
-    catch { alert('Invalid JSON file.'); }
+    catch { alertModal('Invalid JSON file.', { title: 'IMPORT FAILED' }); }
   };
   reader.readAsText(file);
 });
@@ -873,6 +874,47 @@ function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, m =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
 }
+
+/* ---------------- modal dialogs (replace native prompt/confirm/alert) ---------------- */
+function uiModal({ title = '', message = '', input = false, defaultValue = '',
+                  okText = 'OK', cancelText = 'Cancel', danger = false }) {
+  return new Promise(resolve => {
+    const overlay = document.createElement('div');
+    overlay.className = 'ui-modal-overlay';
+    overlay.innerHTML = `
+      <div class="ui-modal" role="dialog" aria-modal="true">
+        ${title ? `<div class="ui-modal-title">${esc(title)}</div>` : ''}
+        ${message ? `<div class="ui-modal-msg">${esc(message)}</div>` : ''}
+        ${input ? `<input class="ui-modal-input" type="text" />` : ''}
+        <div class="ui-modal-actions">
+          ${cancelText ? `<button class="ui-modal-btn" data-act="cancel">${esc(cancelText)}</button>` : ''}
+          <button class="ui-modal-btn solid${danger ? ' danger' : ''}" data-act="ok">${esc(okText)}</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    const inputEl = overlay.querySelector('.ui-modal-input');
+    const cancelBtn = overlay.querySelector('[data-act="cancel"]');
+    const done = val => { document.removeEventListener('keydown', onKey); overlay.remove(); resolve(val); };
+    const onOk = () => done(input ? inputEl.value : true);
+    const onCancel = () => done(input ? null : false);
+    overlay.querySelector('[data-act="ok"]').addEventListener('click', onOk);
+    if (cancelBtn) cancelBtn.addEventListener('click', onCancel);
+    overlay.addEventListener('mousedown', e => { if (e.target === overlay) onCancel(); });
+    function onKey(e) {
+      if (e.key === 'Escape') { e.preventDefault(); onCancel(); }
+      else if (e.key === 'Enter') { e.preventDefault(); onOk(); }
+    }
+    document.addEventListener('keydown', onKey);
+    if (input) { inputEl.value = defaultValue; inputEl.focus(); inputEl.select(); }
+    else overlay.querySelector('[data-act="ok"]').focus();
+  });
+}
+const confirmModal = (message, opts = {}) =>
+  uiModal({ message, okText: 'Delete', danger: true, ...opts });
+const promptModal = (message, defaultValue = '', opts = {}) =>
+  uiModal({ message, input: true, defaultValue, ...opts });
+const alertModal = (message, opts = {}) =>
+  uiModal({ message, cancelText: '', ...opts });
 
 /* ---------------- AUTH ---------------- */
 const authScreen = document.getElementById('authScreen');
@@ -1138,8 +1180,8 @@ async function switchProject(id) {
 document.getElementById('projectSelect').addEventListener('change', e => switchProject(e.target.value));
 
 document.getElementById('newProjectBtn').addEventListener('click', async () => {
-  const name = prompt('New project name:', 'Untitled Book');
-  if (!name) return;
+  const name = await promptModal('New project name:', 'Untitled Book', { title: 'NEW PROJECT', okText: 'Create' });
+  if (!name || !name.trim()) return;
   await flushPersist();
   const proj = await createProjectRow(name.trim());
   await seedProjectContent(proj.id, null);
@@ -1152,8 +1194,8 @@ document.getElementById('newProjectBtn').addEventListener('click', async () => {
 document.getElementById('renameProjectBtn').addEventListener('click', async () => {
   if (!activeProjectId) return;
   const cur = projectsCache.find(p => p.id === activeProjectId);
-  const name = prompt('Rename project:', cur ? cur.name : '');
-  if (!name) return;
+  const name = await promptModal('Rename project:', cur ? cur.name : '', { title: 'RENAME PROJECT', okText: 'Save' });
+  if (!name || !name.trim()) return;
   await sb.from('projects').update({ name: name.trim() }).eq('id', activeProjectId);
   const projects = await fetchProjects();
   renderProjectSelector(projects, activeProjectId);
@@ -1161,7 +1203,7 @@ document.getElementById('renameProjectBtn').addEventListener('click', async () =
 
 document.getElementById('delProjectBtn').addEventListener('click', async () => {
   if (!activeProjectId) return;
-  if (!confirm('Delete this project and ALL its content? This cannot be undone.')) return;
+  if (!await confirmModal('Delete this project and ALL its content? This cannot be undone.')) return;
   const goneId = activeProjectId;
   await sb.from('projects').delete().eq('id', goneId);
   let projects = await fetchProjects();
