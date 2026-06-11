@@ -508,15 +508,20 @@ function renderChunkCardDisplay(c) {
   </div>`;
 }
 
+// Characters and locations get one uniform color each in summary chips, so the
+// two categories read at a glance regardless of each entity's own palette color.
+const CHAR_TAG_COLOR = '#e07ba6';
+const LOC_TAG_COLOR = '#8fbf72';
+
 // Header shown at the top of an expanded chunk: current tags, characters, and
 // locations attached to this scene (explicit links plus auto-detected mentions).
 function chunkSummaryHeader(c) {
   const tagChip = (label, color) => `<span class="tag" style="--lc:${color}">${esc(label)}</span>`;
   const tags = (c.labelIds || []).map(id => tagChip(labelName(id), labelColor(id))).join('');
   const chars = db.characters.filter(ch => chunkEntityPresence(ENTITY_KINDS.character, c, ch).on)
-    .map(ch => tagChip(ch.name, ch.color || 'var(--accent)')).join('');
+    .map(ch => tagChip(ch.name, CHAR_TAG_COLOR)).join('');
   const locs = (db.locations || []).filter(l => chunkEntityPresence(ENTITY_KINDS.location, c, l).on)
-    .map(l => tagChip(l.name, l.color || 'var(--accent)')).join('');
+    .map(l => tagChip(l.name, LOC_TAG_COLOR)).join('');
   const row = (label, chips) =>
     `<div class="cs-row"><span class="cs-label">${label}</span><span class="cs-vals">${chips || '<span class="cs-empty">—</span>'}</span></div>`;
   return `<div class="chunk-summary">
