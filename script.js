@@ -147,7 +147,7 @@ function wireLabelEditor(container, target) {
 }
 
 /* ---------------- ROUTING ---------------- */
-const ROUTES = ['home', 'sections', 'timelines', 'characters', 'locations', 'labels', 'ideas'];
+const ROUTES = ['home', 'sections', 'timelines', 'characters', 'locations', 'labels', 'ideas', 'community'];
 
 function currentRoute() {
   const h = location.hash.replace('#', '');
@@ -171,6 +171,7 @@ function route() {
   if (r === 'locations') renderLocations();
   if (r === 'labels') renderLabels();
   if (r === 'ideas') renderIdeas();
+  if (r === 'community') renderCommunity();
 }
 
 // Populate the account menu (profile card) from the signed-in user.
@@ -184,6 +185,227 @@ function renderSettings() {
   set('settingsAvatar', initials);
   set('settingsName', who);
   set('settingsEmail', currentUser.email);
+  const uInput = document.getElementById('usernameInput');
+  if (uInput && document.activeElement !== uInput) uInput.value = displayUsername();
+}
+
+// Save / change the community handle. Enforces a simple format and surfaces the
+// unique-constraint error if the handle is already taken.
+async function saveUsername() {
+  const input = document.getElementById('usernameInput');
+  const msg = document.getElementById('usernameMsg');
+  if (!input || !currentUser) return;
+  const setMsg = (t, ok) => { if (msg) { msg.textContent = t || ''; msg.classList.toggle('ok', !!ok); } };
+  const name = input.value.trim();
+  if (!/^[a-zA-Z0-9_]{3,24}$/.test(name)) {
+    setMsg('3–24 chars: letters, numbers, underscore.'); return;
+  }
+  setMsg('Saving…');
+  const { error } = await sb.from('profiles').update({ username: name }).eq('id', currentUser.id);
+  if (error) {
+    setMsg(error.code === '23505' ? 'That username is taken.' : 'Could not save.');
+    return;
+  }
+  if (currentProfile) currentProfile.username = name; else currentProfile = { username: name };
+  setMsg('Saved.', true);
+}
+
+/* =====================================================================
+   COMMUNITY — social feed of shared hops
+   ===================================================================== */
+let feedCache = [];
+
+function timeAgo(iso) {
+  const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
+  if (s < 60) return 'just now';
+  const m = s / 60; if (m < 60) return Math.floor(m) + 'm';
+  const h = m / 60; if (h < 24) return Math.floor(h) + 'h';
+  const d = h / 24; if (d < 7) return Math.floor(d) + 'd';
+  return new Date(iso).toLocaleDateString();
+}
+
+// Share a hop to the community feed: snapshots the hop + project so the post
+// stands alone even if the source hop later changes.
+function postToCommunityModal(chunk) {
+  const username = displayUsername();
+  if (!username) {
+    alertModal('Pick a username first — open your profile (top-right) and set a handle.', { title: 'POST TO COMMUNITY' });
+    return;
+  }
+  if (!(chunk.body || '').trim()) {
+    alertModal('This hop has no content to share yet.', { title: 'POST TO COMMUNITY' });
+    return;
+  }
+  const proj = projectsCache.find(p => p.id === activeProjectId) || {};
+  const projLine = [proj.name, proj.type, proj.genre].filter(Boolean).join(' · ');
+  const overlay = document.createElement('div');
+  overlay.className = 'ui-modal-overlay';
+  overlay.innerHTML = `
+    <div class="ui-modal">
+      <div class="ui-modal-title">POST TO COMMUNITY</div>
+      <div class="ui-modal-scroll">
+        <label class="post-field">
+          <span class="post-field-head">CONTEXT / ASK <span class="post-count" id="postCount">0/100</span></span>
+          <textarea id="postContext" maxlength="100" rows="3" placeholder="What feedback are you after? (optional)"></textarea>
+        </label>
+        <div class="post-preview">
+          <div class="post-preview-proj">${esc(projLine) || 'Untitled project'}</div>
+          ${chunk.title ? `<div class="post-preview-title">${esc(chunk.title)}</div>` : ''}
+          <div class="post-preview-body">${esc(chunk.body)}</div>
+        </div>
+      </div>
+      <div class="ui-modal-actions">
+        <button class="ui-modal-btn" data-act="cancel">Cancel</button>
+        <button class="ui-modal-btn solid" data-act="post">POST</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const ta = overlay.querySelector('#postContext');
+  const cnt = overlay.querySelector('#postCount');
+  ta.addEventListener('input', () => { cnt.textContent = ta.value.length + '/100'; });
+  const close = () => overlay.remove();
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  overlay.querySelector('[data-act="cancel"]').addEventListener('click', close);
+  overlay.querySelector('[data-act="post"]').addEventListener('click', async () => {
+    const btn = overlay.querySelector('[data-act="post"]');
+    btn.disabled = true; btn.textContent = 'POSTING…';
+    const { error } = await sb.from('community_posts').insert({
+      user_id: currentUser.id,
+      username,
+      hop_title: chunk.title || null,
+      hop_body: chunk.body || '',
+      context: ta.value.trim() || null,
+      project_name: proj.name || null,
+      project_type: proj.type || null,
+      project_genre: proj.genre || null
+    });
+    if (error) {
+      btn.disabled = false; btn.textContent = 'POST';
+      alertModal('Could not post.\n\n' + (error.message || ''), { title: 'POST' });
+      return;
+    }
+    close();
+    alertModal('Shared to the community.', { title: 'POSTED' });
+    if (currentRoute() === 'community') renderCommunity();
+  });
+}
+
+async function renderCommunity() {
+  const el = document.getElementById('communityFeed');
+  if (!el) return;
+  el.innerHTML = '<div class="feed-empty">Loading…</div>';
+  const { data: posts, error } = await sb.from('community_posts')
+    .select('*').order('created_at', { ascending: false }).limit(100);
+  if (error) { el.innerHTML = '<div class="feed-empty">Could not load the feed.</div>'; return; }
+  const ids = posts.map(p => p.id);
+  let likes = [], comments = [];
+  if (ids.length) {
+    const [lr, cr] = await Promise.all([
+      sb.from('community_likes').select('post_id, user_id').in('post_id', ids),
+      sb.from('community_comments').select('*').in('post_id', ids).order('created_at', { ascending: true })
+    ]);
+    likes = lr.data || []; comments = cr.data || [];
+  }
+  const me = currentUser && currentUser.id;
+  feedCache = posts.map(p => ({
+    ...p,
+    likeCount: likes.filter(l => l.post_id === p.id).length,
+    likedByMe: likes.some(l => l.post_id === p.id && l.user_id === me),
+    comments: comments.filter(c => c.post_id === p.id),
+    commentsOpen: false
+  }));
+  drawFeed();
+}
+
+function drawFeed() {
+  const el = document.getElementById('communityFeed');
+  if (!el) return;
+  if (!feedCache.length) {
+    el.innerHTML = '<div class="feed-empty">No posts yet. Share a hop from its menu.</div>';
+    return;
+  }
+  el.innerHTML = feedCache.map(feedCardHtml).join('');
+  feedCache.forEach(p => wireFeedCard(el.querySelector(`.feed-card[data-id="${p.id}"]`), p));
+}
+
+function feedCardHtml(p) {
+  const proj = [p.project_name, p.project_type, p.project_genre].filter(Boolean).join(' · ');
+  const mine = currentUser && p.user_id === currentUser.id;
+  const comments = p.comments.map(c =>
+    `<div class="feed-comment"><span class="feed-comment-user">@${esc(c.username)}</span> ${esc(c.body)}</div>`).join('');
+  return `
+  <article class="feed-card" data-id="${p.id}">
+    <div class="feed-head">
+      <span class="feed-user">@${esc(p.username)}</span>
+      <span class="feed-time">${timeAgo(p.created_at)}</span>
+    </div>
+    ${proj ? `<div class="feed-proj">${esc(proj)}</div>` : ''}
+    ${p.context ? `<div class="feed-context">${esc(p.context)}</div>` : ''}
+    <div class="feed-hop">
+      ${p.hop_title ? `<div class="feed-hop-title">${esc(p.hop_title)}</div>` : ''}
+      <div class="feed-hop-body">${esc(p.hop_body)}</div>
+    </div>
+    <div class="feed-actions">
+      <button class="feed-btn like ${p.likedByMe ? 'on' : ''}" data-f="like">♥ <span>${p.likeCount}</span></button>
+      <button class="feed-btn ${p.commentsOpen ? 'on' : ''}" data-f="comments">COMMENT <span>${p.comments.length}</span></button>
+      ${mine ? '<button class="feed-btn del" data-f="delpost">DELETE</button>' : ''}
+    </div>
+    <div class="feed-comments" ${p.commentsOpen ? '' : 'hidden'}>
+      ${comments}
+      <div class="feed-comment-add">
+        <input type="text" class="feed-comment-input" placeholder="Add a comment…" maxlength="280" />
+        <button class="add-btn feed-comment-send">SEND</button>
+      </div>
+    </div>
+  </article>`;
+}
+
+function wireFeedCard(card, p) {
+  if (!card) return;
+  card.querySelector('[data-f="like"]').addEventListener('click', () => toggleLike(p));
+  card.querySelector('[data-f="comments"]').addEventListener('click', () => {
+    p.commentsOpen = !p.commentsOpen; drawFeed();
+  });
+  const delBtn = card.querySelector('[data-f="delpost"]');
+  if (delBtn) delBtn.addEventListener('click', () => deletePost(p));
+  const input = card.querySelector('.feed-comment-input');
+  const send = card.querySelector('.feed-comment-send');
+  if (send) send.addEventListener('click', () => addComment(p, input));
+  if (input) input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); addComment(p, input); }
+  });
+}
+
+async function toggleLike(p) {
+  if (!currentUser) return;
+  if (p.likedByMe) {
+    p.likedByMe = false; p.likeCount = Math.max(0, p.likeCount - 1); drawFeed();
+    await sb.from('community_likes').delete().eq('post_id', p.id).eq('user_id', currentUser.id);
+  } else {
+    p.likedByMe = true; p.likeCount += 1; drawFeed();
+    await sb.from('community_likes').insert({ post_id: p.id, user_id: currentUser.id });
+  }
+}
+
+async function addComment(p, input) {
+  if (!currentUser || !input) return;
+  const body = input.value.trim();
+  if (!body) return;
+  const username = displayUsername();
+  if (!username) { alertModal('Set a username first to comment.', { title: 'COMMENT' }); return; }
+  input.value = '';
+  const { data, error } = await sb.from('community_comments')
+    .insert({ post_id: p.id, user_id: currentUser.id, username, body }).select().single();
+  if (error) { alertModal('Could not comment.', { title: 'COMMENT' }); return; }
+  p.comments.push(data); p.commentsOpen = true; drawFeed();
+}
+
+async function deletePost(p) {
+  if (!await confirmModal('Delete this post?')) return;
+  const { error } = await sb.from('community_posts').delete().eq('id', p.id);
+  if (error) { alertModal('Could not delete.', { title: 'DELETE' }); return; }
+  feedCache = feedCache.filter(x => x.id !== p.id);
+  drawFeed();
 }
 
 window.addEventListener('hashchange', route);
@@ -723,6 +945,7 @@ function renderChunkCardDisplay(c) {
       <span class="chunk-disp-meta">${meta}</span>
       <span class="chunk-disp-actions">
         <button class="add-btn hop-act" data-f="analyze" title="AI: analyze this hop">${hasAnalysis(c.analysis) ? '✨ VIEW ANALYSIS' : '✨ ANALYZE'}</button>
+        <button class="add-btn hop-act" data-f="post" title="Share this hop to the community">↗ POST</button>
         <button class="add-btn hop-act" data-f="archive">${c.archived ? 'UNARCHIVE' : 'ARCHIVE'}</button>
         <button class="add-btn hop-act" data-f="edit">EDIT</button>
         <button class="icon-btn hop-act" data-f="del" title="Delete hop">✕</button>
@@ -730,6 +953,7 @@ function renderChunkCardDisplay(c) {
           <summary title="Options">⋮</summary>
           <div class="hop-menu">
             <button class="add-btn" data-f="analyze">${hasAnalysis(c.analysis) ? '✨ VIEW ANALYSIS' : '✨ ANALYZE'}</button>
+            <button class="add-btn" data-f="post">↗ POST TO COMMUNITY</button>
             <button class="add-btn" data-f="archive">${c.archived ? 'UNARCHIVE' : 'ARCHIVE'}</button>
             <button class="add-btn" data-f="edit">EDIT</button>
             <button class="add-btn danger" data-f="del">DELETE</button>
@@ -808,6 +1032,11 @@ function wireChunkCard(card) {
     if (e.target.closest('[data-f="edit"]')) { e.stopPropagation(); openChunkModal(id); return; }
     if (e.target.closest('[data-f="analyze"]')) {
       e.stopPropagation(); analyzeChunk(c, e.target.closest('[data-f="analyze"]')); return;
+    }
+    if (e.target.closest('[data-f="post"]')) {
+      e.stopPropagation();
+      card.querySelector('.hop-kebab[open]')?.removeAttribute('open');
+      postToCommunityModal(c); return;
     }
     if (expandedChunks.has(id)) expandedChunks.delete(id); else expandedChunks.add(id);
     renderSections();
@@ -2070,7 +2299,13 @@ const authMsgEl  = document.getElementById('authMsg');
 const authSubmit = document.getElementById('authSubmit');
 let authMode = 'signin';
 let currentUser = null;
+let currentProfile = null;
 let booted = false;
+
+// The handle the user posts under in the community feed.
+function displayUsername() {
+  return (currentProfile && currentProfile.username) || '';
+}
 
 function authMsg(t) { authMsgEl.textContent = t || ''; }
 
@@ -2119,6 +2354,7 @@ async function bootApp() {
   booted = true;
   try {
     await ensureProfile();
+    await loadProfile();
     await initProjects();
   } catch (e) {
     console.error('boot failed', e);
@@ -2138,6 +2374,16 @@ async function ensureProfile() {
     email: currentUser.email,
   }, { onConflict: 'id', ignoreDuplicates: true });
   if (error) console.warn('ensureProfile failed', error);
+}
+
+// Pull the full profile row (incl. username) so the account card and the
+// community feed know what handle to post under.
+async function loadProfile() {
+  if (!currentUser) return;
+  const { data, error } = await sb.from('profiles').select('*').eq('id', currentUser.id).single();
+  if (error) { console.warn('loadProfile failed', error); return; }
+  currentProfile = data || null;
+  renderSettings();
 }
 
 /* =====================================================================
@@ -2772,6 +3018,12 @@ authForm.addEventListener('submit', async e => {
 
 document.getElementById('signOutBtn').addEventListener('click', async () => {
   await sb.auth.signOut();
+});
+
+document.getElementById('communityRefreshBtn').addEventListener('click', renderCommunity);
+document.getElementById('saveUsernameBtn').addEventListener('click', saveUsername);
+document.getElementById('usernameInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') { e.preventDefault(); saveUsername(); }
 });
 
 async function initAuth() {
