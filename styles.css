@@ -16,7 +16,7 @@
 }
 
 * { box-sizing: border-box; }
-html, body { margin: 0; padding: 0; }
+html, body { margin: 0; padding: 0; max-width: 100%; overflow-x: hidden; }
 body {
   background: var(--bg);
   color: var(--text);
@@ -756,9 +756,41 @@ body.locked .ai-overlay { display: none !important; }
   .header-add-hop { margin-right: 4px; }
   .header-project select { max-width: 120px; }
   .account-menu { width: min(280px, calc(100vw - 24px)); right: 12px; }
+
+  /* tighten the page gutters so nothing scrolls sideways */
+  .app-main { padding: 18px 14px 72px; }
+
+  /* keep view-head action buttons in flow instead of overlapping the text */
+  .view-head { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+  .view-head h1 { order: 0; }
+  .view-head .sub { order: 1; margin-bottom: 14px; }
+  .view-head .arch-toggle,
+  .view-head #suggestIdeasBtn { position: static; order: 2; margin: 0 0 16px; }
+
+  /* side rails (chapters / cast / places / tags) become a top chip bar */
+  .chapter-rail { border: 1px solid var(--line); }
+  .chapter-list { flex-direction: row; flex-wrap: wrap; gap: 6px; padding: 10px; }
+  .chapter-item {
+    width: auto; flex: 0 0 auto;
+    border: 1px solid var(--line-2); border-radius: 999px;
+    padding: 6px 11px; justify-content: flex-start;
+  }
+  .chapter-item:hover { background: var(--panel-2); }
+  .chapter-item.active {
+    border-color: var(--accent); border-left: 1px solid var(--accent);
+    background: var(--accent-dim);
+  }
+  .chapter-item .ci-title { flex: 0 1 auto; max-width: 46vw; }
+
+  /* timeline filters stack so the selects never overflow */
+  .timeline-controls { display: flex; flex-direction: column; gap: 10px; }
+  .timeline-controls label { width: 100%; }
+  .timeline-controls select { width: 100%; }
 }
 
 @media (max-width: 480px) {
   .brand { display: none; }
   .header-project select { max-width: 96px; }
+  /* one column everywhere so cards always fit the screen width */
+  .project-grid, .suggest-grid, .idea-grid { grid-template-columns: 1fr; }
 }
