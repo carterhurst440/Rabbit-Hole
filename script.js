@@ -1050,8 +1050,6 @@ function renderHeaderMeta() {
 // transient UI state (not persisted): which chunks are expanded for read-only
 // preview in display mode. Editing always happens in the chunk modal.
 const expandedChunks = new Set();
-// which timeline rows are expanded to reveal tags/characters/locations + text
-const expandedTimeline = new Set();
 
 function chunksOf(chapterId) {
   return db.chunks
@@ -1318,6 +1316,31 @@ async function generateChunkTags(chunk, btn) {
   } catch (err) {
     btn.disabled = false; btn.innerHTML = original;
     alertModal('Tag generation failed.\n\n' + (err.message || ''), { title: 'DETECT TAGS' });
+  }
+}
+
+// Draft body prose for a hop from its title. Reads the live editor fields so an
+// unsaved title counts; warns before overwriting existing body text.
+async function generateChunkBody(chunk, btn) {
+  const titleEl = document.getElementById('chunkModalTitle');
+  const bodyEl = document.getElementById('chunkModalBody');
+  const title = (titleEl ? titleEl.value : chunk.title || '').trim();
+  if (!title) { alertModal('Give the hop a title first — the body is generated from it.', { title: 'TITLE IT FIRST' }); return; }
+  if ((bodyEl ? bodyEl.value : chunk.body || '').trim() &&
+      !await confirmModal('This will replace the existing body text. Is that okay?', { title: 'REPLACE BODY', okText: 'Replace', danger: false })) return;
+  const original = btn.innerHTML;
+  btn.disabled = true; btn.innerHTML = AI_STAR + ' THINKING…';
+  try {
+    const proj = projectsCache.find(p => p.id === activeProjectId);
+    const { body: text } = await aiInvoke({ task: 'generate_body', kind: 'hop', title, type: proj?.type || '', genre: proj?.genre || '' });
+    btn.disabled = false; btn.innerHTML = original;
+    if (!text) { alertModal('No body text came back. Try again.', { title: 'GENERATE BODY' }); return; }
+    if (bodyEl) bodyEl.value = text;
+    chunk.body = text;
+    save(); markChunkDirty();
+  } catch (err) {
+    btn.disabled = false; btn.innerHTML = original;
+    alertModal('Body generation failed.\n\n' + (err.message || ''), { title: 'GENERATE BODY' });
   }
 }
 
@@ -1722,15 +1745,15 @@ window.addEventListener('scroll', () => {
     applyRailSearch(id === 'charSearch' ? ENTITY_KINDS.character : ENTITY_KINDS.location));
 });
 
-// Timelines axis toggle (mobile): chips switch which order column is shown.
+// Timelines mode chips: NARRATIVE TIMELINE (kanban by section) vs CHRONOLOGICAL
+// (horizontal running timeline). Switching re-renders the single stage.
+let timelineMode = 'narrative';
 document.querySelectorAll('#tlAxisTabs .tl-axis-tab').forEach(tab => {
   tab.addEventListener('click', () => {
-    const axis = tab.dataset.axis;
+    timelineMode = tab.dataset.mode;
     document.querySelectorAll('#tlAxisTabs .tl-axis-tab').forEach(t =>
       t.classList.toggle('active', t === tab));
-    const layout = document.getElementById('timelinesLayout');
-    layout.classList.toggle('show-narrative', axis === 'narrative');
-    layout.classList.toggle('show-chrono', axis === 'chrono');
+    renderTimelines();
   });
 });
 
@@ -1756,6 +1779,7 @@ document.querySelectorAll('[data-arch]').forEach(btn => {
    ===================================================================== */
 function chapterTitle(id) { return db.chapters.find(c => c.id === id)?.title || '—'; }
 
+let tlDragId = null;
 function renderTimelines() {
   // populate character filter
   const sel = document.getElementById('timelineCharFilter');
@@ -1775,111 +1799,186 @@ function renderTimelines() {
   lsel.onchange = renderTimelines;
   const filterLabel = lsel.value;
 
-  drawTrack('narrativeTrack', 'narrativeOrder', filterChar, filterLabel);
-  drawTrack('chronoTrack', 'chronoOrder', filterChar, filterLabel);
+  const stage = document.getElementById('timelineStage');
+  if (timelineMode === 'chrono') renderChronoTimeline(stage, filterChar, filterLabel);
+  else renderNarrativeTimeline(stage, filterChar, filterLabel);
 }
 
-function drawTrack(elId, orderKey, filterChar, filterLabel) {
-  const track = document.getElementById(elId);
-  const ordered = [...db.chunks].filter(isVisibleChunk).sort((a, b) => (a[orderKey] ?? 0) - (b[orderKey] ?? 0));
-  if (!ordered.length) { track.innerHTML = `<div class="pane-empty">No hops yet.</div>`; return; }
-
-  // Filter by presence (explicit link OR live mention), matching what's displayed.
+// Is this hop dimmed under the current filters? (presence = explicit link OR mention)
+function tlDimmed(c, filterChar, filterLabel) {
   const charEnt = filterChar ? db.characters.find(x => x.id === filterChar) : null;
+  const hideChar = charEnt && !chunkEntityPresence(ENTITY_KINDS.character, c, charEnt).on;
+  const hideLabel = filterLabel && !(c.labelIds || []).includes(filterLabel);
+  return hideChar || hideLabel;
+}
 
-  track.innerHTML = ordered.map((c, i) => {
-    const hideChar = charEnt && !chunkEntityPresence(ENTITY_KINDS.character, c, charEnt).on;
-    const hideLabel = filterLabel && !(c.labelIds || []).includes(filterLabel);
-    const dim = (hideChar || hideLabel) ? 'dim' : '';
-    const arch = c.archived ? 'archived' : '';
-    const label = orderKey === 'chronoOrder' && c.chronoLabel ? ` · ${esc(c.chronoLabel)}` : '';
-    const color = chapterColor(c.chapterId);
-    const open = expandedTimeline.has(c.id);
-    return `
-    <div class="tl-card ${dim} ${arch} ${open ? 'is-expanded' : ''}" data-id="${c.id}" draggable="true" style="border-left:3px solid ${color}">
-      <div class="tl-row">
-        <span class="tl-grip" title="Drag to reorder">⠿</span>
-        <span class="tl-idx">${i + 1}</span>
-        <button class="tl-chevron" data-f="toggle" title="${open ? 'Collapse' : 'Expand'}">${open ? '▾' : '▸'}</button>
-        <span class="tl-name">${esc(c.title)}</span>
+/* ---- NARRATIVE: kanban board, one swimlane per section (chapter) ---- */
+function renderNarrativeTimeline(stage, filterChar, filterLabel) {
+  const chapters = [...db.chapters].sort((a, b) => a.order - b.order);
+  if (!chapters.length) { stage.innerHTML = `<div class="pane-empty">Add a section to begin.</div>`; return; }
+
+  stage.innerHTML = `<div class="kanban tl-kanban">` + chapters.map(ch => {
+    const color = chapterColor(ch.id);
+    const hops = chunksOf(ch.id).filter(isVisibleChunk);
+    const cards = hops.map(c => {
+      const dim = tlDimmed(c, filterChar, filterLabel) ? 'dim' : '';
+      return `
+      <div class="tl-kanban-card ${dim} ${c.archived ? 'archived' : ''}" data-id="${c.id}" draggable="true" style="border-left:3px solid ${color}">
+        <span class="tl-kc-title">${esc(c.title || 'Untitled hop')}</span>
         ${c.archived ? '<span class="arch-badge">ARCHIVED</span>' : ''}
-        <span class="tl-chap" style="color:${color}">${esc(chapterTitle(c.chapterId))}${label}</span>
-      </div>
-      ${open ? `
-      <div class="tl-detail">
-        ${chunkSummaryHeader(c)}
-        <div class="tl-body">${c.body ? highlightNames(c.body, entityHighlightTerms()) : '<span class="muted">(no content yet)</span>'}</div>
-      </div>` : ''}
-    </div>`;
-  }).join('');
+      </div>`;
+    }).join('') || `<div class="lane-empty">Drop hops here</div>`;
+    return `
+      <div class="lane tl-lane" data-chapter="${ch.id}">
+        <div class="lane-head">
+          <span class="ci-dot" style="background:${color}"></span>
+          <span class="lane-title-static" style="color:${color}">${esc(ch.title)}</span>
+          <span class="lane-count">${hops.length}</span>
+        </div>
+        <div class="lane-cards tl-lane-cards" data-chapter="${ch.id}">${cards}</div>
+      </div>`;
+  }).join('') + `</div>`;
 
-  track.querySelectorAll('.tl-card').forEach(card => {
+  stage.querySelectorAll('.tl-kanban-card').forEach(card => {
     const id = card.dataset.id;
-    card.querySelector('.tl-row').addEventListener('click', e => {
-      if (e.target.closest('[data-f="grip"]') || e.target.classList.contains('tl-grip')) return;
-      if (e.target.closest('[data-f="toggle"]')) {
-        e.stopPropagation();
-        if (expandedTimeline.has(id)) expandedTimeline.delete(id); else expandedTimeline.add(id);
-        renderTimelines();
-        return;
-      }
-      openChunkModal(id);
-    });
-  });
-
-  enableDragReorder(track, orderKey);
-}
-
-/* ---- drag-and-drop reorder within a track ---- */
-function clearDropMarkers(track) {
-  track.querySelectorAll('.tl-card').forEach(c => c.classList.remove('drop-before', 'drop-after'));
-}
-
-function dragAfterElement(track, y) {
-  const cards = [...track.querySelectorAll('.tl-card:not(.dragging)')];
-  return cards.reduce((closest, child) => {
-    const box = child.getBoundingClientRect();
-    const offset = y - box.top - box.height / 2;
-    if (offset < 0 && offset > closest.offset) return { offset, element: child };
-    return closest;
-  }, { offset: -Infinity, element: null }).element;
-}
-
-function enableDragReorder(track, orderKey) {
-  let draggingId = null;
-
-  track.querySelectorAll('.tl-card').forEach(card => {
+    card.addEventListener('click', () => { if (!card.classList.contains('dragging')) openChunkModal(id); });
     card.addEventListener('dragstart', e => {
-      draggingId = card.dataset.id;
+      tlDragId = id;
       e.dataTransfer.effectAllowed = 'move';
-      e.dataTransfer.setData('text/plain', draggingId);
+      e.dataTransfer.setData('text/plain', id);
       requestAnimationFrame(() => card.classList.add('dragging'));
     });
     card.addEventListener('dragend', () => {
       card.classList.remove('dragging');
-      clearDropMarkers(track);
-      draggingId = null;
+      clearTlLaneMarkers();
+      tlDragId = null;
     });
   });
+  stage.querySelectorAll('.tl-lane-cards').forEach(wireTlLaneDnD);
+}
 
-  // assigned (not addEventListener) so re-renders don't stack duplicate handlers
-  track.ondragover = e => {
+function clearTlLaneMarkers() {
+  document.querySelectorAll('.tl-kanban-card.drop-before, .tl-kanban-card.drop-after')
+    .forEach(c => c.classList.remove('drop-before', 'drop-after'));
+  document.querySelectorAll('.tl-lane-cards.drop-into').forEach(c => c.classList.remove('drop-into'));
+}
+function tlLaneDragAfter(container, y) {
+  const cards = [...container.querySelectorAll('.tl-kanban-card:not(.dragging)')];
+  for (const c of cards) {
+    const r = c.getBoundingClientRect();
+    if (y < r.top + r.height / 2) return c;
+  }
+  return null;
+}
+function wireTlLaneDnD(container) {
+  container.addEventListener('dragover', e => {
+    if (!tlDragId) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
-    clearDropMarkers(track);
-    const after = dragAfterElement(track, e.clientY);
+    clearTlLaneMarkers();
+    const after = tlLaneDragAfter(container, e.clientY);
     if (after) after.classList.add('drop-before');
     else {
-      const cards = track.querySelectorAll('.tl-card:not(.dragging)');
+      const cards = container.querySelectorAll('.tl-kanban-card:not(.dragging)');
       if (cards.length) cards[cards.length - 1].classList.add('drop-after');
+      else container.classList.add('drop-into');
+    }
+  });
+  container.addEventListener('drop', e => {
+    if (!tlDragId) return;
+    e.preventDefault();
+    const id = e.dataTransfer.getData('text/plain') || tlDragId;
+    const after = tlLaneDragAfter(container, e.clientY);
+    clearTlLaneMarkers();
+    moveChunkToChapter(id, container.dataset.chapter, after ? after.dataset.id : null);
+  });
+}
+// Move a hop into `chapterId`, positioned before `beforeId` (end if null), then
+// renumber orderInChapter across that section.
+function moveChunkToChapter(chunkId, chapterId, beforeId) {
+  const ch = db.chunks.find(c => c.id === chunkId);
+  if (!ch || chunkId === beforeId) return;
+  ch.chapterId = chapterId;
+  const ordered = chunksOf(chapterId).filter(c => c.id !== chunkId);
+  let idx = beforeId ? ordered.findIndex(c => c.id === beforeId) : ordered.length;
+  if (idx < 0) idx = ordered.length;
+  ordered.splice(idx, 0, ch);
+  ordered.forEach((c, i) => c.orderInChapter = i);
+  save();
+  renderTimelines();
+}
+
+/* ---- CHRONOLOGICAL: horizontal running timeline, cards above/below the axis ---- */
+function renderChronoTimeline(stage, filterChar, filterLabel) {
+  const ordered = [...db.chunks].filter(isVisibleChunk).sort((a, b) => (a.chronoOrder ?? 0) - (b.chronoOrder ?? 0));
+  if (!ordered.length) { stage.innerHTML = `<div class="pane-empty">No hops yet.</div>`; return; }
+
+  stage.innerHTML = `<div class="chrono-wrap"><div class="chrono-track">` + ordered.map((c, i) => {
+    const dim = tlDimmed(c, filterChar, filterLabel) ? 'dim' : '';
+    const color = chapterColor(c.chapterId);
+    const side = i % 2 === 0 ? 'top' : 'bottom';
+    return `
+      <div class="chrono-item ${side} ${dim} ${c.archived ? 'archived' : ''}" data-id="${c.id}" draggable="true">
+        <div class="chrono-card" style="border-color:${color}">
+          <span class="chrono-card-title">${esc(c.title || 'Untitled hop')}</span>
+          ${c.chronoLabel ? `<span class="chrono-card-label">${esc(c.chronoLabel)}</span>` : ''}
+        </div>
+        <span class="chrono-stem" style="background:${color}"></span>
+        <span class="chrono-dot" style="background:${color}"></span>
+      </div>`;
+  }).join('') + `</div></div>`;
+
+  const track = stage.querySelector('.chrono-track');
+  stage.querySelectorAll('.chrono-item').forEach(item => {
+    const id = item.dataset.id;
+    item.querySelector('.chrono-card').addEventListener('click', () => {
+      if (!item.classList.contains('dragging')) openChunkModal(id);
+    });
+    item.addEventListener('dragstart', e => {
+      tlDragId = id;
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', id);
+      requestAnimationFrame(() => item.classList.add('dragging'));
+    });
+    item.addEventListener('dragend', () => {
+      item.classList.remove('dragging');
+      clearChronoMarkers(track);
+      tlDragId = null;
+    });
+  });
+  wireChronoDnD(track);
+}
+function clearChronoMarkers(track) {
+  track.querySelectorAll('.chrono-item').forEach(c => c.classList.remove('drop-before', 'drop-after'));
+}
+function chronoDragAfter(track, x) {
+  const items = [...track.querySelectorAll('.chrono-item:not(.dragging)')];
+  for (const c of items) {
+    const r = c.getBoundingClientRect();
+    if (x < r.left + r.width / 2) return c;
+  }
+  return null;
+}
+function wireChronoDnD(track) {
+  track.ondragover = e => {
+    if (!tlDragId) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    clearChronoMarkers(track);
+    const after = chronoDragAfter(track, e.clientX);
+    if (after) after.classList.add('drop-before');
+    else {
+      const items = track.querySelectorAll('.chrono-item:not(.dragging)');
+      if (items.length) items[items.length - 1].classList.add('drop-after');
     }
   };
   track.ondrop = e => {
+    if (!tlDragId) return;
     e.preventDefault();
-    const id = e.dataTransfer.getData('text/plain') || draggingId;
-    const after = dragAfterElement(track, e.clientY);
-    clearDropMarkers(track);
-    if (id) reorderChunk(orderKey, id, after ? after.dataset.id : null);
+    const id = e.dataTransfer.getData('text/plain') || tlDragId;
+    const after = chronoDragAfter(track, e.clientX);
+    clearChronoMarkers(track);
+    if (id) reorderChunk('chronoOrder', id, after ? after.dataset.id : null);
   };
 }
 
@@ -1944,6 +2043,9 @@ function openChunkModal(chunkId) {
 
   const gt = document.getElementById('chunkModalGenTags');
   gt.onclick = () => generateChunkTags(c, gt);
+
+  const gb = document.getElementById('chunkModalGenBody');
+  if (gb) gb.onclick = () => generateChunkBody(c, gb);
 
   const dc = document.getElementById('chunkDetectChars');
   dc.onclick = () => detectChunkEntities(ENTITY_KINDS.character, c, dc);
@@ -3172,7 +3274,10 @@ function ideaEditModal(idea) {
         <input class="ie-name" type="text" maxlength="120" placeholder="Idea name…" />
       </div>
       <div class="ie-field">
-        <span class="ie-label">BODY</span>
+        <div class="ie-label-row">
+          <span class="ie-label">BODY</span>
+          <button class="ie-gen" data-act="genbody"><span class="ai-star">✦</span> GENERATE BODY</button>
+        </div>
         <textarea class="ie-body" rows="7" placeholder="Flesh it out…"></textarea>
       </div>
       <div class="ie-field">
@@ -3231,6 +3336,26 @@ function ideaEditModal(idea) {
     } finally {
       genBtn.disabled = false;
       genBtn.innerHTML = prev;
+    }
+  });
+
+  const genBodyBtn = overlay.querySelector('[data-act="genbody"]');
+  genBodyBtn.addEventListener('click', async () => {
+    const title = nameInput.value.trim();
+    if (!title) { alertModal('Give the idea a name first — the body is generated from it.', { title: 'NAME IT FIRST' }); return; }
+    if (bodyInput.value.trim() && !await confirmModal('This will replace the existing body text. Is that okay?', { title: 'REPLACE BODY', okText: 'Replace', danger: false })) return;
+    genBodyBtn.disabled = true;
+    const prev = genBodyBtn.innerHTML;
+    genBodyBtn.innerHTML = `<span class="ai-star spin">✦</span> …`;
+    try {
+      const proj = projectsCache.find(p => p.id === activeProjectId);
+      const { body: text } = await aiInvoke({ task: 'generate_body', kind: 'idea', title, type: proj?.type || '', genre: proj?.genre || '' });
+      if (text) bodyInput.value = text;
+    } catch (err) {
+      alertModal(err.message || 'Could not generate body text.', { title: 'GENERATE FAILED' });
+    } finally {
+      genBodyBtn.disabled = false;
+      genBodyBtn.innerHTML = prev;
     }
   });
 

@@ -13,6 +13,7 @@
 //   suggest_tags      { chunk, existing }              -> { assign: [string], suggest: [string] }
 //   suggest_ideas     { chunks, type, genre }          -> { ideas: [string] }
 //   idea_title        { body }                          -> { title: string }
+//   generate_body     { title, kind, type, genre }      -> { body: string }
 //   suggest_chunks    { chunks, type, genre, chapters, characters, locations }
 //                                                      -> { chunks: [{ title, chapter, description }] }
 //   analyze_chunk     { chunk, context, type, genre, characters, locations }
@@ -50,6 +51,7 @@ Deno.serve(async (req) => {
     if (task === "suggest_tags") return await doSuggestTags(apiKey, body);
     if (task === "suggest_ideas") return await doSuggestIdeas(apiKey, body);
     if (task === "idea_title") return await doIdeaTitle(apiKey, body);
+    if (task === "generate_body") return await doGenerateBody(apiKey, body);
     if (task === "suggest_chunks") return await doSuggestChunks(apiKey, body);
     if (task === "analyze_chunk") return await doAnalyzeChunk(apiKey, body);
     return json({ error: `Unknown task: ${task}` }, 400);
@@ -327,6 +329,28 @@ async function doIdeaTitle(apiKey: string, body: { body?: string }) {
   return json({ title });
 }
 
+async function doGenerateBody(
+  apiKey: string,
+  body: { title?: string; kind?: string; type?: string; genre?: string },
+) {
+  const title = (body.title || "").trim();
+  if (!title) return json({ error: "Add a title first — the body is generated from it." }, 400);
+  const kind = body.kind === "hop" ? "hop" : "idea";
+  const flavor = [body.type, body.genre].filter(Boolean).join(" / ");
+  const system = kind === "hop"
+    ? "You are a drafting partner inside RABBIT HOLE, a book workbench. The author gives you the TITLE of a single hop (a scene or beat). Draft a short opening passage of prose for that hop — 2 to 4 paragraphs that bring the moment to life and give the author something to react to and revise. Write in immersive prose, not an outline or bullet points. No preamble, no title line, no commentary. " +
+      (flavor ? `The book is ${flavor}. ` : "") +
+      `Respond with ONLY a JSON object of the form {"body":"..."}. Use \\n for line breaks. No markdown, no commentary.`
+    : "You are a brainstorming partner inside RABBIT HOLE, a book workbench. The author gives you the TITLE of a single backlog idea. Flesh it out into a vivid 2 to 4 sentence description that expands on what the idea is, why it matters, and where it could go. Concrete and evocative, not generic. No preamble, no title line, no commentary. " +
+      (flavor ? `The book is ${flavor}. ` : "") +
+      `Respond with ONLY a JSON object of the form {"body":"..."}. Use \\n for line breaks. No markdown, no commentary.`;
+  const raw = await callClaude(apiKey, { system, messages: [{ role: "user", content: `TITLE:\n${title}` }], max_tokens: kind === "hop" ? 900 : 320 });
+  const parsed = parseJsonObject(raw);
+  let text = typeof parsed?.body === "string" ? parsed.body.trim() : "";
+  if (!text) return json({ error: "Could not generate body text." }, 502);
+  return json({ body: text });
+}
+
 async function doSuggestChunks(
   apiKey: string,
   body: { chunks?: Chunk[]; type?: string; genre?: string; chapters?: string[]; characters?: string[]; locations?: string[] },
@@ -445,7 +469,7 @@ function joinChunks(chunks: Chunk[]): string {
     .join("\n\n");
 }
 
-function parseJsonObject(s: string): { characters?: unknown[]; locations?: unknown[]; ideas?: unknown[]; assign?: unknown[]; suggest?: unknown[]; chunks?: unknown[]; strengths?: unknown[]; suggestions?: unknown[]; arc?: unknown[]; principles?: unknown[]; title?: unknown } | null {
+function parseJsonObject(s: string): { characters?: unknown[]; locations?: unknown[]; ideas?: unknown[]; assign?: unknown[]; suggest?: unknown[]; chunks?: unknown[]; strengths?: unknown[]; suggestions?: unknown[]; arc?: unknown[]; principles?: unknown[]; title?: unknown; body?: unknown } | null {
   try {
     const start = s.indexOf("{");
     const end = s.lastIndexOf("}");
