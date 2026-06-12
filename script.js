@@ -900,14 +900,14 @@ function addHopGlobal() {
   const chapterId = (db.ui.activeChapter && db.chapters.some(c => c.id === db.ui.activeChapter))
     ? db.ui.activeChapter : db.chapters[0].id;
   const id = uid();
-  db.chunks.push({
+  // Held as a draft — only committed to the project when SAVE is clicked.
+  draftChunk = {
     id, chapterId, title: '', body: '',
     orderInChapter: chunksOf(chapterId).length,
     narrativeOrder: db.chunks.length,
     chronoOrder: db.chunks.length,
     chronoLabel: '', characterIds: [], locationIds: [], labelIds: []
-  });
-  save(); recordWritingActivity();
+  };
   openChunkModal(id);
 }
 document.getElementById('addHopBtn').addEventListener('click', addHopGlobal);
@@ -994,7 +994,8 @@ function renderChunkPane() {
   });
   document.getElementById('addChunkBtn').addEventListener('click', () => {
     const id = uid();
-    db.chunks.push({
+    // Held as a draft — only committed to the project when SAVE is clicked.
+    draftChunk = {
       id, chapterId: ch.id, title: '', body: '',
       orderInChapter: chunksOf(ch.id).length,
       narrativeOrder: db.chunks.length,
@@ -1003,9 +1004,7 @@ function renderChunkPane() {
       characterIds: [],
       locationIds: [],
       labelIds: []
-    });
-    save(); renderSections();
-    recordWritingActivity();
+    };
     openChunkModal(id);
   });
   document.getElementById('delChapBtn').addEventListener('click', async () => {
@@ -1730,9 +1729,15 @@ function enableDragReorder(track, orderKey) {
 
 /* ---- chunk edit modal (opened from timeline cards) ---- */
 let modalChunkId = null;
+// A freshly-added hop lives here until the author clicks SAVE. It is NOT in
+// db.chunks, so closing/cancelling the modal discards it without a trace.
+let draftChunk = null;
+function resolveChunk(id) {
+  return db.chunks.find(x => x.id === id) || (draftChunk && draftChunk.id === id ? draftChunk : null);
+}
 
 function openChunkModal(chunkId) {
-  const c = db.chunks.find(x => x.id === chunkId);
+  const c = resolveChunk(chunkId);
   if (!c) return;
   modalChunkId = chunkId;
 
@@ -1772,7 +1777,15 @@ function openChunkModal(chunkId) {
 
   const sv = document.getElementById('chunkModalSave');
   sv.onclick = () => {
-    save();
+    // First SAVE on a fresh hop commits the draft into the project; later
+    // SAVEs just flush the autosaved edits.
+    if (draftChunk && modalChunkId === draftChunk.id) {
+      db.chunks.push(draftChunk);
+      draftChunk = null;
+      save(); recordWritingActivity();
+    } else {
+      save();
+    }
     const prev = sv.textContent;
     sv.textContent = '✓ SAVED';
     sv.disabled = true;
@@ -1804,6 +1817,8 @@ function refreshModalEntityChips(K, c) {
 }
 
 function closeChunkModal() {
+  // Closing via X / overlay / Escape discards an uncommitted new hop.
+  if (draftChunk && modalChunkId === draftChunk.id) draftChunk = null;
   document.getElementById('chunkModalOverlay').hidden = true;
   modalChunkId = null;
   rerenderActiveView();
@@ -1823,7 +1838,7 @@ function rerenderActiveView() {
 }
 
 (function wireChunkModal() {
-  const cur = () => db.chunks.find(x => x.id === modalChunkId);
+  const cur = () => resolveChunk(modalChunkId);
   document.getElementById('chunkModalTitle').addEventListener('input', e => { const c = cur(); if (c) { c.title = e.target.value; save(); } });
   document.getElementById('chunkModalBody').addEventListener('input', e => { const c = cur(); if (c) { c.body = e.target.value; save(); } });
   document.getElementById('chunkModalChrono').addEventListener('input', e => { const c = cur(); if (c) { c.chronoLabel = e.target.value; save(); } });
