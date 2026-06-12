@@ -84,6 +84,7 @@ let db = seed();
 let activeProjectId = null;
 let projectsCache = [];
 let writingDaysCache = new Map();
+let dayStatsCache = new Map();   // day key -> { hops, words }, for heatmap tooltips
 
 // Pull any legacy localStorage data so it can become the user's first project.
 function importableLocalData() {
@@ -908,6 +909,20 @@ async function userProfileModal(userId, username) {
     .map(p => [p.project_name, { name: p.project_name, meta: [p.project_type, p.project_genre].filter(Boolean).join(' · ') }]))
     .values()];
 
+  // Hop streak — live for yourself, published value (if still standing) for others.
+  let streakVal = 0;
+  if (isSelf) {
+    streakVal = computeStreak(writingDaysCache);
+  } else {
+    const { data: sd } = await sb.from('community_stats')
+      .select('hop_streak, streak_day').eq('user_id', userId).maybeSingle();
+    if (sd && sd.streak_day) {
+      const today = localDayKey();
+      const yd = new Date(); yd.setDate(yd.getDate() - 1);
+      if (sd.streak_day === today || sd.streak_day === localDayKey(yd)) streakVal = sd.hop_streak || 0;
+    }
+  }
+
   function fluffleBtnHtml() {
     if (isSelf) return '';
     const inFluffle = myFluffle.has(userId);
@@ -918,6 +933,7 @@ async function userProfileModal(userId, username) {
     scroll.innerHTML = `
       <div class="up-head">
         <div class="up-stats">
+          <span class="up-streak" title="Consecutive days with a new hop">${RABBIT_ICON}<strong>${streakVal}</strong> hop streak</span>
           <span><strong>${posts.length}</strong> posts</span>
           <span><strong>${projects.length}</strong> projects</span>
           <span><strong>${likeTotal}</strong> ♥</span>
@@ -3392,6 +3408,46 @@ async function fetchWritingDays() {
   writingDaysCache = new Map((data || []).map(r => [r.day, r.count || 0]));
 }
 
+// Per-day hop + word totals (across all the user's projects) for heatmap tooltips.
+async function fetchDayStats() {
+  if (!currentUser) return;
+  const { data, error } = await sb.from('chunks').select('created_at, body');
+  if (error) { console.warn('day stats fetch failed', error); return; }
+  const m = new Map();
+  for (const r of (data || [])) {
+    if (!r.created_at) continue;
+    const key = localDayKey(new Date(r.created_at));
+    const words = (r.body || '').trim().split(/\s+/).filter(Boolean).length;
+    const cur = m.get(key) || { hops: 0, words: 0 };
+    cur.hops += 1; cur.words += words;
+    m.set(key, cur);
+  }
+  dayStatsCache = m;
+}
+
+// The most recent day the streak is still standing on (today or yesterday), or null.
+function lastWritingDay() {
+  const today = localDayKey();
+  if (writingDaysCache.has(today)) return today;
+  const y = new Date(); y.setDate(y.getDate() - 1);
+  const yk = localDayKey(y);
+  if (writingDaysCache.has(yk)) return yk;
+  return null;
+}
+
+// Publish the current user's hop streak so it shows on their community profile.
+async function syncStreakStat() {
+  if (!currentUser) return;
+  const { error } = await sb.from('community_stats').upsert({
+    user_id: currentUser.id,
+    username: (currentProfile && currentProfile.username) || null,
+    hop_streak: computeStreak(writingDaysCache),
+    streak_day: lastWritingDay(),
+    updated_at: new Date().toISOString()
+  }, { onConflict: 'user_id' });
+  if (error) console.warn('streak sync failed', error);
+}
+
 // Record one writing action (chunk or idea added) on today, account-wide.
 // Bumps the per-day count so the heat map can shade by activity volume.
 async function recordWritingActivity() {
@@ -3405,6 +3461,7 @@ async function recordWritingActivity() {
     writingDaysCache.set(today, data);
     renderHome();
   }
+  syncStreakStat();
 }
 
 // Consecutive days ending today (or yesterday if today not yet written).
@@ -3590,6 +3647,8 @@ function renderProjectSelector(projects, activeId) {
 
 async function initProjects() {
   await fetchWritingDays();
+  await fetchDayStats();
+  syncStreakStat();
   let projects = await fetchProjects();
   if (!projects.length) {
     const proj = await createProjectRow('My Book');
@@ -3689,8 +3748,10 @@ function renderHeatmap() {
       const n = writingDaysCache.get(key) || 0;
       const lvl = heatLevel(n);
       const isToday = key === todayKey;
-      const noun = n === 1 ? 'add' : 'adds';
-      cells.push(`<span class="hm-cell l${lvl}${isToday ? ' today' : ''}" title="${key}: ${n} ${noun}"></span>`);
+      const st = dayStatsCache.get(key);
+      const hops = st ? st.hops : n;
+      const words = st ? st.words : 0;
+      cells.push(`<span class="hm-cell l${lvl}${isToday ? ' today' : ''}" data-date="${key}" data-hops="${hops}" data-words="${words}"></span>`);
     }
   }
   const legend = [0, 1, 2, 3, 4].map(l => `<span class="hm-cell l${l}"></span>`).join('');
@@ -3707,6 +3768,49 @@ function renderHeatmap() {
   const scroller = el.querySelector('.hm-scroll');
   if (scroller) scroller.scrollLeft = scroller.scrollWidth;
 }
+
+/* ---- HOME: heatmap hover tooltip (day stats) ---- */
+let _hmTip = null;
+function ensureHeatTip() {
+  if (_hmTip) return _hmTip;
+  _hmTip = document.createElement('div');
+  _hmTip.className = 'hm-tip';
+  _hmTip.hidden = true;
+  document.body.appendChild(_hmTip);
+  return _hmTip;
+}
+function prettyDay(key) {
+  const [y, m, d] = key.split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+}
+function showHeatTip(cell) {
+  const date = cell.getAttribute('data-date');
+  if (!date) return;
+  const tip = ensureHeatTip();
+  const hops = +cell.getAttribute('data-hops') || 0;
+  const words = +cell.getAttribute('data-words') || 0;
+  const hn = hops === 1 ? 'hop' : 'hops';
+  const wn = words === 1 ? 'word' : 'words';
+  tip.innerHTML =
+    `<span class="hm-tip-date">${prettyDay(date)}</span>` +
+    `<span class="hm-tip-stat">${hops} ${hn} · ${words.toLocaleString()} ${wn}</span>`;
+  tip.hidden = false;
+  const r = cell.getBoundingClientRect();
+  const tr = tip.getBoundingClientRect();
+  let left = r.left + r.width / 2 - tr.width / 2;
+  left = Math.max(8, Math.min(left, window.innerWidth - tr.width - 8));
+  let top = r.top - tr.height - 8;
+  if (top < 8) top = r.bottom + 8;
+  tip.style.left = left + 'px';
+  tip.style.top = top + 'px';
+}
+document.addEventListener('mouseover', e => {
+  const cell = e.target.closest && e.target.closest('.hm-cell[data-date]');
+  if (cell) showHeatTip(cell);
+});
+document.addEventListener('mouseout', e => {
+  if (_hmTip && e.target.closest && e.target.closest('.hm-cell[data-date]')) _hmTip.hidden = true;
+});
 
 /* ---- HOME: project cards ---- */
 // Replay the staggered "style into place" reveal of the home blocks. Restarting

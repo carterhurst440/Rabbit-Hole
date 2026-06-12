@@ -217,10 +217,24 @@ button, input, textarea, select { font-family: inherit; }
 .hm-cell.l4 { background: var(--accent); }
 .hm-cell.future { background: transparent; }
 .hm-cell.today { box-shadow: 0 0 0 1px var(--accent); }
+.hm-cell[data-date] { cursor: pointer; }
 .hm-legend {
   display: flex; align-items: center; gap: 4px;
   font-size: 9px; color: var(--muted); margin-top: 10px;
 }
+
+/* heatmap hover tooltip */
+.hm-tip {
+  position: fixed; z-index: 200; pointer-events: none;
+  background: var(--panel-2); border: 1px solid var(--line-2);
+  padding: 6px 9px; border-radius: 6px;
+  display: flex; flex-direction: column; gap: 2px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+}
+.hm-tip[hidden] { display: none; }
+.hm-tip-date { font-size: 10px; letter-spacing: 0.08em; color: var(--muted); text-transform: uppercase; }
+.hm-tip-stat { font-size: 12px; color: var(--text-bright); }
 
 /* ---------- HOME: project cards ---------- */
 .project-grid {
@@ -1116,8 +1130,11 @@ button.feed-comment-user:hover { text-decoration: underline; }
 
 /* ---------- user profile modal ---------- */
 .up-head { display: flex; flex-direction: column; gap: 12px; padding-bottom: 14px; border-bottom: 1px solid var(--line); margin-bottom: 14px; }
-.up-stats { display: flex; flex-wrap: wrap; gap: 16px; font-size: 12px; color: var(--muted); }
+.up-stats { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; font-size: 12px; color: var(--muted); }
 .up-stats strong { color: var(--text-bright); font-size: 14px; }
+.up-streak { display: inline-flex; align-items: center; gap: 5px; color: var(--accent); }
+.up-streak .icon-rabbit { width: 14px; height: 14px; }
+.up-streak strong { color: var(--accent); }
 .up-fluffle {
   background: none; border: 1px solid var(--accent-mid); color: var(--accent); font-family: inherit; cursor: pointer;
   padding: 8px 14px; font-size: 11px; letter-spacing: 0.1em; width: max-content;
