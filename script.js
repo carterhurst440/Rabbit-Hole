@@ -248,8 +248,9 @@ function refreshHopPostBadges() {
 }
 
 // The set of community members the current user has added to their Fluffle,
-// plus a username map (other users' profiles aren't readable under RLS, so the
-// handle is snapshotted onto community_follows when they're added).
+// plus a username map. Other users' profiles aren't readable under RLS, so the
+// handle is snapshotted onto community_follows when they're added; the
+// usernames_for_ids RPC (security definer) backfills any rows missing it.
 async function loadFluffle() {
   myFluffle = new Set();
   fluffleNames = new Map();
@@ -258,6 +259,24 @@ async function loadFluffle() {
     .select('friend_id, friend_username').eq('user_id', currentUser.id);
   (data || []).forEach(r => { myFluffle.add(r.friend_id); fluffleNames.set(r.friend_id, r.friend_username || ''); });
   updateFluffleCount();
+  await resolveFluffleNames();
+}
+
+// Look up real usernames for Fluffle members whose handle wasn't snapshotted,
+// then backfill the snapshot so future loads don't need the RPC.
+async function resolveFluffleNames() {
+  const missing = [...myFluffle].filter(id => !(fluffleNames.get(id) || '').trim());
+  if (!missing.length) return;
+  const { data, error } = await sb.rpc('usernames_for_ids', { ids: missing });
+  if (error || !data) return;
+  for (const row of data) {
+    const name = row.username || '';
+    if (!name) continue;
+    fluffleNames.set(row.id, name);
+    sb.from('community_follows')
+      .update({ friend_username: name })
+      .eq('user_id', currentUser.id).eq('friend_id', row.id);
+  }
 }
 
 // Reflect the Fluffle size in the account-menu badge.
@@ -311,6 +330,7 @@ function manageFluffleModal() {
     });
   }
   render();
+  resolveFluffleNames().then(render);
 }
 
 function timeAgo(iso) {
