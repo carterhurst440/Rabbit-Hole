@@ -2324,23 +2324,39 @@ function renderArc(c) {
     </div>`).join('')}</div>`;
 }
 
-// CORE PRINCIPLES — the 3-5 values that define the character, each shown as a
-// start→end pair with a tag marking whether it held or shifted across the story.
+// CORE PRINCIPLES — high-level 2-5 word epithets. Each is a single row: the
+// principle name, a start→end arrow showing how it shifted (or held), and a
+// CHANGED/HELD tag. Expand a row to see the hops (and their sections) that
+// inform it. Built as <details> so the expand needs no JS wiring.
 function renderPrinciples(c) {
   const principles = c.principles || [];
   if (!principles.length) return '';
   const col = c.color || 'var(--accent)';
   return `<div class="char-principles" style="--arc:${esc(col)}">
     <h4 class="principles-head">CORE PRINCIPLES</h4>
-    ${principles.map(p => `
-    <div class="principle">
-      <div class="principle-name">${esc(p.principle || '')}<span class="principle-tag ${p.changed ? 'changed' : 'held'}">${p.changed ? 'CHANGED' : 'HELD'}</span></div>
-      <div class="principle-flow">
-        <span class="principle-start">${esc(p.start || '')}</span>
-        <span class="principle-arrow">→</span>
-        <span class="principle-end">${esc(p.end || '')}</span>
+    ${principles.map(p => {
+      const refs = Array.isArray(p.refs) ? p.refs.filter(r => r && (r.hop || r.section || r.note)) : [];
+      return `
+    <details class="principle">
+      <summary class="principle-row">
+        <span class="principle-caret">▸</span>
+        <span class="principle-name">${esc(p.principle || '')}</span>
+        <span class="principle-flow">
+          <span class="principle-start">${esc(p.start || '')}</span>
+          <span class="principle-arrow">→</span>
+          <span class="principle-end">${esc(p.end || '')}</span>
+        </span>
+        <span class="principle-tag ${p.changed ? 'changed' : 'held'}">${p.changed ? 'CHANGED' : 'HELD'}</span>
+      </summary>
+      <div class="principle-refs">
+        ${refs.length ? refs.map(r => `
+        <div class="principle-ref">
+          <div class="pr-where">${r.hop ? `<span class="pr-hop">${esc(r.hop)}</span>` : ''}${r.hop && r.section ? '<span class="pr-dot">·</span>' : ''}${r.section ? `<span class="pr-section">${esc(r.section)}</span>` : ''}</div>
+          ${r.note ? `<div class="pr-note">${esc(r.note)}</div>` : ''}
+        </div>`).join('') : '<div class="pr-note" style="opacity:.6">No supporting references cited.</div>'}
       </div>
-    </div>`).join('')}
+    </details>`;
+    }).join('')}
   </div>`;
 }
 
@@ -2356,7 +2372,7 @@ async function generateCharArc(K, c, btn) {
       task: 'char_arc',
       name: c.name,
       aliases: c.aliases || [],
-      chunks: refs.map(r => ({ title: r.title, body: r.body }))
+      chunks: refs.map(r => ({ title: r.title, body: r.body, section: chapterTitle(r.chapterId) }))
     });
     c.arc = Array.isArray(arc) ? arc : [];
     c.principles = Array.isArray(principles) ? principles : [];

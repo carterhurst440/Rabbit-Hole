@@ -6,7 +6,7 @@
 //   chat              { messages, context }            -> { reply }
 //   tag_summary       { tagName, chunks }              -> { reply }
 //   char_summary      { name, aliases, chunks }        -> { reply }
-//   char_arc          { name, aliases, chunks }         -> { arc: [{ stage, summary }], principles: [{ principle, start, end, changed }] }
+//   char_arc          { name, aliases, chunks:[{title,body,section}] } -> { arc: [{ stage, summary }] (one beat per section), principles: [{ principle, start, end, changed, refs:[{hop,section,note}] }] }
 //   loc_summary       { name, aliases, chunks }        -> { reply }
 //   detect_characters { chunks, existing }             -> { characters: [{ name, aliases }] }
 //   detect_locations  { chunks, existing }             -> { locations: [{ name, aliases }] }
@@ -26,7 +26,7 @@ const CORS = {
 
 const MODEL = "claude-sonnet-4-6";
 
-type Chunk = { title?: string; body?: string };
+type Chunk = { title?: string; body?: string; section?: string };
 type Msg = { role: "user" | "assistant"; content: string };
 
 Deno.serve(async (req) => {
@@ -99,28 +99,48 @@ async function doCharArc(apiKey: string, body: { name?: string; aliases?: string
   const chunks = body.chunks || [];
   if (!chunks.length) return json({ error: "No reference chunks for this character." }, 400);
   const aliases = (body.aliases || []).filter(Boolean);
+  // Group every excerpt under its SECTION, preserving the narrative order the
+  // client sent. The arc is plotted one beat per section, so the model needs to
+  // see the section boundaries explicitly.
+  const sectionOrder: string[] = [];
+  const bySection = new Map<string, Chunk[]>();
+  for (const c of chunks) {
+    const sec = (c.section || "Unsectioned").trim() || "Unsectioned";
+    if (!bySection.has(sec)) { bySection.set(sec, []); sectionOrder.push(sec); }
+    bySection.get(sec)!.push(c);
+  }
+  const sectionsBlock = sectionOrder
+    .map((sec) => {
+      const hops = bySection.get(sec)!
+        .map((c) => `  • HOP "${c.title || "Untitled"}": ${(c.body || "").replace(/\s+/g, " ").trim()}`)
+        .join("\n");
+      return `### SECTION: ${sec}\n${hops}`;
+    })
+    .join("\n\n");
   const system =
-    "You are a story-bible analyst inside RABBIT HOLE. Given a character and every excerpt that " +
-    "references them — presented in narrative order — produce TWO things.\n\n" +
-    "1) ARC: trace the character's arc across the story: how they grow, change, are tested, and shift " +
-    "over time. Identify the distinct stages along their arc, in order (use 4-8 stages depending on how " +
-    "much the material supports). For each stage give a short stage label (a turning point, phase, or " +
-    "beat — e.g. 'Reluctant call', 'First betrayal', 'Hardened resolve') and a 1-2 sentence summary of " +
-    "where the character is emotionally and how they have changed by that point.\n\n" +
-    "2) PRINCIPLES: distill this character down to 3-5 CORE PRINCIPLES — the deep values, beliefs, or " +
-    "drives that define who they are. For each principle give: a short name/statement of the principle; " +
-    "how it stands at the START of the story; how it stands at the END; and whether it changed (true if " +
-    "it shifted, deepened, broke, or was abandoned; false if it held constant). Show genuine evolution " +
-    "where it exists — and be honest when a principle stays the same.\n\n" +
+    "You are a story-bible analyst inside RABBIT HOLE. A story is divided into SECTIONS; each section " +
+    "contains one or more HOPS (excerpts). Given a character and every section/hop that references them " +
+    "— in narrative order — produce TWO things.\n\n" +
+    "1) ARC: plot the character's arc as EXACTLY ONE beat per SECTION, in the given order. Use the " +
+    "section's name as the stage label, verbatim. For each section write a 1-2 sentence summary of the " +
+    "character's key beat there — where they are emotionally and how they have changed by that point. " +
+    "If there is only one section, return exactly one beat. Never split or merge sections.\n\n" +
+    "2) PRINCIPLES: distill this character down to 3-5 CORE PRINCIPLES. Each principle name must be a " +
+    "tight 2-5 word epithet that captures a deep value or identity — e.g. 'compassionate creator', " +
+    "'cynical skeptic', 'loyal to a fault'. For each principle give: the short name; how it stands at " +
+    "the START; how it stands at the END; whether it changed (true if it shifted, deepened, broke, or " +
+    "was abandoned; false if it held constant); and a `refs` array of 1-4 supporting references, each " +
+    "naming the exact HOP title and its SECTION that informs the principle, plus a brief note (<=12 " +
+    "words) on what in that hop supports it. Cite hop titles and section names exactly as given.\n\n" +
     "Track genuine internal growth, not just plot events. Use only what the excerpts support. Respond " +
     "with ONLY a JSON object of the form " +
-    `{"arc":[{"stage":"...","summary":"..."}],"principles":[{"principle":"...","start":"...","end":"...","changed":true}]}. ` +
+    `{"arc":[{"stage":"...","summary":"..."}],"principles":[{"principle":"...","start":"...","end":"...","changed":true,"refs":[{"hop":"...","section":"...","note":"..."}]}]}. ` +
     "No markdown, no commentary.";
   const user =
     `CHARACTER: ${body.name || "(unnamed)"}` +
     (aliases.length ? `\nALSO KNOWN AS: ${aliases.join(", ")}` : "") +
-    `\n\nEXCERPTS (in narrative order):\n\n${joinChunks(chunks)}`;
-  const raw = await callClaude(apiKey, { system, messages: [{ role: "user", content: user }], max_tokens: 1800 });
+    `\n\nSECTIONS (in narrative order):\n\n${sectionsBlock}`;
+  const raw = await callClaude(apiKey, { system, messages: [{ role: "user", content: user }], max_tokens: 2600 });
   const parsed = parseJsonObject(raw);
   const arc = Array.isArray(parsed?.arc)
     ? (parsed.arc as unknown[])
@@ -130,16 +150,27 @@ async function doCharArc(apiKey: string, body: { name?: string; aliases?: string
           summary: typeof s.summary === "string" ? s.summary.trim() : "",
         }))
         .filter((s) => s.stage || s.summary)
-        .slice(0, 8)
+        .slice(0, 60)
     : [];
   const principles = Array.isArray(parsed?.principles)
     ? (parsed.principles as unknown[])
-        .filter((p): p is { principle?: unknown; start?: unknown; end?: unknown; changed?: unknown } => !!p && typeof p === "object")
+        .filter((p): p is { principle?: unknown; start?: unknown; end?: unknown; changed?: unknown; refs?: unknown } => !!p && typeof p === "object")
         .map((p) => ({
           principle: typeof p.principle === "string" ? p.principle.trim() : "",
           start: typeof p.start === "string" ? p.start.trim() : "",
           end: typeof p.end === "string" ? p.end.trim() : "",
           changed: p.changed === true,
+          refs: Array.isArray(p.refs)
+            ? (p.refs as unknown[])
+                .filter((r): r is { hop?: unknown; section?: unknown; note?: unknown } => !!r && typeof r === "object")
+                .map((r) => ({
+                  hop: typeof r.hop === "string" ? r.hop.trim() : "",
+                  section: typeof r.section === "string" ? r.section.trim() : "",
+                  note: typeof r.note === "string" ? r.note.trim() : "",
+                }))
+                .filter((r) => r.hop || r.section || r.note)
+                .slice(0, 4)
+            : [],
         }))
         .filter((p) => p.principle)
         .slice(0, 5)
