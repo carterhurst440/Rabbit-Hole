@@ -801,6 +801,9 @@ select.ui-modal-input { cursor: pointer; appearance: none; -webkit-appearance: n
 }
 
 /* ---------- AUTH GATE ---------- */
+/* Line-art card matching the handoff: dark ground, cream "ink" strokes, accent.
+   Every box outline is an SVG stroke (.rl, pathLength=1) so it can retract on
+   submit; the bunny + hole sit above and dive in as the lines slide away. */
 body.locked .app-header,
 body.locked .app-main,
 body.locked .drawer,
@@ -809,97 +812,131 @@ body.locked .ai-sidecar,
 body.locked .ai-overlay { display: none !important; }
 
 .auth-screen {
+  --ink: #f2ead4; --acc: #e3a869; --dim: #7a7158; --ground: #0a0908;
   position: fixed; inset: 0; z-index: 100;
   display: flex; align-items: center; justify-content: center;
-  background: var(--bg); padding: 24px;
+  background: var(--ground); padding: 24px;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  transition: opacity .4s ease;
 }
 .auth-screen[hidden] { display: none; }
+.auth-screen.fading { opacity: 0; }
+
+.auth-stage { width: 100%; max-width: 340px; }
+
+/* bunny + hole, sitting just above the card */
+.auth-rabbit { display: block; width: 100%; height: auto; overflow: visible; margin-bottom: -6px; }
+.auth-ears { will-change: transform; }
+
+/* shared stroke style for every drawn line in the card + rabbit */
+.rl {
+  fill: none; stroke: var(--ink); stroke-width: 1.7;
+  stroke-linecap: round; stroke-linejoin: round;
+  stroke-dasharray: 1; stroke-dashoffset: 0;
+  transition: stroke-dashoffset .5s ease;
+}
+.rl.acc { stroke: var(--acc); }
+.rl.thin { stroke-width: 1.4; }
+.rl.fillbg { fill: var(--ground); }   /* ears are filled so the hole never shows through */
+
+.ear { transform-box: fill-box; transform-origin: 50% 100%; }
+.peeking .earB { animation: earB 2.4s ease-in-out infinite; }
+.peeking .earF { animation: earF 2.4s ease-in-out infinite; }
+@keyframes earB { 0%,100% { transform: rotate(2deg); } 50% { transform: rotate(-8deg); } }
+@keyframes earF { 0%,100% { transform: rotate(-3deg); } 50% { transform: rotate(7deg); } }
+
+/* the card */
 .auth-card {
-  width: 100%; max-width: 360px;
-  background: var(--panel); border: 1px solid var(--line);
-  padding: 28px 26px 24px; display: flex; flex-direction: column; gap: 16px;
+  position: relative; padding: 26px 24px 22px;
+  display: flex; flex-direction: column; gap: 15px;
 }
+.auth-line { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+.auth-frame { z-index: 0; }
+
 .auth-brand {
-  font-weight: 800; letter-spacing: 0.18em; color: var(--accent);
-  text-align: center; font-size: 18px;
+  position: relative; z-index: 1;
+  font-weight: 800; letter-spacing: 0.16em; color: var(--acc);
+  text-align: center; font-size: 19px;
 }
-.auth-tabs { display: flex; border: 1px solid var(--line-2); }
+
+.auth-tabs { position: relative; display: flex; }
 .auth-tab {
-  flex: 1; background: none; border: none; cursor: pointer;
-  padding: 10px; font-size: 11px; letter-spacing: 0.14em;
-  color: var(--muted); font-family: inherit;
+  position: relative; z-index: 1; flex: 1; background: none; border: none; cursor: pointer;
+  padding: 11px 6px; font-size: 12px; letter-spacing: 0.16em;
+  color: var(--dim); font-family: inherit; font-weight: 700;
+  transition: color .2s ease, opacity .3s ease;
 }
-.auth-tab.active { background: var(--panel-2); color: var(--accent); }
-.auth-form { display: flex; flex-direction: column; gap: 12px; }
-.auth-form label {
-  display: flex; flex-direction: column; gap: 5px;
-  font-size: 10px; letter-spacing: 0.14em; color: var(--muted);
+.auth-tab.active { color: var(--acc); }
+
+.auth-form { display: flex; flex-direction: column; gap: 13px; }
+.auth-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.auth-field { display: flex; flex-direction: column; gap: 6px; }
+.auth-label {
+  font-size: 10px; letter-spacing: 0.22em; color: var(--dim);
+  transition: opacity .3s ease;
 }
-.auth-form input {
-  background: var(--panel-2); border: 1px solid var(--line-2);
-  color: var(--text-bright); padding: 9px 10px; font-family: inherit; font-size: 13px;
+.auth-box { position: relative; }
+.auth-box input {
+  position: relative; z-index: 1; width: 100%; box-sizing: border-box;
+  background: transparent; border: none; outline: none;
+  color: var(--ink); font-family: inherit; font-size: 16px;
+  letter-spacing: 0.02em; padding: 9px 12px;
+  transition: opacity .3s ease;
 }
-.auth-form input:focus { outline: none; border-color: var(--accent-mid); }
-.auth-names { display: grid; grid-template-columns: 1fr; gap: 12px; }
-.auth-screen:not(.mode-signup) .signup-only { display: none; }
+.auth-box input::placeholder { color: var(--dim); }
+.auth-box:focus-within .rl { stroke: var(--acc); }
+
 .auth-submit {
-  margin-top: 4px; background: var(--accent); border: none; color: #0a0a0a;
-  padding: 11px; font-size: 12px; letter-spacing: 0.14em; font-weight: 700;
-  cursor: pointer; font-family: inherit;
+  position: relative; margin-top: 3px; background: none; border: none;
+  cursor: pointer; font-family: inherit; padding: 13px;
 }
-.auth-submit:hover { filter: brightness(1.08); }
-.auth-submit:disabled { opacity: 0.5; cursor: default; }
+.auth-submit-tx {
+  position: relative; z-index: 1; color: var(--acc);
+  font-size: 14px; letter-spacing: 0.2em; font-weight: 700;
+  transition: opacity .3s ease;
+}
+.auth-submit:hover .rl.acc { stroke-width: 2.2; }
+.auth-submit:disabled { cursor: default; opacity: 0.55; }
+
 .auth-msg {
   min-height: 14px; font-size: 11px; letter-spacing: 0.04em;
-  color: var(--accent); text-align: center; line-height: 1.4;
+  color: var(--acc); text-align: center; line-height: 1.4;
 }
+.auth-hint {
+  text-align: center; font-size: 10px; letter-spacing: 0.16em; color: var(--dim);
+  transition: opacity .3s ease;
+}
+
+/* mode switches */
+.auth-screen:not(.mode-signup) .signup-only { display: none; }
 
 /* "check your email" confirmation state */
 .auth-screen:not(.mode-sent) .auth-sent { display: none; }
 .auth-screen.mode-sent .auth-tabs,
 .auth-screen.mode-sent .auth-form { display: none; }
-.auth-sent { display: flex; flex-direction: column; gap: 16px; text-align: center; }
-.auth-sent-title { color: var(--accent); font-size: 14px; letter-spacing: 0.16em; font-weight: 700; }
-.auth-sent-msg { color: var(--text); font-size: 12px; line-height: 1.6; margin: 0; }
-.auth-sent-msg strong { color: var(--text-bright); }
+.auth-sent { position: relative; z-index: 1; display: flex; flex-direction: column; gap: 16px; text-align: center; }
+.auth-sent-title { color: var(--acc); font-size: 14px; letter-spacing: 0.16em; font-weight: 700; }
+.auth-sent-msg { color: var(--ink); font-size: 12px; line-height: 1.6; margin: 0; }
+.auth-sent-msg strong { color: var(--acc); }
 .auth-back {
-  background: none; border: 1px solid var(--line-2); color: var(--muted);
-  padding: 9px; font-size: 11px; letter-spacing: 0.12em; cursor: pointer; font-family: inherit;
+  background: none; border: 1px solid var(--dim); color: var(--dim);
+  padding: 10px; font-size: 11px; letter-spacing: 0.12em; cursor: pointer; font-family: inherit;
 }
-.auth-back:hover { border-color: var(--accent-mid); color: var(--accent); }
+.auth-back:hover { border-color: var(--acc); color: var(--acc); }
 
-/* ---------- AUTH: component is the sign-in modal + overlaid inputs ---------- */
-rabbit-hole-signin#authLogin {
-  position: fixed; inset: 0; z-index: 120; display: block;
-}
-rabbit-hole-signin#authLogin[hidden] { display: none; }
+/* dissolve: retract the card's lines and fade its text as the bunny dives */
+.auth-stage.dissolving .auth-card .rl { stroke-dashoffset: 1; transition: stroke-dashoffset .42s ease; }
+.auth-stage.dissolving .auth-brand,
+.auth-stage.dissolving .auth-tab,
+.auth-stage.dissolving .auth-label,
+.auth-stage.dissolving .auth-box input,
+.auth-stage.dissolving .auth-submit-tx,
+.auth-stage.dissolving .auth-hint,
+.auth-stage.dissolving .auth-msg { opacity: 0; }
 
-/* Real inputs sit on top of the component's drawn card. The container lets
-   clicks fall through to the SVG SIGN IN button; only the fields catch them.
-   Positions/sizes/fonts are set in JS to match the component's K scale. */
-.auth-overlay { position: fixed; inset: 0; z-index: 130; pointer-events: none; }
-.auth-overlay[hidden] { display: none; }
-.auth-overlay-input {
-  position: fixed; box-sizing: border-box; pointer-events: auto;
-  background: #0a0908; border: none; outline: none;
-  color: #f2ead4; font-family: "JetBrains Mono", ui-monospace, monospace;
-  letter-spacing: 0.04em;
-}
-.auth-overlay-input::placeholder { color: #7a7158; }
-/* Touch devices: iOS Safari auto-zooms when focusing an input under 16px,
-   which throws the overlay off the drawn boxes. Force 16px on coarse pointers
-   (overrides the JS-set inline size) so focus never triggers a zoom. */
-@media (pointer: coarse) {
-  .auth-overlay-input { font-size: 16px !important; letter-spacing: 0.02em !important; }
-}
-.auth-overlay-hotspot {
-  position: fixed; pointer-events: auto; cursor: pointer;
-  background: none; border: none; padding: 0;
-}
-.auth-overlay-msg {
-  position: fixed; pointer-events: none; text-align: center;
-  color: #e3a869; letter-spacing: 0.06em; line-height: 1.3;
-  font-family: "JetBrains Mono", ui-monospace, monospace;
+@media (prefers-reduced-motion: reduce) {
+  .rl { transition: none; }
+  .peeking .earB, .peeking .earF { animation: none; }
 }
 
 /* ---------- COMMUNITY FEED ---------- */

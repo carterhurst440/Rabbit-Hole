@@ -3156,112 +3156,138 @@ function projectSettingsModal({ title = 'PROJECT', name = '', type = '', genre =
 }
 
 /* ---------------- AUTH ---------------- */
-const authScreen = document.getElementById('authScreen');
-const authForm   = document.getElementById('authForm');
-const authMsgEl  = document.getElementById('authMsg');
-const authSubmit = document.getElementById('authSubmit');
+const authScreen  = document.getElementById('authScreen');
+const authStage   = document.getElementById('authStage');
+const authEars    = document.getElementById('authEars');
+const authForm    = document.getElementById('authForm');
+const authMsgEl   = document.getElementById('authMsg');
+const authSubmit  = document.getElementById('authSubmit');
+const authSubmitTx= authSubmit.querySelector('.auth-submit-tx');
+const tabSignIn   = document.getElementById('tabSignIn');
+const tabSignUp   = document.getElementById('tabSignUp');
+const authEmail   = document.getElementById('authEmail');
+const authPassword= document.getElementById('authPassword');
+const authFirst   = document.getElementById('authFirst');
+const authLast    = document.getElementById('authLast');
+const authConfirm = document.getElementById('authConfirm');
 let authMode = 'signin';
 let currentUser = null;
 let currentProfile = null;
 let booted = false;
-let authWhooshPending = false;       // a sign-in dive is in flight → wait for `signin`
-const authLogin    = document.getElementById('authLogin');     // the line-art modal
-const authOverlay  = document.getElementById('authOverlay');   // real inputs over its card
-const loginEmail   = document.getElementById('loginEmail');
-const loginPassword= document.getElementById('loginPassword');
-const loginMsg     = document.getElementById('loginMsg');
-const signinHotspot= document.getElementById('signinHotspot');
-const signupHotspot= document.getElementById('signupHotspot');
-let signinBusy = false;
+let authWhooshPending = false;       // a dive is in flight → showApp must leave the card up
+let authBusy = false;
+const AUTH_REDUCE = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const EARS_PEEK = 'translate(0 34) scale(1.28)';   // resting peek transform
 
-// Place the real inputs over the component's drawn field boxes. The component
-// renders in SVG user-space centered on the viewport and scaled by K; a card
-// point (x,y) maps to screen px (CX + x*K, CY + y*K) with CX/CY the viewport
-// center. We replicate the component's exact K formula so the overlay tracks it.
-function positionAuthOverlay() {
-  if (authOverlay.hidden) return;
-  const VW = window.innerWidth, VH = window.innerHeight;
-  // Use the component's OWN computed geometry (set in its layout()) so the
-  // overlay can never drift from the drawn card — these stay in layout-viewport
-  // space, so the mobile soft keyboard doesn't shift inputs off their boxes.
-  // Fall back to the component's identical K formula if not yet available.
-  const K  = (typeof authLogin.K  === 'number') ? authLogin.K  : Math.max(0.45, Math.min(1.05, (VW - 32) / 360));
-  const CX = (typeof authLogin.CX === 'number') ? authLogin.CX : VW / 2;
-  const CY = (typeof authLogin.CY === 'number') ? authLogin.CY : VH / 2;
-  const place = (el, x, y, w, h) => {
-    el.style.left = (CX + x * K) + 'px';
-    el.style.top = (CY + y * K) + 'px';
-    el.style.width = (w * K) + 'px';
-    el.style.height = (h * K) + 'px';
-  };
-  place(loginEmail, -135, -50, 270, 36);
-  place(loginPassword, -135, 6, 270, 36);
-  loginEmail.style.paddingLeft = loginPassword.style.paddingLeft = (13 * K) + 'px';
-  loginEmail.style.fontSize = (13 * K) + 'px';
-  loginPassword.style.fontSize = (14 * K) + 'px';
-  loginPassword.style.letterSpacing = (3 * K) + 'px';
-  // SIGN IN button box — the SVG rect is fill:none (dead interior), so cover
-  // the whole box with a real clickable hotspot (x -135..135, y 64..108).
-  place(signinHotspot, -135, 64, 270, 44);
-  // SIGN UP tab = right half of the toggle row (x 0..135, y -122..-86)
-  place(signupHotspot, 0, -122, 135, 36);
-  // error line, just above the bottom hint
-  place(loginMsg, -135, 118, 270, 18);
-  loginMsg.style.height = 'auto';
-  loginMsg.style.fontSize = (10 * K) + 'px';
+function authMsg(t) { authMsgEl.textContent = t || ''; }
+
+// Put the card back to its drawn, peeking, un-dissolved state.
+function resetAuthCard() {
+  authStage.classList.remove('dissolving');
+  authScreen.classList.remove('fading');
+  authEars.classList.add('peeking');
+  authEars.setAttribute('transform', EARS_PEEK);
 }
 
-// Show the line-art component as the live sign-in modal with inputs overlaid.
 function showSignIn() {
   authMode = 'signin';
-  authScreen.hidden = true;
-  authScreen.classList.remove('mode-sent');
-  loginMsg.textContent = '';
-  authLogin.hidden = false;
-  authLogin.setAttribute('email', '');   // clear the mockup email line
-  if (typeof authLogin.reset === 'function') authLogin.reset(); // redraw card + peek
-  authOverlay.hidden = false;
-  positionAuthOverlay();
-  setTimeout(() => { try { loginEmail.focus({ preventScroll: true }); } catch (_) {} }, 60);
+  authScreen.classList.remove('mode-signup', 'mode-sent');
+  tabSignIn.classList.add('active'); tabSignUp.classList.remove('active');
+  authSubmitTx.textContent = 'SIGN IN';
+  authPassword.setAttribute('autocomplete', 'current-password');
+  authMsg(''); resetAuthCard();
+  authScreen.hidden = false;
+  setTimeout(() => { try { authEmail.focus({ preventScroll: true }); } catch (_) {} }, 60);
 }
 
-// Sign-up needs name/confirm fields the mockup card can't show → styled card.
 function showSignUp() {
   authMode = 'signup';
-  authOverlay.hidden = true;
-  authLogin.hidden = true;
   authScreen.classList.remove('mode-sent');
   authScreen.classList.add('mode-signup');
-  document.getElementById('tabSignIn').classList.remove('active');
-  document.getElementById('tabSignUp').classList.add('active');
-  authSubmit.textContent = 'CREATE ACCOUNT';
-  authMsg('');
+  tabSignUp.classList.add('active'); tabSignIn.classList.remove('active');
+  authSubmitTx.textContent = 'CREATE ACCOUNT';
+  authPassword.setAttribute('autocomplete', 'new-password');
+  authMsg(''); resetAuthCard();
+  authScreen.hidden = false;
+  setTimeout(() => { try { authFirst.focus({ preventScroll: true }); } catch (_) {} }, 60);
+}
+
+function hideAuthUI() { authScreen.hidden = true; }
+
+function setAuthMode(m) { if (m === 'signup') showSignUp(); else showSignIn(); }
+
+function showAuthSent(email) {
+  authScreen.classList.remove('mode-signup');
+  document.getElementById('authSentEmail').textContent = email;
+  authScreen.classList.add('mode-sent');
   authScreen.hidden = false;
 }
 
-function hideAuthUI() {
-  authLogin.hidden = true;
-  authOverlay.hidden = true;
-  authScreen.hidden = true;
+// The bunny dive — ported phase-for-phase from the handoff (DIP→PERK→HOLD→down),
+// in the rabbit SVG's own units (hole centred at y=0). Drives #authEars.
+function runDive(done) {
+  authEars.classList.remove('peeking');
+  const S = 1.28, peekY = 34, riseY = 0, downY = 184;
+  const DIP = 120, PERK = DIP + 240, HOLD = PERK + 150, A = HOLD + 290, END = A + 260;
+  const easeIn = p => p * p;
+  const easeOutBack = p => { const c = 2.4; return 1 + (c + 1) * Math.pow(p - 1, 3) + c * Math.pow(p - 1, 2); };
+  const place = (y, sx, sy, rot) => authEars.setAttribute('transform',
+    `translate(0 ${y.toFixed(2)}) rotate(${(rot || 0).toFixed(2)}) scale(${(S * (sx || 1)).toFixed(3)} ${(S * (sy || 1)).toFixed(3)})`);
+  if (AUTH_REDUCE) { place(downY, 1, 1); done && done(); return; }
+  const t0 = performance.now();
+  const loop = now => {
+    const t = now - t0; let yy, sx = 1, sy = 1;
+    if (t <= DIP) { const p = t / DIP; yy = peekY + 10 * Math.sin(Math.PI * 0.5 * p); sy = 1 - 0.06 * p; sx = 1 + 0.06 * p; }
+    else if (t <= PERK) { const p = (t - DIP) / (PERK - DIP); yy = (peekY + 10) + (riseY - (peekY + 10)) * easeOutBack(p);
+      const q = Math.sin(Math.PI * Math.min(1, p * 1.2)); sy = 1 + 0.16 * q; sx = 1 - 0.13 * q; }
+    else if (t <= HOLD) { const p = (t - PERK) / (HOLD - PERK); yy = riseY + 2 * Math.sin(p * Math.PI * 5); }
+    else if (t <= A) { const p = (t - HOLD) / (A - HOLD); yy = riseY + (downY - riseY) * easeIn(p); sy = 1 + 0.14 * p; sx = 1 - 0.08 * p; }
+    else { place(downY, 0.92, 1.14); done && done(); return; }
+    place(yy, sx, sy);
+    requestAnimationFrame(loop);
+  };
+  requestAnimationFrame(loop);
 }
 
-// Run real auth from the overlaid inputs, then play the exact dive on success.
-async function doSignIn() {
-  if (signinBusy) return;
-  const email = loginEmail.value.trim();
-  const password = loginPassword.value;
-  if (!email || !password) { loginMsg.textContent = 'Enter your email and password.'; return; }
-  signinBusy = true;
-  loginMsg.textContent = '';
-  // Claim the dive BEFORE awaiting: onAuthStateChange fires showApp the instant
-  // auth resolves, and it must see this true so it leaves the login card up.
-  authWhooshPending = true;
-  const { error } = await sb.auth.signInWithPassword({ email, password });
-  if (error) { authWhooshPending = false; signinBusy = false; loginMsg.textContent = error.message; return; }
-  // success → onAuthStateChange boots the app underneath; play the dive in place.
-  authOverlay.hidden = true;           // get the inputs out of the way of the dive
-  if (typeof authLogin.play === 'function') authLogin.play();
-  else { hideAuthUI(); }               // no component → just reveal
+// Success transition: retract the card's lines + dive the bunny, then reveal app.
+function playTransition() {
+  authStage.classList.add('dissolving');   // CSS retracts every .auth-card .rl + fades text
+  runDive(() => {
+    authScreen.classList.add('fading');
+    setTimeout(() => { authWhooshPending = false; hideAuthUI(); }, 400);
+  });
+}
+
+async function doSubmit(e) {
+  if (e) e.preventDefault();
+  if (authBusy) return;
+  const email = authEmail.value.trim();
+  const password = authPassword.value;
+  if (!email || !password) { authMsg('Enter your email and password.'); return; }
+  authBusy = true; authSubmit.disabled = true; authMsg('');
+  try {
+    if (authMode === 'signup') {
+      const first = authFirst.value.trim(), last = authLast.value.trim();
+      if (password !== authConfirm.value) { authMsg('Passwords do not match.'); return; }
+      if (password.length < 6) { authMsg('Password must be at least 6 characters.'); return; }
+      // Claim the dive before awaiting so onAuthStateChange leaves the card up.
+      authWhooshPending = true;
+      const { data, error } = await sb.auth.signUp({
+        email, password,
+        options: { data: { first_name: first, last_name: last }, emailRedirectTo: window.location.origin }
+      });
+      if (error) { authWhooshPending = false; authMsg(error.message); return; }
+      if (!data.session) { authWhooshPending = false; showAuthSent(email); return; }
+      playTransition();
+    } else {
+      authWhooshPending = true;
+      const { error } = await sb.auth.signInWithPassword({ email, password });
+      if (error) { authWhooshPending = false; authMsg(error.message); return; }
+      playTransition();
+    }
+  } finally {
+    authBusy = false; authSubmit.disabled = false;
+  }
 }
 
 // The handle the user posts under in the community feed.
@@ -3269,35 +3295,16 @@ function displayUsername() {
   return (currentProfile && currentProfile.username) || '';
 }
 
-function authMsg(t) { authMsgEl.textContent = t || ''; }
-
-function setAuthMode(m) {
-  if (m === 'signup') showSignUp(); else showSignIn();
-}
-function showAuthSent(email) {
-  authOverlay.hidden = true;
-  authLogin.hidden = true;
-  document.getElementById('authSentEmail').textContent = email;
-  authScreen.hidden = false;
-  authScreen.classList.add('mode-sent');
-}
-document.getElementById('tabSignIn').addEventListener('click', () => showSignIn());
-document.getElementById('tabSignUp').addEventListener('click', () => showSignUp());
+tabSignIn.addEventListener('click', () => showSignIn());
+tabSignUp.addEventListener('click', () => showSignUp());
 document.getElementById('authBackBtn').addEventListener('click', () => showSignIn());
-signinHotspot.addEventListener('click', () => doSignIn());
-signupHotspot.addEventListener('click', () => showSignUp());
-loginEmail.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); doSignIn(); } });
-loginPassword.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); doSignIn(); } });
-authLogin.addEventListener('submit', () => doSignIn());     // SVG SIGN IN button
-authLogin.addEventListener('signin', () => { authWhooshPending = false; hideAuthUI(); });
-window.addEventListener('resize', positionAuthOverlay);
-window.addEventListener('orientationchange', () => setTimeout(positionAuthOverlay, 120));
+authForm.addEventListener('submit', doSubmit);
 
 function showAuth() {
   currentUser = null;
   activeProjectId = null;
   booted = false;
-  signinBusy = false;
+  authBusy = false;
   db = seed();
   applyProjectAccent(DEFAULT_ACCENT);
   document.body.classList.add('locked');
@@ -3968,34 +3975,6 @@ async function deleteProjectFlow(id) {
 document.getElementById('projectSelect').addEventListener('change', e => openProject(e.target.value));
 
 document.getElementById('suggestRefreshBtn').addEventListener('click', () => { suggestedChunks = null; fetchSuggestedChunks(); });
-
-// The styled card form handles SIGN UP only — sign-in lives on the component overlay.
-authForm.addEventListener('submit', async e => {
-  e.preventDefault();
-  authSubmit.disabled = true;
-  authMsg('');
-  const email = document.getElementById('authEmail').value.trim();
-  const password = document.getElementById('authPassword').value;
-  try {
-    const first = document.getElementById('authFirst').value.trim();
-    const last = document.getElementById('authLast').value.trim();
-    const confirm = document.getElementById('authConfirm').value;
-    if (password !== confirm) { authMsg('Passwords do not match.'); return; }
-    if (password.length < 6) { authMsg('Password must be at least 6 characters.'); return; }
-    const { data, error } = await sb.auth.signUp({
-      email, password,
-      options: {
-        data: { first_name: first, last_name: last },
-        emailRedirectTo: window.location.origin
-      }
-    });
-    if (error) { authMsg(error.message); return; }
-    if (!data.session) { showAuthSent(email); return; }
-    // session present → onAuthStateChange → showApp() reveals the app
-  } finally {
-    authSubmit.disabled = false;
-  }
-});
 
 document.getElementById('signOutBtn').addEventListener('click', async () => {
   await sb.auth.signOut();

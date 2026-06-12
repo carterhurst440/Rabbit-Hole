@@ -11,41 +11,92 @@
 </head>
 <body class="locked">
   <!-- ============ AUTH GATE ============ -->
-  <!-- The line-art component IS the sign-in modal. Real inputs are overlaid onto
-       its drawn EMAIL/PASSWORD boxes; its SIGN IN button runs auth, then the
-       exact dive transition plays in place. -->
-  <rabbit-hole-signin id="authLogin" hidden></rabbit-hole-signin>
-  <div class="auth-overlay" id="authOverlay" hidden>
-    <input class="auth-overlay-input" id="loginEmail" type="email" autocomplete="email" aria-label="Email" />
-    <input class="auth-overlay-input" id="loginPassword" type="password" autocomplete="current-password" aria-label="Password" />
-    <button class="auth-overlay-hotspot" id="signinHotspot" type="button" aria-label="Sign in"></button>
-    <button class="auth-overlay-hotspot" id="signupHotspot" type="button" aria-label="Switch to sign up"></button>
-    <div class="auth-overlay-msg" id="loginMsg"></div>
-  </div>
-  <!-- Sign-up + "check your email" use the styled fallback card (the mockup card
-       has no name/confirm fields). -->
+  <!-- One CSS card for SIGN IN + SIGN UP, styled like the line-art handoff.
+       Every box outline is an SVG stroke (pathLength=1) so it can retract on
+       submit; the bunny + hole sit above the card and the bunny dives into the
+       hole as the lines slide away, then we route to the app. -->
   <div class="auth-screen" id="authScreen" hidden>
-    <div class="auth-card">
-      <div class="auth-brand">// RABBIT HOLE</div>
-      <div class="auth-tabs">
-        <button class="auth-tab" id="tabSignIn" type="button" data-mode="signin">SIGN IN</button>
-        <button class="auth-tab active" id="tabSignUp" type="button" data-mode="signup">SIGN UP</button>
-      </div>
-      <form class="auth-form" id="authForm" autocomplete="on">
-        <div class="auth-names signup-only">
-          <label>FIRST NAME<input id="authFirst" type="text" autocomplete="given-name" /></label>
-          <label>LAST NAME<input id="authLast" type="text" autocomplete="family-name" /></label>
+    <div class="auth-stage" id="authStage">
+      <svg class="auth-rabbit" id="authRabbit" viewBox="-130 -100 260 120" aria-hidden="true">
+        <defs>
+          <clipPath id="authHoleClip"><rect x="-200" y="-200" width="400" height="208"/></clipPath>
+        </defs>
+        <g clip-path="url(#authHoleClip)">
+          <g class="auth-ears peeking" id="authEars" transform="translate(0 34) scale(1.28)">
+            <g transform="translate(-67,-58)">
+              <g class="ear earB">
+                <path class="rl fillbg" pathLength="1" d="M74,66 C69,42 63,8 66,-12 C68,-20 75,-20 78,-10 C80,14 80,44 82,66"/>
+                <path class="rl thin" pathLength="1" d="M72,42 C70,24 70,4 73,-6"/>
+              </g>
+              <g class="ear earF">
+                <path class="rl fillbg" pathLength="1" d="M86,64 C88,40 92,6 99,-12 C104,-18 109,-12 107,0 C103,26 98,46 96,64"/>
+                <path class="rl thin" pathLength="1" d="M93,40 C94,22 97,6 101,-4"/>
+              </g>
+            </g>
+          </g>
+        </g>
+        <ellipse class="rl acc" pathLength="1" cx="0" cy="0" rx="118" ry="13"/>
+      </svg>
+
+      <div class="auth-card" id="authCard">
+        <svg class="auth-line auth-frame" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+          <rect class="rl" pathLength="1" x="0.8" y="0.8" width="98.4" height="98.4" vector-effect="non-scaling-stroke"/>
+        </svg>
+
+        <div class="auth-brand">RABBIT HOLE</div>
+
+        <div class="auth-tabs">
+          <button class="auth-tab active" id="tabSignIn" type="button">SIGN IN</button>
+          <button class="auth-tab" id="tabSignUp" type="button">SIGN UP</button>
+          <svg class="auth-line" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+            <rect class="rl thin" pathLength="1" x="0.8" y="3" width="98.4" height="94" vector-effect="non-scaling-stroke"/>
+            <line class="rl thin" pathLength="1" x1="50" y1="3" x2="50" y2="97" vector-effect="non-scaling-stroke"/>
+          </svg>
         </div>
-        <label>EMAIL<input id="authEmail" type="email" autocomplete="email" required /></label>
-        <label>PASSWORD<input id="authPassword" type="password" autocomplete="new-password" required /></label>
-        <label class="signup-only">CONFIRM PASSWORD<input id="authConfirm" type="password" autocomplete="new-password" /></label>
-        <button class="auth-submit" id="authSubmit" type="submit">CREATE ACCOUNT</button>
-        <div class="auth-msg" id="authMsg"></div>
-      </form>
-      <div class="auth-sent" id="authSent">
-        <div class="auth-sent-title">CHECK YOUR EMAIL</div>
-        <p class="auth-sent-msg">We sent a confirmation link to <strong id="authSentEmail"></strong>. Click it to finish signing up — you'll be signed in automatically.</p>
-        <button class="auth-back" id="authBackBtn" type="button">← BACK TO SIGN IN</button>
+
+        <form class="auth-form" id="authForm" autocomplete="on">
+          <div class="auth-row signup-only">
+            <div class="auth-field">
+              <span class="auth-label">FIRST NAME</span>
+              <div class="auth-box"><input id="authFirst" type="text" autocomplete="given-name" />
+                <svg class="auth-line" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><rect class="rl thin" pathLength="1" x="1" y="4" width="98" height="92" vector-effect="non-scaling-stroke"/></svg></div>
+            </div>
+            <div class="auth-field">
+              <span class="auth-label">LAST NAME</span>
+              <div class="auth-box"><input id="authLast" type="text" autocomplete="family-name" />
+                <svg class="auth-line" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><rect class="rl thin" pathLength="1" x="1" y="4" width="98" height="92" vector-effect="non-scaling-stroke"/></svg></div>
+            </div>
+          </div>
+
+          <div class="auth-field">
+            <span class="auth-label">EMAIL</span>
+            <div class="auth-box"><input id="authEmail" type="email" autocomplete="email" required />
+              <svg class="auth-line" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><rect class="rl thin" pathLength="1" x="1" y="4" width="98" height="92" vector-effect="non-scaling-stroke"/></svg></div>
+          </div>
+          <div class="auth-field">
+            <span class="auth-label">PASSWORD</span>
+            <div class="auth-box"><input id="authPassword" type="password" autocomplete="current-password" required />
+              <svg class="auth-line" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><rect class="rl thin" pathLength="1" x="1" y="4" width="98" height="92" vector-effect="non-scaling-stroke"/></svg></div>
+          </div>
+          <div class="auth-field signup-only">
+            <span class="auth-label">CONFIRM PASSWORD</span>
+            <div class="auth-box"><input id="authConfirm" type="password" autocomplete="new-password" />
+              <svg class="auth-line" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><rect class="rl thin" pathLength="1" x="1" y="4" width="98" height="92" vector-effect="non-scaling-stroke"/></svg></div>
+          </div>
+
+          <button class="auth-submit" id="authSubmit" type="submit">
+            <span class="auth-submit-tx">SIGN IN</span>
+            <svg class="auth-line" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><rect class="rl acc" pathLength="1" x="1" y="5" width="98" height="90" vector-effect="non-scaling-stroke"/></svg>
+          </button>
+          <div class="auth-msg" id="authMsg"></div>
+          <div class="auth-hint">follow the rabbit</div>
+        </form>
+
+        <div class="auth-sent" id="authSent">
+          <div class="auth-sent-title">CHECK YOUR EMAIL</div>
+          <p class="auth-sent-msg">We sent a confirmation link to <strong id="authSentEmail"></strong>. Click it to finish — you will be signed in automatically.</p>
+          <button class="auth-back" id="authBackBtn" type="button">← BACK TO SIGN IN</button>
+        </div>
       </div>
     </div>
   </div>
@@ -383,7 +434,6 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="supabaseClient.js"></script>
-  <script src="rabbit-hole-signin.js"></script>
   <script src="script.js"></script>
 </body>
 </html>
