@@ -34,7 +34,7 @@ button, input, textarea, select { font-family: inherit; }
 
 /* ---------- HEADER ---------- */
 .app-header {
-  position: sticky; top: 0; z-index: 60;
+  position: fixed; top: 0; left: 0; right: 0; z-index: 60;
   height: var(--header-h);
   display: flex; align-items: center; gap: 14px;
   padding: 0 18px;
@@ -284,7 +284,7 @@ button, input, textarea, select { font-family: inherit; }
 }
 
 /* ---------- MAIN / VIEWS ---------- */
-.app-main { padding: 24px clamp(16px, 4vw, 48px) 80px; max-width: 1400px; margin: 0 0 0 var(--rail-w); }
+.app-main { padding: 24px clamp(16px, 4vw, 48px) 80px; max-width: 1400px; margin: var(--header-h) 0 0 var(--rail-w); }
 .view-head { position: relative; }
 .view-head h1 { margin: 0; font-size: 18px; letter-spacing: 0.16em; color: var(--text-bright); }
 .view-head .sub { margin: 6px 0 22px; color: var(--muted); font-size: 12px; }
