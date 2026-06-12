@@ -3205,7 +3205,7 @@ function showSignUp() {
   authScreen.classList.remove('mode-sent');
   authScreen.classList.add('mode-signup');
   tabSignUp.classList.add('active'); tabSignIn.classList.remove('active');
-  authSubmitTx.textContent = 'CREATE ACCOUNT';
+  authSubmitTx.textContent = 'JOIN THE WARREN';
   authPassword.setAttribute('autocomplete', 'new-password');
   authMsg(''); resetAuthCard();
   authScreen.hidden = false;
