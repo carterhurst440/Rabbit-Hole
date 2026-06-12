@@ -389,7 +389,7 @@ button, input, textarea, select { font-family: inherit; }
 }
 .chunk-body {
   width: 100%; background: var(--panel-2); border: 1px solid var(--line); color: var(--text);
-  padding: 10px; font-size: 13px; line-height: 1.6; resize: vertical; min-height: 120px;
+  padding: 10px; font-size: 13px; line-height: 1.6; resize: vertical; min-height: 360px;
 }
 .chunk-body:focus, .chunk-title-input:focus, input:focus, textarea:focus, select:focus {
   outline: none; border-color: var(--accent-mid);
@@ -402,17 +402,28 @@ button, input, textarea, select { font-family: inherit; }
   background: var(--panel-2); border: 1px solid var(--line); color: var(--text);
   padding: 6px 8px; font-size: 12px;
 }
-.char-chips { display: flex; flex-wrap: wrap; gap: 6px; }
-.char-chip {
-  font-size: 11px; padding: 4px 8px; border: 1px solid var(--line-2);
-  color: var(--muted); cursor: pointer; user-select: none;
+.char-chips { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.ent-list { display: flex; flex-direction: column; gap: 5px; width: 100%; }
+.ent-item {
+  display: inline-flex; align-items: center; gap: 8px; font-size: 13px;
+  letter-spacing: 0.02em; color: var(--text); text-transform: none;
 }
-.char-chip.on { border-color: var(--cc, var(--accent)); color: var(--cc, var(--accent)); background: rgba(255,255,255,0.04); }
-.char-chip.auto { border-style: dashed; }
-.char-chip .chip-auto {
-  margin-left: 6px; font-size: 8px; letter-spacing: 0.12em; text-transform: uppercase;
-  color: var(--cc, var(--accent)); opacity: 0.7; vertical-align: middle;
+.ent-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--cc, var(--accent)); flex-shrink: 0; }
+.ent-item .chip-auto {
+  font-size: 8px; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--cc, var(--accent)); opacity: 0.7;
 }
+.ent-x {
+  background: none; border: none; color: var(--muted-2); cursor: pointer;
+  font-size: 11px; line-height: 1; padding: 2px 4px;
+}
+.ent-x:hover { color: var(--danger, #e07a5f); }
+.ent-adder { display: flex; align-items: center; gap: 8px; }
+.ent-add-select {
+  background: var(--panel-2); border: 1px solid var(--line); color: var(--text);
+  padding: 5px 8px; font-size: 12px; font-family: inherit;
+}
+.ent-add-select:focus { outline: none; border-color: var(--accent-mid); }
 .meta-field-head { display: flex; align-items: center; gap: 10px; }
 .icon-btn { background: none; border: none; color: var(--muted-2); cursor: pointer; font-size: 14px; padding: 4px; }
 .icon-btn:hover { color: var(--danger); }

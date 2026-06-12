@@ -1154,33 +1154,64 @@ function chunkEntityPresence(K, chunk, ent) {
   return { linked, live, on: linked || live, auto: live && !linked };
 }
 
-function entityChipsHTML(K, chunk) {
+// The chunk modal lists the characters/locations present in this hop as a plain
+// text list, with an ADD MORE control that reveals a dropdown of the remaining
+// entities. "auto" entities (named in the text but not explicitly linked) show a
+// badge and can't be removed here — they're present because the prose mentions
+// them.
+function entityListHTML(K, chunk) {
   const coll = db[K.coll];
   if (!coll.length) return `<span class="ci-count">no ${K.noun}s yet — add them in ${K.NOUNS}</span>`;
-  return coll.map(ent => {
-    const { on, auto } = chunkEntityPresence(K, chunk, ent);
-    return `<span class="char-chip ${on ? 'on' : ''} ${auto ? 'auto' : ''}" data-ent="${ent.id}" style="--cc:${ent.color || 'var(--accent)'}"${auto ? ' title="Auto-detected in this scene\u2019s text"' : ''}>${esc(ent.name)}${auto ? '<span class="chip-auto">auto</span>' : ''}</span>`;
-  }).join('');
+  const present = [], absent = [];
+  coll.forEach(ent => (chunkEntityPresence(K, chunk, ent).on ? present : absent).push(ent));
+  const items = present.length
+    ? present.map(ent => {
+        const { auto, linked } = chunkEntityPresence(K, chunk, ent);
+        const removable = linked && !auto;
+        return `<span class="ent-item" style="--cc:${ent.color || 'var(--accent)'}">
+          <span class="ent-dot"></span>${esc(ent.name)}${auto ? '<span class="chip-auto" title="Named in this hop\u2019s text">auto</span>' : ''}${removable ? `<button class="ent-x" data-ent-rm="${ent.id}" title="Remove from this hop">✕</button>` : ''}
+        </span>`;
+      }).join('')
+    : `<span class="ci-count">No ${K.noun}s in this hop yet.</span>`;
+  const adder = absent.length
+    ? `<div class="ent-adder">
+        <button class="add-btn ent-add-btn" data-ent-addmore>+ ADD MORE</button>
+        <select class="ent-add-select" data-ent-select hidden>
+          <option value="">Add a ${K.noun}…</option>
+          ${absent.map(ent => `<option value="${ent.id}">${esc(ent.name)}</option>`).join('')}
+        </select>
+      </div>`
+    : '';
+  return `<div class="ent-list">${items}</div>${adder}`;
 }
 
-// Toggling a chip flips the explicit link. A mention-only ("auto") chip stays on
-// after toggling off (it's still in the text) — that's what the references
-// workbench dismiss is for. Re-render in place so the auto/linked state stays honest.
-function wireEntityChips(container, K, chunk) {
-  container.querySelectorAll('.char-chip[data-ent]').forEach(chip => {
-    chip.addEventListener('click', () => {
-      const id = chip.dataset.ent;
-      if (!Array.isArray(chunk[K.link])) chunk[K.link] = [];
-      const arr = chunk[K.link];
-      const i = arr.indexOf(id);
-      if (i >= 0) arr.splice(i, 1); else arr.push(id);
-      save();
-      const fresh = container.cloneNode(false);
-      fresh.innerHTML = entityChipsHTML(K, chunk);
-      container.replaceWith(fresh);
-      wireEntityChips(fresh, K, chunk);
+// Render the present-list + ADD MORE control into a container and wire it. Adding
+// or removing flips the explicit link; auto (mention-only) entities have no remove
+// button so they persist. Re-renders in place after each change.
+function renderEntityListInto(container, K, chunk) {
+  container.innerHTML = entityListHTML(K, chunk);
+  container.querySelectorAll('[data-ent-rm]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const arr = chunk[K.link] || (chunk[K.link] = []);
+      const i = arr.indexOf(btn.dataset.entRm);
+      if (i >= 0) arr.splice(i, 1);
+      save(); markChunkDirty();
+      renderEntityListInto(container, K, chunk);
     });
   });
+  const addBtn = container.querySelector('[data-ent-addmore]');
+  const sel = container.querySelector('[data-ent-select]');
+  if (addBtn && sel) {
+    addBtn.addEventListener('click', () => { addBtn.hidden = true; sel.hidden = false; sel.focus(); });
+    sel.addEventListener('change', () => {
+      const id = sel.value;
+      if (!id) return;
+      if (!Array.isArray(chunk[K.link])) chunk[K.link] = [];
+      if (!chunk[K.link].includes(id)) chunk[K.link].push(id);
+      save(); markChunkDirty();
+      renderEntityListInto(container, K, chunk);
+    });
+  }
 }
 
 // Ask the model which existing tags fit this scene and what new tags to add,
@@ -1824,13 +1855,8 @@ function openChunkModal(chunkId) {
   sel.innerHTML = db.chapters.map(ch =>
     `<option value="${ch.id}" ${ch.id === c.chapterId ? 'selected' : ''}>${esc(ch.title)}</option>`).join('');
 
-  const charChips = document.getElementById('chunkModalChars');
-  charChips.innerHTML = entityChipsHTML(ENTITY_KINDS.character, c);
-  wireEntityChips(charChips, ENTITY_KINDS.character, c);
-
-  const locChips = document.getElementById('chunkModalLocs');
-  locChips.innerHTML = entityChipsHTML(ENTITY_KINDS.location, c);
-  wireEntityChips(locChips, ENTITY_KINDS.location, c);
+  renderEntityListInto(document.getElementById('chunkModalChars'), ENTITY_KINDS.character, c);
+  renderEntityListInto(document.getElementById('chunkModalLocs'), ENTITY_KINDS.location, c);
 
   const labelsWrap = document.getElementById('chunkModalLabels');
   labelsWrap.innerHTML = labelEditorHTML(c.labelIds || []);
@@ -1874,14 +1900,13 @@ function openChunkModal(chunkId) {
   document.getElementById('chunkModalOverlay').hidden = false;
 }
 
-// Re-render the character/location chip row for kind K inside the open hop
-// modal — used after per-hop detection links new entities to the hop.
+// Re-render the character/location list for kind K inside the open hop modal —
+// used after per-hop detection links new entities to the hop.
 function refreshModalEntityChips(K, c) {
   const id = K === ENTITY_KINDS.character ? 'chunkModalChars' : 'chunkModalLocs';
   const wrap = document.getElementById(id);
   if (!wrap) return;
-  wrap.innerHTML = entityChipsHTML(K, c);
-  wireEntityChips(wrap, K, c);
+  renderEntityListInto(wrap, K, c);
 }
 
 function closeChunkModal() {
@@ -1923,11 +1948,9 @@ function rerenderActiveView() {
     c.archived = !c.archived; save(); markChunkDirty();
     e.currentTarget.textContent = c.archived ? 'UNARCHIVE' : 'ARCHIVE';
   });
-  // Chip/label toggles and new-label typing also count as edits. These containers
-  // are static, so wire once: a chip toggle is a click on a chip, a new label is
-  // an input event.
-  document.getElementById('chunkModalChars').addEventListener('click', e => { if (e.target.closest('.char-chip')) markChunkDirty(); });
-  document.getElementById('chunkModalLocs').addEventListener('click', e => { if (e.target.closest('.char-chip')) markChunkDirty(); });
+  // Label toggles and new-label typing also count as edits (character/location
+  // add/remove mark dirty directly in renderEntityListInto). This container is
+  // static, so wire once.
   const labelsWrap = document.getElementById('chunkModalLabels');
   labelsWrap.addEventListener('click', e => { if (e.target.closest('.lbl-chip')) markChunkDirty(); });
   labelsWrap.addEventListener('input', () => markChunkDirty());
