@@ -21,6 +21,8 @@
         <defs>
           <clipPath id="authHoleClip"><rect x="-200" y="-200" width="400" height="208"/></clipPath>
         </defs>
+        <!-- hole rim first, so the filled ears paint over it (no line showing through) -->
+        <ellipse class="rl acc" pathLength="1" cx="0" cy="0" rx="118" ry="13"/>
         <g clip-path="url(#authHoleClip)">
           <g class="auth-ears peeking" id="authEars" transform="translate(0 34) scale(1.28)">
             <g transform="translate(-67,-58)">
@@ -35,58 +37,43 @@
             </g>
           </g>
         </g>
-        <ellipse class="rl acc" pathLength="1" cx="0" cy="0" rx="118" ry="13"/>
       </svg>
 
       <div class="auth-card" id="authCard">
-        <svg class="auth-line auth-frame" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-          <rect class="rl" pathLength="1" x="0.8" y="0.8" width="98.4" height="98.4" vector-effect="non-scaling-stroke"/>
-        </svg>
-
         <div class="auth-brand">RABBIT HOLE</div>
 
         <div class="auth-tabs">
           <button class="auth-tab active" id="tabSignIn" type="button">SIGN IN</button>
           <button class="auth-tab" id="tabSignUp" type="button">SIGN UP</button>
-          <svg class="auth-line" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-            <rect class="rl thin" pathLength="1" x="0.8" y="3" width="98.4" height="94" vector-effect="non-scaling-stroke"/>
-            <line class="rl thin" pathLength="1" x1="50" y1="3" x2="50" y2="97" vector-effect="non-scaling-stroke"/>
-          </svg>
         </div>
 
         <form class="auth-form" id="authForm" autocomplete="on">
           <div class="auth-row signup-only">
             <div class="auth-field">
               <span class="auth-label">FIRST NAME</span>
-              <div class="auth-box"><input id="authFirst" type="text" autocomplete="given-name" />
-                <svg class="auth-line" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><rect class="rl thin" pathLength="1" x="1" y="4" width="98" height="92" vector-effect="non-scaling-stroke"/></svg></div>
+              <div class="auth-box"><input id="authFirst" type="text" autocomplete="given-name" /></div>
             </div>
             <div class="auth-field">
               <span class="auth-label">LAST NAME</span>
-              <div class="auth-box"><input id="authLast" type="text" autocomplete="family-name" />
-                <svg class="auth-line" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><rect class="rl thin" pathLength="1" x="1" y="4" width="98" height="92" vector-effect="non-scaling-stroke"/></svg></div>
+              <div class="auth-box"><input id="authLast" type="text" autocomplete="family-name" /></div>
             </div>
           </div>
 
           <div class="auth-field">
             <span class="auth-label">EMAIL</span>
-            <div class="auth-box"><input id="authEmail" type="email" autocomplete="email" required />
-              <svg class="auth-line" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><rect class="rl thin" pathLength="1" x="1" y="4" width="98" height="92" vector-effect="non-scaling-stroke"/></svg></div>
+            <div class="auth-box"><input id="authEmail" type="email" autocomplete="email" required /></div>
           </div>
           <div class="auth-field">
             <span class="auth-label">PASSWORD</span>
-            <div class="auth-box"><input id="authPassword" type="password" autocomplete="current-password" required />
-              <svg class="auth-line" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><rect class="rl thin" pathLength="1" x="1" y="4" width="98" height="92" vector-effect="non-scaling-stroke"/></svg></div>
+            <div class="auth-box"><input id="authPassword" type="password" autocomplete="current-password" required /></div>
           </div>
           <div class="auth-field signup-only">
             <span class="auth-label">CONFIRM PASSWORD</span>
-            <div class="auth-box"><input id="authConfirm" type="password" autocomplete="new-password" />
-              <svg class="auth-line" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><rect class="rl thin" pathLength="1" x="1" y="4" width="98" height="92" vector-effect="non-scaling-stroke"/></svg></div>
+            <div class="auth-box"><input id="authConfirm" type="password" autocomplete="new-password" /></div>
           </div>
 
           <button class="auth-submit" id="authSubmit" type="submit">
             <span class="auth-submit-tx">SIGN IN</span>
-            <svg class="auth-line" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><rect class="rl acc" pathLength="1" x="1" y="5" width="98" height="90" vector-effect="non-scaling-stroke"/></svg>
           </button>
           <div class="auth-msg" id="authMsg"></div>
           <div class="auth-hint">follow the rabbit</div>
