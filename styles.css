@@ -52,6 +52,13 @@ button, input, textarea, select { font-family: inherit; }
   fill: none; stroke: var(--text-bright); stroke-width: 1.9;
   stroke-linecap: round; stroke-linejoin: round;
 }
+/* ears filled with the page bg so the hole rim never shows through them */
+.brand-logo .brand-ear { fill: var(--bg); transform-box: fill-box; transform-origin: 50% 100%; }
+.brand-logo .brand-earB { animation: brandEarB 3.4s ease-in-out infinite; }
+.brand-logo .brand-earF { animation: brandEarF 3.4s ease-in-out infinite; }
+@keyframes brandEarB { 0%, 100% { transform: rotate(1.5deg); } 50% { transform: rotate(-4deg); } }
+@keyframes brandEarF { 0%, 100% { transform: rotate(-2deg); } 50% { transform: rotate(3.5deg); } }
+@media (prefers-reduced-motion: reduce) { .brand-logo .brand-ear { animation: none; } }
 .brand-word { font-weight: 800; letter-spacing: 0.18em; color: var(--accent); font-size: 15px; white-space: nowrap; }
 .header-spacer { flex: 1; }
 .header-add-hop { margin-right: 14px; }
