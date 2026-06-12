@@ -1846,6 +1846,12 @@ function openChunkModal(chunkId) {
   document.getElementById('chunkModalBody').value = c.body;
   document.getElementById('chunkModalChrono').value = c.chronoLabel || '';
   document.getElementById('chunkModalArchive').textContent = c.archived ? 'UNARCHIVE' : 'ARCHIVE';
+  const vpBadge = document.querySelector('#chunkModalViewPosts .pc-badge');
+  if (vpBadge) {
+    const n = (hopPostCounts[c.id] || {}).active || 0;
+    vpBadge.textContent = n;
+    vpBadge.classList.toggle('has', n > 0);
+  }
   document.getElementById('chunkModalChapter').textContent = chapterTitle(c.chapterId);
   document.getElementById('chunkModalChapter').style.color = chapterColor(c.chapterId);
   const projEl = document.getElementById('chunkModalProject');
@@ -1948,6 +1954,25 @@ function rerenderActiveView() {
     c.archived = !c.archived; save(); markChunkDirty();
     e.currentTarget.textContent = c.archived ? 'UNARCHIVE' : 'ARCHIVE';
     document.getElementById('chunkModalKebab')?.removeAttribute('open');
+  });
+  document.getElementById('chunkModalPost').addEventListener('click', () => {
+    const c = cur(); if (!c) return;
+    document.getElementById('chunkModalKebab')?.removeAttribute('open');
+    postToCommunityModal(c);
+  });
+  document.getElementById('chunkModalViewPosts').addEventListener('click', () => {
+    const c = cur(); if (!c) return;
+    document.getElementById('chunkModalKebab')?.removeAttribute('open');
+    managePostsModal(c);
+  });
+  document.getElementById('chunkModalDelete').addEventListener('click', async () => {
+    const c = cur(); if (!c) return;
+    document.getElementById('chunkModalKebab')?.removeAttribute('open');
+    if (!await confirmModal('Delete this hop?')) return;
+    db.chunks = db.chunks.filter(x => x.id !== c.id);
+    if (draftChunk && c.id === draftChunk.id) draftChunk = null;
+    save();
+    closeChunkModal();
   });
   const modalKebab = document.getElementById('chunkModalKebab');
   if (modalKebab) modalKebab.addEventListener('toggle', () => { if (modalKebab.open) positionHopMenu(modalKebab); });
