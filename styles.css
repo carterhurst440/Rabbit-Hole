@@ -178,10 +178,10 @@ button, input, textarea, select { font-family: inherit; }
 }
 .hm-cell { width: 11px; height: 11px; border-radius: 2px; }
 .hm-cell.l0 { background: rgba(255, 255, 255, 0.05); }
-.hm-cell.l1 { background: rgba(224, 169, 109, 0.28); }
-.hm-cell.l2 { background: rgba(224, 169, 109, 0.5); }
-.hm-cell.l3 { background: rgba(224, 169, 109, 0.75); }
-.hm-cell.l4 { background: rgba(224, 169, 109, 1); }
+.hm-cell.l1 { background: color-mix(in srgb, var(--accent) 28%, transparent); }
+.hm-cell.l2 { background: color-mix(in srgb, var(--accent) 50%, transparent); }
+.hm-cell.l3 { background: color-mix(in srgb, var(--accent) 75%, transparent); }
+.hm-cell.l4 { background: var(--accent); }
 .hm-cell.future { background: transparent; }
 .hm-cell.today { box-shadow: 0 0 0 1px var(--accent); }
 .hm-legend {
@@ -530,6 +530,9 @@ select.ui-modal-input { cursor: pointer; appearance: none; -webkit-appearance: n
 }
 .ps-swatch:hover { border-color: var(--text); }
 .ps-swatch.active { border-color: var(--text-bright); box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--sw); }
+
+/* AI marker star — inherits the active project accent */
+.ai-star { color: var(--accent); }
 .ui-modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 2px; flex: none; }
 .ui-modal-btn {
   background: none; border: 1px solid var(--line-2); color: var(--muted);

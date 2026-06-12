@@ -31,6 +31,10 @@ const PROJECT_ACCENTS = [
 function applyProjectAccent(color) {
   document.documentElement.style.setProperty('--accent', color || DEFAULT_ACCENT);
 }
+
+// The AI marker. A plain dingbat (not the ✨ emoji) so it inherits the
+// project accent via CSS instead of rendering as a fixed-color emoji.
+const AI_STAR = '<span class="ai-star">✦</span>';
 const GENRES = [
   'Literary Fiction', 'Fantasy', 'Science Fiction', 'Mystery', 'Thriller',
   'Horror', 'Romance', 'Historical Fiction', 'Adventure', 'Young Adult',
@@ -1132,15 +1136,15 @@ function wireEntityChips(container, K, chunk) {
 // then let the author confirm before applying.
 async function generateChunkTags(chunk, btn) {
   if (!(chunk.body || '').trim()) { alertModal('Write some content first.', { title: 'DETECT TAGS' }); return; }
-  const original = btn.textContent;
-  btn.disabled = true; btn.textContent = '✨ THINKING…';
+  const original = btn.innerHTML;
+  btn.disabled = true; btn.innerHTML = AI_STAR + ' THINKING…';
   try {
     const result = await aiInvoke({
       task: 'suggest_tags',
       chunk: { title: chunk.title, body: chunk.body },
       existing: db.labels.map(l => l.name)
     });
-    btn.disabled = false; btn.textContent = original;
+    btn.disabled = false; btn.innerHTML = original;
     const assign = (result.assign || []).filter(Boolean);
     const suggest = (result.suggest || []).filter(Boolean);
     if (!assign.length && !suggest.length) { alertModal('No tags suggested for this scene.', { title: 'DETECT TAGS' }); return; }
@@ -1157,7 +1161,7 @@ async function generateChunkTags(chunk, btn) {
       if (lw) { lw.innerHTML = labelEditorHTML(chunk.labelIds || []); const le = lw.querySelector('.label-editor'); if (le) wireLabelEditor(le, chunk); }
     }
   } catch (err) {
-    btn.disabled = false; btn.textContent = original;
+    btn.disabled = false; btn.innerHTML = original;
     alertModal('Tag generation failed.\n\n' + (err.message || ''), { title: 'DETECT TAGS' });
   }
 }
@@ -1203,15 +1207,15 @@ function tagReviewModal(assign, suggest) {
 // to the hop. Mirrors the project-wide DETECT but scoped to a single hop.
 async function detectChunkEntities(K, chunk, btn) {
   if (!(chunk.body || '').trim()) { alertModal('Write some content first.', { title: `DETECT ${K.NOUNS}` }); return; }
-  const original = btn.textContent;
-  btn.disabled = true; btn.textContent = '✨ SCANNING…';
+  const original = btn.innerHTML;
+  btn.disabled = true; btn.innerHTML = AI_STAR + ' SCANNING…';
   try {
     const result = await aiInvoke({
       task: K.detectTask,
       chunks: [{ title: chunk.title, body: chunk.body }],
       existing: db[K.coll].map(e => e.name)
     });
-    btn.disabled = false; btn.textContent = original;
+    btn.disabled = false; btn.innerHTML = original;
     const found = (result[K.resultKey] || []).filter(f => f && f.name);
     if (!found.length) { alertModal(`No ${K.noun}s found in this hop.`, { title: `DETECT ${K.NOUNS}` }); return; }
 
@@ -1238,7 +1242,7 @@ async function detectChunkEntities(K, chunk, btn) {
     save();
     refreshModalEntityChips(K, chunk);
   } catch (err) {
-    btn.disabled = false; btn.textContent = original;
+    btn.disabled = false; btn.innerHTML = original;
     alertModal('Detection failed.\n\n' + (err.message || ''), { title: `DETECT ${K.NOUNS}` });
   }
 }
@@ -1306,7 +1310,7 @@ async function runChunkAnalysis(chunk) {
 // ANALYSIS — both the open edit modal and the rendered card surfaces.
 function refreshAnalyzeButtons(chunk) {
   const az = document.getElementById('chunkModalAnalyze');
-  if (az && modalChunkId === chunk.id) az.textContent = '✨ VIEW ANALYSIS';
+  if (az && modalChunkId === chunk.id) az.innerHTML = AI_STAR + ' VIEW ANALYSIS';
   rerenderActiveView();
 }
 
@@ -1315,18 +1319,18 @@ function refreshAnalyzeButtons(chunk) {
 async function analyzeChunk(chunk, btn) {
   if (hasAnalysis(chunk.analysis)) { analysisResultModal(chunk); return; }
   if (!(chunk.body || '').trim()) { alertModal('Write some content first.', { title: 'ANALYZE' }); return; }
-  const original = btn ? btn.textContent : '';
-  if (btn) { btn.disabled = true; btn.textContent = '✨ READING…'; }
+  const original = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.innerHTML = AI_STAR + ' READING…'; }
   try {
     const out = await runChunkAnalysis(chunk);
-    if (btn) { btn.disabled = false; btn.textContent = original; }
+    if (btn) { btn.disabled = false; btn.innerHTML = original; }
     if (!hasAnalysis(out)) { alertModal('No analysis came back for this hop.', { title: 'ANALYZE' }); return; }
     chunk.analysis = { ...out, ts: Date.now() };
     save();
     refreshAnalyzeButtons(chunk);
     analysisResultModal(chunk);
   } catch (err) {
-    if (btn) { btn.disabled = false; btn.textContent = original; }
+    if (btn) { btn.disabled = false; btn.innerHTML = original; }
     alertModal('Analysis failed.\n\n' + (err.message || ''), { title: 'ANALYZE' });
   }
 }
@@ -1366,8 +1370,8 @@ function analysisResultModal(chunk) {
   overlay.querySelector('[data-act="close"]').addEventListener('click', close);
   reBtn.addEventListener('click', async () => {
     if (!(chunk.body || '').trim()) { alertModal('Write some content first.', { title: 'REANALYZE' }); return; }
-    const orig = reBtn.textContent;
-    reBtn.disabled = true; reBtn.textContent = '✨ READING…';
+    const orig = reBtn.innerHTML;
+    reBtn.disabled = true; reBtn.innerHTML = AI_STAR + ' READING…';
     try {
       const out = await runChunkAnalysis(chunk);
       if (!hasAnalysis(out)) { alertModal('No analysis came back for this hop.', { title: 'REANALYZE' }); return; }
@@ -1377,7 +1381,7 @@ function analysisResultModal(chunk) {
     } catch (err) {
       alertModal('Analysis failed.\n\n' + (err.message || ''), { title: 'REANALYZE' });
     } finally {
-      reBtn.disabled = false; reBtn.textContent = orig;
+      reBtn.disabled = false; reBtn.innerHTML = orig;
     }
   });
 }
@@ -1416,7 +1420,7 @@ function renderChunkCardDisplay(c) {
       ${c.archived ? '<span class="arch-badge">ARCHIVED</span>' : ''}
       <span class="chunk-disp-meta">${meta}</span>
       <span class="chunk-disp-actions">
-        <button class="add-btn hop-act" data-f="analyze" title="AI: analyze this hop">${hasAnalysis(c.analysis) ? '✨ VIEW ANALYSIS' : '✨ ANALYZE'}</button>
+        <button class="add-btn hop-act" data-f="analyze" title="AI: analyze this hop">${hasAnalysis(c.analysis) ? AI_STAR + ' VIEW ANALYSIS' : AI_STAR + ' ANALYZE'}</button>
         <button class="add-btn hop-act" data-f="post" title="Share this hop to the community">↗ POST</button>
         <button class="add-btn hop-act" data-f="viewposts" title="Manage this hop's community posts">▤ POSTS <span class="pc-badge">0</span></button>
         <button class="add-btn hop-act" data-f="archive">${c.archived ? 'UNARCHIVE' : 'ARCHIVE'}</button>
@@ -1425,7 +1429,7 @@ function renderChunkCardDisplay(c) {
         <details class="hop-kebab">
           <summary title="Options">⋮</summary>
           <div class="hop-menu">
-            <button class="add-btn" data-f="analyze">${hasAnalysis(c.analysis) ? '✨ VIEW ANALYSIS' : '✨ ANALYZE'}</button>
+            <button class="add-btn" data-f="analyze">${hasAnalysis(c.analysis) ? AI_STAR + ' VIEW ANALYSIS' : AI_STAR + ' ANALYZE'}</button>
             <button class="add-btn" data-f="post">↗ POST TO COMMUNITY</button>
             <button class="add-btn" data-f="viewposts">▤ VIEW POSTS <span class="pc-badge">0</span></button>
             <button class="add-btn" data-f="archive">${c.archived ? 'UNARCHIVE' : 'ARCHIVE'}</button>
@@ -1777,7 +1781,7 @@ function openChunkModal(chunkId) {
 
   const az = document.getElementById('chunkModalAnalyze');
   if (az) {
-    az.textContent = hasAnalysis(c.analysis) ? '✨ VIEW ANALYSIS' : '✨ ANALYZE';
+    az.innerHTML = hasAnalysis(c.analysis) ? AI_STAR + ' VIEW ANALYSIS' : AI_STAR + ' ANALYZE';
     az.onclick = () => {
       // Analyze the live editor text, not the last-saved body.
       c.title = document.getElementById('chunkModalTitle').value;
@@ -2018,7 +2022,7 @@ function renderEntityPane(K) {
       <h3>SUMMARY</h3>
       <div class="char-summary">${c.summary ? esc(c.summary) : '<span style="color:var(--muted)">No summary yet.</span>'}</div>
       <div style="margin-top:10px;display:flex;gap:8px">
-        <button class="add-btn" data-f="gen" title="AI: summarize from every chunk that references this ${K.noun}">✨ GENERATE</button>
+        <button class="add-btn" data-f="gen" title="AI: summarize from every chunk that references this ${K.noun}">${AI_STAR} GENERATE</button>
         <button class="add-btn" data-f="editsum">EDIT MANUALLY</button>
       </div>
     </div>
@@ -2207,8 +2211,8 @@ function openMergeModal(K, c) {
 async function generateEntitySummary(K, c, btn) {
   const refs = refsFor(K, c);
   if (!refs.length) { alertModal(`No chunks reference this ${K.noun} yet.`, { title: 'AI SUMMARY' }); return; }
-  const original = btn ? btn.textContent : '';
-  if (btn) { btn.disabled = true; btn.textContent = '✨ THINKING…'; }
+  const original = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.innerHTML = AI_STAR + ' THINKING…'; }
   try {
     const { reply } = await aiInvoke({
       task: K.sumTask,
@@ -2218,7 +2222,7 @@ async function generateEntitySummary(K, c, btn) {
     });
     c.summary = reply || ''; save(); renderEntityPane(K);
   } catch (err) {
-    if (btn) { btn.disabled = false; btn.textContent = original; }
+    if (btn) { btn.disabled = false; btn.innerHTML = original; }
     alertModal('Could not generate summary.\n\n' + (err.message || ''), { title: 'AI SUMMARY' });
   }
 }
@@ -2278,8 +2282,8 @@ async function detectEntities(K) {
   const chunks = scope === 'new' ? fresh : all;
   if (!chunks.length) { alertModal('No new content since the last scan.', { title: `DETECT ${K.NOUNS}` }); return; }
 
-  const original = btn.textContent;
-  btn.disabled = true; btn.textContent = '✨ SCANNING…';
+  const original = btn.innerHTML;
+  btn.disabled = true; btn.innerHTML = AI_STAR + ' SCANNING…';
   try {
     const result = await aiInvoke({
       task: K.detectTask,
@@ -2287,7 +2291,7 @@ async function detectEntities(K) {
       existing: db[K.coll].map(c => c.name)
     });
     const found = result[K.resultKey] || [];
-    btn.disabled = false; btn.textContent = original;
+    btn.disabled = false; btn.innerHTML = original;
     const nowScanned = new Set([...(db.ui[K.scannedKey] || []), ...chunks.map(c => c.id)]);
     db.ui[K.scannedKey] = [...nowScanned];
 
@@ -2300,7 +2304,7 @@ async function detectEntities(K) {
     db.ui[K.active] = db[K.coll][db[K.coll].length - 1].id;
     save(); renderEntityList(K);
   } catch (err) {
-    btn.disabled = false; btn.textContent = original;
+    btn.disabled = false; btn.innerHTML = original;
     alertModal('Detection failed.\n\n' + (err.message || ''), { title: `DETECT ${K.NOUNS}` });
   }
 }
@@ -2401,7 +2405,7 @@ function renderLabelPane() {
       <h3>SUMMARY <span style="color:var(--muted);font-weight:400">(AI — themes across tagged chunks)</span></h3>
       <div class="char-summary" id="tagSummary">${l.summary ? esc(l.summary) : '<span style="color:var(--muted)">No summary yet.</span>'}</div>
       <div style="margin-top:10px;display:flex;gap:8px">
-        <button class="add-btn" id="genTagSummaryBtn">✨ GENERATE</button>
+        <button class="add-btn" id="genTagSummaryBtn">${AI_STAR} GENERATE</button>
         <button class="add-btn" id="editTagSummaryBtn">EDIT MANUALLY</button>
       </div>
     </div>
@@ -2463,8 +2467,8 @@ function renderLabelPane() {
 async function generateTagSummary(l, btn) {
   const chunks = labelUsage(l.id).chunks;
   if (!chunks.length) { alertModal('No hops use this tag yet.', { title: 'TAG SUMMARY' }); return; }
-  const original = btn.textContent;
-  btn.disabled = true; btn.textContent = '✨ THINKING…';
+  const original = btn.innerHTML;
+  btn.disabled = true; btn.innerHTML = AI_STAR + ' THINKING…';
   try {
     const { reply } = await aiInvoke({
       task: 'tag_summary',
@@ -2473,7 +2477,7 @@ async function generateTagSummary(l, btn) {
     });
     l.summary = reply || ''; save(); renderLabelPane();
   } catch (err) {
-    btn.disabled = false; btn.textContent = original;
+    btn.disabled = false; btn.innerHTML = original;
     alertModal('Could not generate summary.\n\n' + (err.message || ''), { title: 'TAG SUMMARY' });
   }
 }
@@ -2580,8 +2584,8 @@ async function generateIdeaSuggestions() {
   const btn = document.getElementById('suggestIdeasBtn');
   const chunks = db.chunks.filter(c => (c.body || '').trim());
   if (!chunks.length) { alertModal('No hop content to read yet.', { title: 'GENERATE IDEAS' }); return; }
-  const original = btn.textContent;
-  btn.disabled = true; btn.textContent = '✨ THINKING…';
+  const original = btn.innerHTML;
+  btn.disabled = true; btn.innerHTML = AI_STAR + ' THINKING…';
   try {
     const proj = projectsCache.find(p => p.id === activeProjectId);
     const { ideas } = await aiInvoke({
@@ -2590,7 +2594,7 @@ async function generateIdeaSuggestions() {
       genre: proj?.genre || '',
       chunks: chunks.map(c => ({ title: c.title, body: c.body }))
     });
-    btn.disabled = false; btn.textContent = original;
+    btn.disabled = false; btn.innerHTML = original;
     if (!ideas || !ideas.length) { alertModal('No ideas came back. Try again.', { title: 'GENERATE IDEAS' }); return; }
     const chosen = await ideaReviewModal(ideas);
     if (!chosen || !chosen.length) return;
@@ -2599,7 +2603,7 @@ async function generateIdeaSuggestions() {
     save(); renderIdeas();
     chosen.forEach(() => recordWritingActivity());
   } catch (err) {
-    btn.disabled = false; btn.textContent = original;
+    btn.disabled = false; btn.innerHTML = original;
     alertModal('Could not generate ideas.\n\n' + (err.message || ''), { title: 'GENERATE IDEAS' });
   }
 }
@@ -3317,7 +3321,7 @@ function renderSuggestedChunks() {
   const sub = document.getElementById('suggestSub');
   const refresh = document.getElementById('suggestRefreshBtn');
   refresh.disabled = suggestLoading;
-  refresh.textContent = suggestLoading ? '✨ THINKING…' : '↻ REFRESH';
+  refresh.innerHTML = suggestLoading ? AI_STAR + ' THINKING…' : '↻ REFRESH';
 
   if (suggestLoading) {
     sub.textContent = 'Reading your work so far…';
