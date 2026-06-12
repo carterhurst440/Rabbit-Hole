@@ -327,7 +327,7 @@ button, input, textarea, select { font-family: inherit; }
 .chap-color::-webkit-color-swatch { border: none; }
 
 /* ---------- CHUNK PANE ---------- */
-.chunk-pane, .char-pane { display: flex; flex-direction: column; gap: 16px; min-height: 200px; }
+.chunk-pane, .char-pane { display: flex; flex-direction: column; gap: 16px; min-height: 200px; min-width: 0; }
 .pane-empty { color: var(--muted); padding: 40px; text-align: center; border: 1px dashed var(--line-2); }
 .chunk-card { background: var(--panel); border: 1px solid var(--line); padding: 14px; }
 .chunk-card.collapsed { padding: 0; }
@@ -647,7 +647,7 @@ select.ui-modal-input { cursor: pointer; appearance: none; -webkit-appearance: n
 /* ---------- CHARACTERS detail ---------- */
 .char-block { background: var(--panel); border: 1px solid var(--line); padding: 14px; }
 .char-block h3 { margin: 0 0 10px; font-size: 12px; letter-spacing: 0.14em; color: var(--accent); }
-.char-summary { white-space: pre-wrap; font-size: 13px; line-height: 1.6; color: var(--text); }
+.char-summary { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.6; color: var(--text); }
 .char-refs { display: flex; flex-direction: column; gap: 6px; }
 .arc-timeline { position: relative; margin-top: 2px; padding-left: 20px; }
 .arc-timeline::before {
@@ -662,7 +662,7 @@ select.ui-modal-input { cursor: pointer; appearance: none; -webkit-appearance: n
   box-shadow: 0 0 0 3px var(--panel);
 }
 .arc-stage-label { font-size: 12px; font-weight: 700; color: var(--text-bright); letter-spacing: 0.03em; }
-.arc-stage-summary { font-size: 11px; color: var(--muted); margin-top: 3px; line-height: 1.55; white-space: pre-wrap; }
+.arc-stage-summary { font-size: 11px; color: var(--muted); margin-top: 3px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
 .char-principles { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
 .principles-head { font-size: 11px; letter-spacing: 0.08em; color: var(--muted); margin: 0 0 10px; font-weight: 700; }
 .principle { margin-bottom: 6px; background: var(--panel-2); border-left: 3px solid var(--arc, var(--accent)); }
