@@ -1788,6 +1788,24 @@ function resolveChunk(id) {
   return db.chunks.find(x => x.id === id) || (draftChunk && draftChunk.id === id ? draftChunk : null);
 }
 
+// The hop modal's SAVE button reflects edit state: 'pristine' on open (nothing
+// touched, disabled), 'dirty' once an edit is made (highlighted + enabled), and
+// 'saved' after a save (disabled) until the next edit flips it back to dirty.
+let chunkDirty = false;
+function setChunkSaveState(state) {
+  const sv = document.getElementById('chunkModalSave');
+  if (!sv) return;
+  chunkDirty = state === 'dirty';
+  sv.disabled = state !== 'dirty';
+  sv.classList.toggle('solid', state === 'dirty');
+  sv.textContent = state === 'saved' ? '✓ SAVED' : '✓ SAVE';
+}
+function markChunkDirty() {
+  if (chunkDirty) return;
+  if (document.getElementById('chunkModalOverlay').hidden) return;
+  setChunkSaveState('dirty');
+}
+
 function openChunkModal(chunkId) {
   const c = resolveChunk(chunkId);
   if (!c) return;
@@ -1838,10 +1856,7 @@ function openChunkModal(chunkId) {
     } else {
       save();
     }
-    const prev = sv.textContent;
-    sv.textContent = '✓ SAVED';
-    sv.disabled = true;
-    setTimeout(() => { sv.textContent = prev; sv.disabled = false; }, 1200);
+    setChunkSaveState('saved');
   };
 
   const az = document.getElementById('chunkModalAnalyze');
@@ -1855,6 +1870,7 @@ function openChunkModal(chunkId) {
     };
   }
 
+  setChunkSaveState('pristine');
   document.getElementById('chunkModalOverlay').hidden = false;
 }
 
@@ -1891,22 +1907,30 @@ function rerenderActiveView() {
 
 (function wireChunkModal() {
   const cur = () => resolveChunk(modalChunkId);
-  document.getElementById('chunkModalTitle').addEventListener('input', e => { const c = cur(); if (c) { c.title = e.target.value; save(); } });
-  document.getElementById('chunkModalBody').addEventListener('input', e => { const c = cur(); if (c) { c.body = e.target.value; save(); } });
-  document.getElementById('chunkModalChrono').addEventListener('input', e => { const c = cur(); if (c) { c.chronoLabel = e.target.value; save(); } });
+  document.getElementById('chunkModalTitle').addEventListener('input', e => { const c = cur(); if (c) { c.title = e.target.value; save(); markChunkDirty(); } });
+  document.getElementById('chunkModalBody').addEventListener('input', e => { const c = cur(); if (c) { c.body = e.target.value; save(); markChunkDirty(); } });
+  document.getElementById('chunkModalChrono').addEventListener('input', e => { const c = cur(); if (c) { c.chronoLabel = e.target.value; save(); markChunkDirty(); } });
   document.getElementById('chunkModalChapterSel').addEventListener('change', e => {
     const c = cur(); if (!c) return;
     c.chapterId = e.target.value;
     c.orderInChapter = chunksOf(c.chapterId).length;
-    save();
+    save(); markChunkDirty();
     document.getElementById('chunkModalChapter').textContent = chapterTitle(c.chapterId);
     document.getElementById('chunkModalChapter').style.color = chapterColor(c.chapterId);
   });
   document.getElementById('chunkModalArchive').addEventListener('click', e => {
     const c = cur(); if (!c) return;
-    c.archived = !c.archived; save();
+    c.archived = !c.archived; save(); markChunkDirty();
     e.currentTarget.textContent = c.archived ? 'UNARCHIVE' : 'ARCHIVE';
   });
+  // Chip/label toggles and new-label typing also count as edits. These containers
+  // are static, so wire once: a chip toggle is a click on a chip, a new label is
+  // an input event.
+  document.getElementById('chunkModalChars').addEventListener('click', e => { if (e.target.closest('.char-chip')) markChunkDirty(); });
+  document.getElementById('chunkModalLocs').addEventListener('click', e => { if (e.target.closest('.char-chip')) markChunkDirty(); });
+  const labelsWrap = document.getElementById('chunkModalLabels');
+  labelsWrap.addEventListener('click', e => { if (e.target.closest('.lbl-chip')) markChunkDirty(); });
+  labelsWrap.addEventListener('input', () => markChunkDirty());
   document.getElementById('chunkModalClose').addEventListener('click', closeChunkModal);
   document.getElementById('chunkModalOverlay').addEventListener('click', e => {
     if (e.target.id === 'chunkModalOverlay') closeChunkModal();

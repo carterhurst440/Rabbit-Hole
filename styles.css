@@ -609,6 +609,7 @@ select.ui-modal-input { cursor: pointer; appearance: none; -webkit-appearance: n
 
 /* ---------- AI writing tools ---------- */
 .add-btn:disabled { opacity: 0.6; cursor: default; }
+.add-btn:disabled:hover { border-color: var(--line-2); color: var(--text); background: none; }
 .rail-actions { display: flex; gap: 6px; align-items: center; }
 
 /* character names highlighted inside chunk prose */
