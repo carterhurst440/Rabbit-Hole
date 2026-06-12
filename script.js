@@ -3166,16 +3166,30 @@ let currentProfile = null;
 let booted = false;
 let authWhooshPending = false;
 const authReduceMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const authTransition = document.getElementById('authTransition');
+let authTransitionWired = false;
 
-// Play the rabbit-down-the-hole transition over the auth screen, then hide it.
-function playAuthWhoosh(done) {
-  if (authReduceMotion()) { authScreen.hidden = true; done && done(); return; }
-  authScreen.classList.add('whooshing');
-  setTimeout(() => {
+// Play the exact <rabbit-hole-signin> transition full-screen, then hide the
+// auth UI. The app has already mounted underneath, so revealing it is just a
+// matter of hiding this overlay when the component fires `signin`.
+function playAuthTransition(email) {
+  const finish = () => {
+    authTransition.hidden = true;   // mode stays 'done'; peek RAF is not running
     authScreen.hidden = true;
-    authScreen.classList.remove('whooshing');
-    done && done();
-  }, 920);
+  };
+  if (authReduceMotion() || typeof authTransition.play !== 'function') {
+    finish();
+    return;
+  }
+  if (!authTransitionWired) {
+    authTransitionWired = true;
+    authTransition.addEventListener('signin', finish);
+  }
+  if (email) authTransition.setAttribute('email', email);
+  authTransition.hidden = false;   // now visible: redraw the card at real size + peek
+  authTransition.reset();
+  // let the card draw in and the rabbit take a peek, then run the dive
+  setTimeout(() => authTransition.play(), 1300);
 }
 
 // The handle the user posts under in the community feed.
@@ -3210,7 +3224,7 @@ function showAuth() {
   applyProjectAccent(DEFAULT_ACCENT);
   document.body.classList.add('locked');
   authWhooshPending = false;
-  authScreen.classList.remove('whooshing');
+  if (authTransition) authTransition.hidden = true;
   authScreen.hidden = false;
 }
 function showApp(session) {
@@ -3228,7 +3242,7 @@ function showApp(session) {
   bootApp();
   if (authWhooshPending) {
     authWhooshPending = false;
-    playAuthWhoosh();
+    playAuthTransition(currentUser.email);
   } else {
     authScreen.hidden = true;
   }

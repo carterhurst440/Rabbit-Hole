@@ -12,23 +12,6 @@
 <body class="locked">
   <!-- ============ AUTH GATE ============ -->
   <div class="auth-screen" id="authScreen" hidden>
-    <div class="auth-stage">
-      <svg class="auth-rabbit-scene" viewBox="0 0 200 104" aria-hidden="true">
-        <defs>
-          <clipPath id="authPeekClip"><rect x="0" y="0" width="200" height="92"/></clipPath>
-        </defs>
-        <g class="ar-rabbit" clip-path="url(#authPeekClip)">
-          <ellipse class="ar-head" cx="100" cy="80" rx="17" ry="15"/>
-          <path class="ar-ear" d="M91,74 C86,52 84,28 91,21 C97,26 96,52 98,74 Z"/>
-          <path class="ar-ear" d="M109,74 C114,52 116,28 109,21 C103,26 104,52 102,74 Z"/>
-          <path class="ar-ear-in" d="M92,68 C89,52 88,36 92,28"/>
-          <path class="ar-ear-in" d="M108,68 C111,52 112,36 108,28"/>
-          <circle class="ar-eye" cx="93" cy="79" r="1.7"/>
-          <circle class="ar-eye" cx="107" cy="79" r="1.7"/>
-          <path class="ar-nose" d="M97,86 L103,86 L100,89 Z"/>
-        </g>
-        <ellipse class="ar-hole" cx="100" cy="92" rx="66" ry="9"/>
-      </svg>
     <div class="auth-card">
       <div class="auth-brand">// RABBIT HOLE</div>
       <div class="auth-tabs">
@@ -52,8 +35,10 @@
         <button class="auth-back" id="authBackBtn" type="button">← BACK TO SIGN IN</button>
       </div>
     </div>
-    </div>
   </div>
+  <!-- Exact sign-in transition (drop-in web component). Plays full-screen on a
+       successful sign-in; the real form above handles input/errors/sign-up. -->
+  <rabbit-hole-signin id="authTransition" hidden></rabbit-hole-signin>
 
   <!-- ============ HEADER ============ -->
   <header class="app-header">
@@ -388,6 +373,7 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="supabaseClient.js"></script>
+  <script src="rabbit-hole-signin.js"></script>
   <script src="script.js"></script>
 </body>
 </html>
