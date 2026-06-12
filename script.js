@@ -3170,6 +3170,7 @@ const authOverlay  = document.getElementById('authOverlay');   // real inputs ov
 const loginEmail   = document.getElementById('loginEmail');
 const loginPassword= document.getElementById('loginPassword');
 const loginMsg     = document.getElementById('loginMsg');
+const signinHotspot= document.getElementById('signinHotspot');
 const signupHotspot= document.getElementById('signupHotspot');
 let signinBusy = false;
 
@@ -3194,6 +3195,9 @@ function positionAuthOverlay() {
   loginEmail.style.fontSize = (13 * K) + 'px';
   loginPassword.style.fontSize = (14 * K) + 'px';
   loginPassword.style.letterSpacing = (3 * K) + 'px';
+  // SIGN IN button box — the SVG rect is fill:none (dead interior), so cover
+  // the whole box with a real clickable hotspot (x -135..135, y 64..108).
+  place(signinHotspot, -135, 64, 270, 44);
   // SIGN UP tab = right half of the toggle row (x 0..135, y -122..-86)
   place(signupHotspot, 0, -122, 135, 36);
   // error line, just above the bottom hint
@@ -3275,6 +3279,7 @@ function showAuthSent(email) {
 document.getElementById('tabSignIn').addEventListener('click', () => showSignIn());
 document.getElementById('tabSignUp').addEventListener('click', () => showSignUp());
 document.getElementById('authBackBtn').addEventListener('click', () => showSignIn());
+signinHotspot.addEventListener('click', () => doSignIn());
 signupHotspot.addEventListener('click', () => showSignUp());
 loginEmail.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); doSignIn(); } });
 loginPassword.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); doSignIn(); } });
