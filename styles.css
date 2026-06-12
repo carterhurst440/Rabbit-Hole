@@ -337,8 +337,9 @@ button, input, textarea, select { font-family: inherit; }
 .chunk-disp-meta { font-size: 10px; color: var(--muted); white-space: nowrap; }
 .chunk-disp-meta .hop-ord { color: var(--accent); font-weight: 600; letter-spacing: 0.06em; }
 .chunk-disp-actions { display: flex; gap: 2px; align-items: center; }
-/* kebab menu — hidden on desktop, replaces the inline buttons on mobile */
-.hop-kebab { display: none; position: relative; }
+/* kebab menu replaces the inline buttons everywhere; inline acts are retired */
+.hop-act { display: none; }
+.hop-kebab { display: block; position: relative; }
 .hop-kebab > summary {
   list-style: none; cursor: pointer; color: var(--muted);
   font-size: 18px; line-height: 1; padding: 2px 6px; user-select: none;
@@ -934,8 +935,6 @@ body.locked .ai-overlay { display: none !important; }
   .chunk-disp-title { flex: 1 1 60%; min-width: 0; }
   .chunk-disp-meta { white-space: normal; }
   .chunk-disp-actions { margin-left: auto; }
-  .hop-act { display: none; }
-  .hop-kebab { display: block; }
   .add-btn { white-space: nowrap; }
 }
 
