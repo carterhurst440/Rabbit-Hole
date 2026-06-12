@@ -11,6 +11,26 @@ const uid = () => crypto.randomUUID();
 const CHAPTER_PALETTE = ['#e0a96d', '#6da9e0', '#9ad06b', '#d06b9a', '#c9a227', '#6bd0c0', '#b58be0', '#e07a5f'];
 
 const PROJECT_TYPES = ['Book', 'Movie', 'Play', 'Show', 'Short Story', 'Journal', 'Other'];
+
+// Per-project theme colors. The first is the app default (tan). All are light
+// enough that the dark text used on accent-filled buttons stays readable.
+const DEFAULT_ACCENT = '#e0a96d';
+const PROJECT_ACCENTS = [
+  { name: 'Tan', value: '#e0a96d' },
+  { name: 'Gold', value: '#e0c46d' },
+  { name: 'Coral', value: '#e0896d' },
+  { name: 'Rose', value: '#e088a4' },
+  { name: 'Violet', value: '#b794e0' },
+  { name: 'Sky', value: '#7cc1de' },
+  { name: 'Sage', value: '#86c9a0' },
+  { name: 'Slate', value: '#9aa6c0' },
+];
+
+// Paint the whole app in a project's theme color by swapping --accent; the
+// derived dim/mid vars follow via color-mix in the stylesheet.
+function applyProjectAccent(color) {
+  document.documentElement.style.setProperty('--accent', color || DEFAULT_ACCENT);
+}
 const GENRES = [
   'Literary Fiction', 'Fantasy', 'Science Fiction', 'Mystery', 'Thriller',
   'Horror', 'Romance', 'Historical Fiction', 'Adventure', 'Young Adult',
@@ -417,6 +437,7 @@ function postToCommunityModal(chunk) {
       project_name: proj.name || null,
       project_type: proj.type || null,
       project_genre: proj.genre || null,
+      accent: proj.accent || null,
       entities
     });
     if (error) {
@@ -553,8 +574,9 @@ function feedCardHtml(p) {
   const mine = currentUser && p.user_id === currentUser.id;
   const comments = p.comments.map(c =>
     `<div class="feed-comment"><span class="feed-comment-user">@${esc(c.username)}</span> ${esc(c.body)}</div>`).join('');
+  const accentStyle = p.accent ? ` style="--accent:${esc(p.accent)}"` : '';
   return `
-  <article class="feed-card" data-id="${p.id}">
+  <article class="feed-card"${accentStyle} data-id="${p.id}">
     <div class="feed-head">
       <button class="feed-user" data-f="user">@${esc(p.username)}</button>
       ${myFluffle.has(p.user_id) ? '<span class="feed-fluffle-tag" title="In your Fluffle">★</span>' : ''}
@@ -2732,13 +2754,17 @@ const promptModal = (message, defaultValue = '', opts = {}) =>
 const alertModal = (message, opts = {}) =>
   uiModal({ message, cancelText: '', ...opts });
 
-// Name + type + genre editor. Resolves to { name, type, genre } or null on cancel.
-function projectSettingsModal({ title = 'PROJECT', name = '', type = '', genre = '', okText = 'Save' } = {}) {
+// Name + type + genre + theme color editor. Resolves to
+// { name, type, genre, accent } or null on cancel.
+function projectSettingsModal({ title = 'PROJECT', name = '', type = '', genre = '', accent = '', okText = 'Save' } = {}) {
   return new Promise(resolve => {
     const typeOpts = PROJECT_TYPES.map(t =>
       `<option value="${esc(t)}" ${t === type ? 'selected' : ''}>${esc(t)}</option>`).join('');
     const genreOpts = `<option value="" ${!genre ? 'selected' : ''}>— none —</option>` +
       GENRES.map(g => `<option value="${esc(g)}" ${g === genre ? 'selected' : ''}>${esc(g)}</option>`).join('');
+    let chosenAccent = accent || DEFAULT_ACCENT;
+    const swatches = PROJECT_ACCENTS.map(a =>
+      `<button type="button" class="ps-swatch ${a.value === chosenAccent ? 'active' : ''}" data-accent="${esc(a.value)}" style="--sw:${esc(a.value)}" title="${esc(a.name)}" aria-label="${esc(a.name)}"></button>`).join('');
     const overlay = document.createElement('div');
     overlay.className = 'ui-modal-overlay';
     overlay.innerHTML = `
@@ -2753,6 +2779,9 @@ function projectSettingsModal({ title = 'PROJECT', name = '', type = '', genre =
         <label class="ps-field"><span class="ps-label">GENRE</span>
           <select class="ui-modal-input" id="psGenre">${genreOpts}</select>
         </label>
+        <div class="ps-field"><span class="ps-label">THEME COLOR</span>
+          <div class="ps-swatches" id="psSwatches">${swatches}</div>
+        </div>
         <div class="ui-modal-actions">
           <button class="ui-modal-btn" data-act="cancel">Cancel</button>
           <button class="ui-modal-btn solid" data-act="ok">${esc(okText)}</button>
@@ -2761,11 +2790,26 @@ function projectSettingsModal({ title = 'PROJECT', name = '', type = '', genre =
     document.body.appendChild(overlay);
     const nameEl = overlay.querySelector('#psName');
     nameEl.value = name;
-    const done = val => { document.removeEventListener('keydown', onKey); overlay.remove(); resolve(val); };
+    // Live-preview the theme as the user picks; restore on cancel.
+    applyProjectAccent(chosenAccent);
+    overlay.querySelector('#psSwatches').addEventListener('click', e => {
+      const sw = e.target.closest('.ps-swatch');
+      if (!sw) return;
+      chosenAccent = sw.dataset.accent;
+      overlay.querySelectorAll('.ps-swatch').forEach(s => s.classList.toggle('active', s === sw));
+      applyProjectAccent(chosenAccent);
+    });
+    const restoreAccent = () => applyProjectAccent(projectsCache.find(p => p.id === activeProjectId)?.accent);
+    const done = val => {
+      document.removeEventListener('keydown', onKey);
+      if (!val) restoreAccent();
+      overlay.remove();
+      resolve(val);
+    };
     const onOk = () => {
       const n = nameEl.value.trim();
       if (!n) { nameEl.focus(); return; }
-      done({ name: n, type: overlay.querySelector('#psType').value, genre: overlay.querySelector('#psGenre').value });
+      done({ name: n, type: overlay.querySelector('#psType').value, genre: overlay.querySelector('#psGenre').value, accent: chosenAccent });
     };
     overlay.querySelector('[data-act="ok"]').addEventListener('click', onOk);
     overlay.querySelector('[data-act="cancel"]').addEventListener('click', () => done(null));
@@ -2815,6 +2859,7 @@ function showAuth() {
   activeProjectId = null;
   booted = false;
   db = seed();
+  applyProjectAccent(DEFAULT_ACCENT);
   document.body.classList.add('locked');
   authScreen.hidden = false;
 }
@@ -2926,9 +2971,9 @@ function computeStreak(days) {
   return n;
 }
 
-async function createProjectRow(name, type = 'Book', genre = '') {
+async function createProjectRow(name, type = 'Book', genre = '', accent = '') {
   const { data, error } = await sb.from('projects')
-    .insert({ user_id: currentUser.id, name, type, genre: genre || null, ui: {} }).select().single();
+    .insert({ user_id: currentUser.id, name, type, genre: genre || null, accent: accent || null, ui: {} }).select().single();
   if (error) throw error;
   return data;
 }
@@ -3002,6 +3047,7 @@ async function loadProject(projectId) {
     ui: (proj.data && proj.data.ui) || {}
   };
   if (!db.ui.activeChapter) db.ui.activeChapter = db.chapters[0]?.id || null;
+  applyProjectAccent(proj.data && proj.data.accent);
   localStorage.setItem(activeKey(), projectId);
   loadHopPostCounts();
 }
@@ -3420,7 +3466,7 @@ async function createProjectFlow() {
   const res = await projectSettingsModal({ title: 'NEW PROJECT', name: 'Untitled', type: 'Book', okText: 'Create' });
   if (!res) return;
   await flushPersist();
-  const proj = await createProjectRow(res.name, res.type, res.genre);
+  const proj = await createProjectRow(res.name, res.type, res.genre, res.accent);
   await seedProjectContent(proj.id, null);
   const projects = await fetchProjects();
   renderProjectSelector(projects, proj.id);
@@ -3434,12 +3480,15 @@ async function editProjectFlow(id) {
   const cur = projectsCache.find(p => p.id === id);
   if (!cur) return;
   const res = await projectSettingsModal({
-    title: 'EDIT PROJECT', name: cur.name, type: cur.type || 'Book', genre: cur.genre || '', okText: 'Save'
+    title: 'EDIT PROJECT', name: cur.name, type: cur.type || 'Book', genre: cur.genre || '', accent: cur.accent || '', okText: 'Save'
   });
   if (!res) return;
-  await sb.from('projects').update({ name: res.name, type: res.type, genre: res.genre || null }).eq('id', id);
+  await sb.from('projects').update({ name: res.name, type: res.type, genre: res.genre || null, accent: res.accent || null }).eq('id', id);
   const projects = await fetchProjects();
   renderProjectSelector(projects, activeProjectId);
+  // Re-sync to the active project's accent (the modal may have live-previewed
+  // another project's color while editing it).
+  applyProjectAccent(projectsCache.find(p => p.id === activeProjectId)?.accent);
   if (currentRoute() === 'home') renderHome();
 }
 

@@ -5,8 +5,9 @@
   --line: #232320;
   --line-2: #2e2e28;
   --accent: #e0a96d;
-  --accent-dim: rgba(224,169,109,0.15);
-  --accent-mid: rgba(224,169,109,0.4);
+  /* dim/mid derive from --accent so a single per-project swap re-themes the app */
+  --accent-dim: color-mix(in srgb, var(--accent) 15%, transparent);
+  --accent-mid: color-mix(in srgb, var(--accent) 40%, transparent);
   --text: #c8c0a8;
   --text-bright: #ece4cc;
   --muted: #6a6650;
@@ -522,6 +523,13 @@ button, input, textarea, select { font-family: inherit; }
 select.ui-modal-input { cursor: pointer; appearance: none; -webkit-appearance: none; }
 .ps-field { display: flex; flex-direction: column; gap: 6px; }
 .ps-label { font-size: 10px; letter-spacing: 0.14em; color: var(--muted); }
+.ps-swatches { display: flex; flex-wrap: wrap; gap: 10px; }
+.ps-swatch {
+  width: 30px; height: 30px; border-radius: 50%; cursor: pointer; padding: 0;
+  background: var(--sw); border: 2px solid var(--line-2);
+}
+.ps-swatch:hover { border-color: var(--text); }
+.ps-swatch.active { border-color: var(--text-bright); box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--sw); }
 .ui-modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 2px; flex: none; }
 .ui-modal-btn {
   background: none; border: 1px solid var(--line-2); color: var(--muted);
