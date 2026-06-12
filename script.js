@@ -214,6 +214,46 @@ async function saveUsername() {
    COMMUNITY — social feed of shared hops
    ===================================================================== */
 let feedCache = [];
+let hopPostCounts = {};      // chunk_id -> { active, total }
+let myFluffle = new Set();    // user_ids the current user has favorited
+let feedScope = 'all';        // 'all' | 'fluffle'
+let feedGenre = '';           // '' = all genres, else a project_genre
+let pendingFeedFocus = null;  // post id to scroll to after the feed draws
+
+// How many community posts the current user has per hop, so each hop can show a
+// live count badge on its VIEW POSTS control. Cached; refreshed after mutations.
+async function loadHopPostCounts() {
+  hopPostCounts = {};
+  if (!currentUser) { refreshHopPostBadges(); return; }
+  const { data } = await sb.from('community_posts')
+    .select('chunk_id, status').eq('user_id', currentUser.id);
+  (data || []).forEach(r => {
+    if (!r.chunk_id) return;
+    const e = hopPostCounts[r.chunk_id] || (hopPostCounts[r.chunk_id] = { active: 0, total: 0 });
+    e.total++; if (r.status !== 'closed') e.active++;
+  });
+  refreshHopPostBadges();
+}
+
+// Stamp the cached active-post count onto each hop card's VIEW POSTS buttons.
+function refreshHopPostBadges() {
+  document.querySelectorAll('.chunk-card').forEach(card => {
+    const n = (hopPostCounts[card.dataset.id] || {}).active || 0;
+    card.querySelectorAll('[data-f="viewposts"] .pc-badge').forEach(b => {
+      b.textContent = n;
+      b.classList.toggle('has', n > 0);
+    });
+  });
+}
+
+// The set of community members the current user has added to their Fluffle.
+async function loadFluffle() {
+  myFluffle = new Set();
+  if (!currentUser) return;
+  const { data } = await sb.from('community_follows')
+    .select('friend_id').eq('user_id', currentUser.id);
+  (data || []).forEach(r => myFluffle.add(r.friend_id));
+}
 
 function timeAgo(iso) {
   const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
@@ -308,6 +348,7 @@ function postToCommunityModal(chunk) {
     }
     close();
     alertModal('Shared to the community.', { title: 'POSTED' });
+    loadHopPostCounts();
     if (currentRoute() === 'community') renderCommunity();
   });
 }
@@ -316,6 +357,8 @@ async function renderCommunity() {
   const el = document.getElementById('communityFeed');
   if (!el) return;
   el.innerHTML = '<div class="feed-empty">Loading…</div>';
+  await loadFluffle();
+  renderCommunityFilters();
   const { data: posts, error } = await sb.from('community_posts')
     .select('*').eq('status', 'open').order('created_at', { ascending: false }).limit(100);
   if (error) { el.innerHTML = '<div class="feed-empty">Could not load the feed.</div>'; return; }
@@ -339,15 +382,55 @@ async function renderCommunity() {
   drawFeed();
 }
 
+// Genre chips + scope toggle (ALL / MY FLUFFLE) above the feed.
+function renderCommunityFilters() {
+  const bar = document.getElementById('communityFilters');
+  if (!bar) return;
+  const genreChips = ['<button class="cf-chip ' + (feedGenre === '' ? 'active' : '') + '" data-genre="">ALL GENRES</button>']
+    .concat(GENRES.map(g =>
+      `<button class="cf-chip ${feedGenre === g ? 'active' : ''}" data-genre="${esc(g)}">${esc(g)}</button>`)).join('');
+  bar.innerHTML = `
+    <div class="cf-scope">
+      <button class="cf-scope-btn ${feedScope === 'all' ? 'active' : ''}" data-scope="all">ALL</button>
+      <button class="cf-scope-btn ${feedScope === 'fluffle' ? 'active' : ''}" data-scope="fluffle">MY FLUFFLE</button>
+    </div>
+    <div class="cf-genres">${genreChips}</div>`;
+  bar.querySelectorAll('[data-scope]').forEach(b => b.addEventListener('click', () => {
+    feedScope = b.dataset.scope; renderCommunityFilters(); drawFeed();
+  }));
+  bar.querySelectorAll('[data-genre]').forEach(b => b.addEventListener('click', () => {
+    feedGenre = b.dataset.genre; renderCommunityFilters(); drawFeed();
+  }));
+}
+
+function visibleFeed() {
+  return feedCache.filter(p =>
+    (feedScope !== 'fluffle' || myFluffle.has(p.user_id)) &&
+    (!feedGenre || p.project_genre === feedGenre));
+}
+
 function drawFeed() {
   const el = document.getElementById('communityFeed');
   if (!el) return;
-  if (!feedCache.length) {
-    el.innerHTML = '<div class="feed-empty">No posts yet. Share a hop from its menu.</div>';
+  const list = visibleFeed();
+  if (!list.length) {
+    const msg = feedScope === 'fluffle'
+      ? 'No posts from your Fluffle yet. Add members from their profile.'
+      : (feedGenre ? 'No posts in this genre yet.' : 'No posts yet. Share a hop from its menu.');
+    el.innerHTML = `<div class="feed-empty">${msg}</div>`;
     return;
   }
-  el.innerHTML = feedCache.map(feedCardHtml).join('');
-  feedCache.forEach(p => wireFeedCard(el.querySelector(`.feed-card[data-id="${p.id}"]`), p));
+  el.innerHTML = list.map(feedCardHtml).join('');
+  list.forEach(p => wireFeedCard(el.querySelector(`.feed-card[data-id="${p.id}"]`), p));
+  if (pendingFeedFocus) {
+    const card = el.querySelector(`.feed-card[data-id="${pendingFeedFocus}"]`);
+    pendingFeedFocus = null;
+    if (card) {
+      card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      card.classList.add('flash');
+      setTimeout(() => card.classList.remove('flash'), 1600);
+    }
+  }
 }
 
 // Render a frozen character/location snapshot. Each entity is a collapsed row —
@@ -395,7 +478,8 @@ function feedCardHtml(p) {
   return `
   <article class="feed-card" data-id="${p.id}">
     <div class="feed-head">
-      <span class="feed-user">@${esc(p.username)}</span>
+      <button class="feed-user" data-f="user">@${esc(p.username)}</button>
+      ${myFluffle.has(p.user_id) ? '<span class="feed-fluffle-tag" title="In your Fluffle">★</span>' : ''}
       <span class="feed-time">${timeAgo(p.created_at)}</span>
     </div>
     ${feedProjHtml(p)}
@@ -429,6 +513,7 @@ function wireFeedCard(card, p) {
     viewBtn.hidden = false;
     viewBtn.addEventListener('click', () => viewHopModal(p));
   }
+  card.querySelector('[data-f="user"]')?.addEventListener('click', () => userProfileModal(p.user_id, p.username));
   card.querySelector('[data-f="like"]').addEventListener('click', () => toggleLike(p));
   card.querySelector('[data-f="comments"]').addEventListener('click', () => {
     p.commentsOpen = !p.commentsOpen; drawFeed();
@@ -533,48 +618,160 @@ async function managePostsModal(chunk) {
       sb.from('community_comments').select('post_id').in('post_id', ids)
     ]);
     const likes = lr.data || [], comments = cr.data || [];
-    scroll.innerHTML = posts.map(p => {
-      const lc = likes.filter(l => l.post_id === p.id).length;
-      const cc = comments.filter(c => c.post_id === p.id).length;
-      const closed = p.status === 'closed';
-      return `
-      <div class="mp-post ${closed ? 'is-closed' : ''}" data-id="${p.id}">
-        <div class="mp-head">
-          <span class="mp-status ${closed ? 'closed' : 'open'}">${closed ? 'CLOSED' : 'OPEN'}</span>
-          <span class="mp-time">${timeAgo(p.created_at)}</span>
-        </div>
-        ${p.context ? `<div class="mp-context">${esc(p.context)}</div>` : ''}
-        <div class="mp-activity">♥ ${lc} · COMMENTS ${cc}</div>
-        <div class="mp-actions">
-          ${closed
-            ? '<button class="add-btn" data-f="reopen">REOPEN</button>'
-            : '<button class="add-btn" data-f="close">CLOSE</button>'}
-          <button class="add-btn danger" data-f="delete">DELETE</button>
-        </div>
-      </div>`;
-    }).join('');
+    const active = posts.filter(p => p.status !== 'closed').length;
+    scroll.innerHTML =
+      `<div class="mp-count">${active} active · ${posts.length} total</div>` +
+      posts.map(p => {
+        const lc = likes.filter(l => l.post_id === p.id).length;
+        const cc = comments.filter(c => c.post_id === p.id).length;
+        const closed = p.status === 'closed';
+        const sample = (p.hop_body || '').slice(0, 180);
+        const snippet = sample + ((p.hop_body || '').length > 180 ? '…' : '');
+        return `
+        <div class="mp-post ${closed ? 'is-closed' : ''}" data-id="${p.id}">
+          <div class="mp-head">
+            <span class="mp-status ${closed ? 'closed' : 'active'}">${closed ? 'ARCHIVED' : 'ACTIVE'}</span>
+            <span class="mp-time">${timeAgo(p.created_at)}</span>
+          </div>
+          ${p.context ? `<div class="mp-context">${esc(p.context)}</div>` : ''}
+          <div class="mp-sample">${esc(snippet) || '<span class="muted">(no content)</span>'}</div>
+          <div class="mp-activity">♥ ${lc} · COMMENTS ${cc}</div>
+          <div class="mp-actions">
+            ${closed ? '' : '<button class="add-btn" data-f="viewpost">VIEW POST</button>'}
+            ${closed
+              ? '<button class="add-btn" data-f="reopen">REACTIVATE</button>'
+              : '<button class="add-btn" data-f="archive">ARCHIVE</button>'}
+            <button class="add-btn danger" data-f="delete">DELETE</button>
+          </div>
+        </div>`;
+      }).join('');
     posts.forEach(p => {
       const row = scroll.querySelector(`.mp-post[data-id="${p.id}"]`);
       if (!row) return;
-      row.querySelector('[data-f="close"]')?.addEventListener('click', async () => {
+      row.querySelector('[data-f="viewpost"]')?.addEventListener('click', () => {
+        close(); gotoCommunityPost(p.id);
+      });
+      row.querySelector('[data-f="archive"]')?.addEventListener('click', async () => {
+        if (!await confirmModal('Archive this post? It will no longer be viewable to the community, but you keep full access to it here.', { title: 'ARCHIVE POST', okText: 'Archive', danger: false })) return;
         await sb.from('community_posts').update({ status: 'closed' }).eq('id', p.id);
-        load();
+        load(); loadHopPostCounts();
         if (currentRoute() === 'community') renderCommunity();
       });
       row.querySelector('[data-f="reopen"]')?.addEventListener('click', async () => {
         await sb.from('community_posts').update({ status: 'open' }).eq('id', p.id);
-        load();
+        load(); loadHopPostCounts();
         if (currentRoute() === 'community') renderCommunity();
       });
       row.querySelector('[data-f="delete"]')?.addEventListener('click', async () => {
         if (!await confirmModal('Delete this post permanently? This cannot be undone.')) return;
         await sb.from('community_posts').delete().eq('id', p.id);
-        load();
+        load(); loadHopPostCounts();
         if (currentRoute() === 'community') renderCommunity();
       });
     });
   }
   load();
+}
+
+// Jump to the community feed and bring a specific post into view, flashing it.
+// Filters are reset so the target is never hidden by an active scope/genre.
+function gotoCommunityPost(postId) {
+  pendingFeedFocus = postId;
+  feedScope = 'all'; feedGenre = '';
+  if (currentRoute() === 'community') { renderCommunity(); }
+  else { location.hash = '#community'; }
+}
+
+// A community member's public page: their handle, community activity, the
+// projects they've shared (community DB only), their posts, and an ADD TO
+// FLUFFLE toggle that favorites them.
+async function userProfileModal(userId, username) {
+  const overlay = document.createElement('div');
+  overlay.className = 'ui-modal-overlay';
+  overlay.innerHTML = `
+    <div class="ui-modal up-modal">
+      <div class="ui-modal-title">@${esc(username || '')}</div>
+      <div class="ui-modal-scroll" id="upScroll"><div class="feed-empty">Loading…</div></div>
+      <div class="ui-modal-actions">
+        <button class="ui-modal-btn" data-act="close">Done</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const close = () => overlay.remove();
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  overlay.querySelector('[data-act="close"]').addEventListener('click', close);
+  const scroll = overlay.querySelector('#upScroll');
+  const isSelf = currentUser && userId === currentUser.id;
+
+  const { data: posts, error } = await sb.from('community_posts')
+    .select('*').eq('user_id', userId).eq('status', 'open')
+    .order('created_at', { ascending: false });
+  if (error) { scroll.innerHTML = '<div class="feed-empty">Could not load this profile.</div>'; return; }
+
+  const ids = posts.map(p => p.id);
+  let likeTotal = 0, commentTotal = 0;
+  if (ids.length) {
+    const [lr, cr] = await Promise.all([
+      sb.from('community_likes').select('post_id').in('post_id', ids),
+      sb.from('community_comments').select('post_id').in('post_id', ids)
+    ]);
+    likeTotal = (lr.data || []).length;
+    commentTotal = (cr.data || []).length;
+  }
+  const projects = [...new Map(posts
+    .filter(p => p.project_name)
+    .map(p => [p.project_name, { name: p.project_name, meta: [p.project_type, p.project_genre].filter(Boolean).join(' · ') }]))
+    .values()];
+
+  function fluffleBtnHtml() {
+    if (isSelf) return '';
+    const inFluffle = myFluffle.has(userId);
+    return `<button class="up-fluffle ${inFluffle ? 'on' : ''}" data-f="fluffle">${inFluffle ? '★ IN YOUR FLUFFLE' : '☆ ADD TO FLUFFLE'}</button>`;
+  }
+
+  function render() {
+    scroll.innerHTML = `
+      <div class="up-head">
+        <div class="up-stats">
+          <span><strong>${posts.length}</strong> posts</span>
+          <span><strong>${projects.length}</strong> projects</span>
+          <span><strong>${likeTotal}</strong> ♥</span>
+          <span><strong>${commentTotal}</strong> comments</span>
+        </div>
+        ${fluffleBtnHtml()}
+      </div>
+      ${projects.length ? `<div class="up-section">
+        <div class="up-label">PROJECTS</div>
+        ${projects.map(pr => `<div class="up-proj"><span class="up-proj-name">${esc(pr.name)}</span>${pr.meta ? `<span class="up-proj-meta">${esc(pr.meta)}</span>` : ''}</div>`).join('')}
+      </div>` : ''}
+      <div class="up-section">
+        <div class="up-label">POSTS</div>
+        ${posts.length ? posts.map(p => {
+          const snippet = (p.hop_body || '').slice(0, 160) + ((p.hop_body || '').length > 160 ? '…' : '');
+          return `<div class="up-post" data-id="${p.id}">
+            <div class="up-post-head">${p.hop_title ? `<span class="up-post-title">${esc(p.hop_title)}</span>` : '<span class="muted">Untitled hop</span>'}<span class="mp-time">${timeAgo(p.created_at)}</span></div>
+            <div class="up-post-sample">${esc(snippet)}</div>
+            <button class="add-btn" data-f="viewpost">VIEW POST</button>
+          </div>`;
+        }).join('') : '<div class="feed-empty">No public posts.</div>'}
+      </div>`;
+    scroll.querySelector('[data-f="fluffle"]')?.addEventListener('click', async () => {
+      if (myFluffle.has(userId)) {
+        myFluffle.delete(userId);
+        await sb.from('community_follows').delete().eq('user_id', currentUser.id).eq('friend_id', userId);
+      } else {
+        myFluffle.add(userId);
+        await sb.from('community_follows').insert({ user_id: currentUser.id, friend_id: userId });
+      }
+      render();
+      if (currentRoute() === 'community') { renderCommunityFilters(); drawFeed(); }
+    });
+    posts.forEach(p => {
+      scroll.querySelector(`.up-post[data-id="${p.id}"] [data-f="viewpost"]`)
+        ?.addEventListener('click', () => viewHopModal(p));
+    });
+  }
+  render();
 }
 
 window.addEventListener('hashchange', route);
@@ -716,6 +913,7 @@ function renderChunkPane() {
 
   pane.querySelectorAll('.chunk-card').forEach(card => wireChunkCard(card));
   enableChunkDragReorder(pane, ch.id);
+  refreshHopPostBadges();
 }
 
 /* ---- drag-and-drop reorder of chunks within a chapter ---- */
@@ -1115,7 +1313,7 @@ function renderChunkCardDisplay(c) {
       <span class="chunk-disp-actions">
         <button class="add-btn hop-act" data-f="analyze" title="AI: analyze this hop">${hasAnalysis(c.analysis) ? '✨ VIEW ANALYSIS' : '✨ ANALYZE'}</button>
         <button class="add-btn hop-act" data-f="post" title="Share this hop to the community">↗ POST</button>
-        <button class="add-btn hop-act" data-f="viewposts" title="Manage this hop's community posts">▤ POSTS</button>
+        <button class="add-btn hop-act" data-f="viewposts" title="Manage this hop's community posts">▤ POSTS <span class="pc-badge">0</span></button>
         <button class="add-btn hop-act" data-f="archive">${c.archived ? 'UNARCHIVE' : 'ARCHIVE'}</button>
         <button class="add-btn hop-act" data-f="edit">EDIT</button>
         <button class="icon-btn hop-act" data-f="del" title="Delete hop">✕</button>
@@ -1124,7 +1322,7 @@ function renderChunkCardDisplay(c) {
           <div class="hop-menu">
             <button class="add-btn" data-f="analyze">${hasAnalysis(c.analysis) ? '✨ VIEW ANALYSIS' : '✨ ANALYZE'}</button>
             <button class="add-btn" data-f="post">↗ POST TO COMMUNITY</button>
-            <button class="add-btn" data-f="viewposts">▤ VIEW POSTS</button>
+            <button class="add-btn" data-f="viewposts">▤ VIEW POSTS <span class="pc-badge">0</span></button>
             <button class="add-btn" data-f="archive">${c.archived ? 'UNARCHIVE' : 'ARCHIVE'}</button>
             <button class="add-btn" data-f="edit">EDIT</button>
             <button class="add-btn danger" data-f="del">DELETE</button>
@@ -2694,6 +2892,7 @@ async function loadProject(projectId) {
   };
   if (!db.ui.activeChapter) db.ui.activeChapter = db.chapters[0]?.id || null;
   localStorage.setItem(activeKey(), projectId);
+  loadHopPostCounts();
 }
 
 /* ---- persistence: debounced full-project sync ---- */
