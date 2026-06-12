@@ -350,29 +350,45 @@ function drawFeed() {
   feedCache.forEach(p => wireFeedCard(el.querySelector(`.feed-card[data-id="${p.id}"]`), p));
 }
 
-// Render a frozen character/location snapshot — each entity's name in its own
-// color, plus its overview (summary) and highlights (notes). Shared by the post
-// preview, the live feed card, and the manage-posts modal.
+// Render a frozen character/location snapshot. Each entity is a collapsed row —
+// just the colored name — that expands on click to reveal its overview (summary)
+// and highlights (notes). Native <details> so it works with no JS wiring in the
+// feed card, the post preview, and the manage-posts modal alike.
 function entitySnapshotHtml(entities) {
   if (!entities || !entities.length) return '';
-  const group = kind => entities.filter(e => e.kind === kind).map(e => {
+  const item = e => {
     const notes = (e.notes || []).map(n => `<li>${esc(n)}</li>`).join('');
-    return `<div class="ent-snap-item">
-      <div class="ent-snap-name" style="color:${e.color || 'var(--accent)'}">${esc(e.name)}</div>
-      ${e.summary ? `<div class="ent-snap-overview">${esc(e.summary)}</div>` : ''}
-      ${notes ? `<ul class="ent-snap-notes">${notes}</ul>` : ''}
-    </div>`;
-  }).join('');
+    const hasBody = !!(e.summary || notes);
+    return `<details class="ent-item">
+      <summary class="ent-item-name" style="color:${e.color || 'var(--accent)'}">${esc(e.name)}</summary>
+      <div class="ent-item-body">
+        ${e.summary ? `<div class="ent-snap-overview">${esc(e.summary)}</div>` : ''}
+        ${notes ? `<ul class="ent-snap-notes">${notes}</ul>` : ''}
+        ${hasBody ? '' : '<div class="ent-snap-overview ent-snap-empty">No details added.</div>'}
+      </div>
+    </details>`;
+  };
   const section = (label, kind) => {
-    const items = group(kind);
-    return items ? `<div class="ent-snap-group"><div class="ent-snap-label">${label}</div>${items}</div>` : '';
+    const items = entities.filter(e => e.kind === kind);
+    if (!items.length) return '';
+    return `<div class="ent-snap-group"><div class="ent-snap-label">${label}</div>${items.map(item).join('')}</div>`;
   };
   const body = section('CHARACTERS', 'character') + section('LOCATIONS', 'location');
   return body ? `<div class="ent-snap">${body}</div>` : '';
 }
 
+// Prominent project header for a post: name on its own line, type · genre beneath.
+function feedProjHtml(p) {
+  const name = p.project_name || '';
+  const meta = [p.project_type, p.project_genre].filter(Boolean).join(' · ');
+  if (!name && !meta) return '';
+  return `<div class="feed-proj">
+    ${name ? `<span class="feed-proj-name">${esc(name)}</span>` : ''}
+    ${meta ? `<span class="feed-proj-meta">${esc(meta)}</span>` : ''}
+  </div>`;
+}
+
 function feedCardHtml(p) {
-  const proj = [p.project_name, p.project_type, p.project_genre].filter(Boolean).join(' · ');
   const mine = currentUser && p.user_id === currentUser.id;
   const comments = p.comments.map(c =>
     `<div class="feed-comment"><span class="feed-comment-user">@${esc(c.username)}</span> ${esc(c.body)}</div>`).join('');
@@ -382,11 +398,12 @@ function feedCardHtml(p) {
       <span class="feed-user">@${esc(p.username)}</span>
       <span class="feed-time">${timeAgo(p.created_at)}</span>
     </div>
-    ${proj ? `<div class="feed-proj">${esc(proj)}</div>` : ''}
+    ${feedProjHtml(p)}
     ${p.context ? `<div class="feed-context">${esc(p.context)}</div>` : ''}
     <div class="feed-hop">
       ${p.hop_title ? `<div class="feed-hop-title">${esc(p.hop_title)}</div>` : ''}
-      <div class="feed-hop-body">${esc(p.hop_body)}</div>
+      <div class="feed-hop-body clamp">${esc(p.hop_body)}</div>
+      <button class="feed-view" data-f="viewhop" hidden>VIEW FULL HOP →</button>
       ${entitySnapshotHtml(p.entities)}
     </div>
     <div class="feed-actions">
@@ -406,6 +423,12 @@ function feedCardHtml(p) {
 
 function wireFeedCard(card, p) {
   if (!card) return;
+  const bodyEl = card.querySelector('.feed-hop-body');
+  const viewBtn = card.querySelector('[data-f="viewhop"]');
+  if (bodyEl && viewBtn && bodyEl.scrollHeight - bodyEl.clientHeight > 4) {
+    viewBtn.hidden = false;
+    viewBtn.addEventListener('click', () => viewHopModal(p));
+  }
   card.querySelector('[data-f="like"]').addEventListener('click', () => toggleLike(p));
   card.querySelector('[data-f="comments"]').addEventListener('click', () => {
     p.commentsOpen = !p.commentsOpen; drawFeed();
@@ -442,6 +465,29 @@ async function addComment(p, input) {
     .insert({ post_id: p.id, user_id: currentUser.id, username, body }).select().single();
   if (error) { alertModal('Could not comment.', { title: 'COMMENT' }); return; }
   p.comments.push(data); p.commentsOpen = true; drawFeed();
+}
+
+// Full, un-clamped view of a post's hop opened from the feed's VIEW button.
+function viewHopModal(p) {
+  const overlay = document.createElement('div');
+  overlay.className = 'ui-modal-overlay';
+  overlay.innerHTML = `
+    <div class="ui-modal">
+      <div class="ui-modal-title">${p.hop_title ? esc(p.hop_title) : 'HOP'}</div>
+      <div class="ui-modal-scroll">
+        ${feedProjHtml(p)}
+        ${p.context ? `<div class="feed-context">${esc(p.context)}</div>` : ''}
+        <div class="feed-hop-body">${esc(p.hop_body)}</div>
+        ${entitySnapshotHtml(p.entities)}
+      </div>
+      <div class="ui-modal-actions">
+        <button class="ui-modal-btn" data-act="close">Done</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const close = () => overlay.remove();
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  overlay.querySelector('[data-act="close"]').addEventListener('click', close);
 }
 
 async function deletePost(p) {
