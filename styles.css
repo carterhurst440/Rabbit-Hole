@@ -86,6 +86,9 @@ button, input, textarea, select { font-family: inherit; }
 .account-label {
   font-size: 10px; letter-spacing: 0.14em; color: var(--muted); text-transform: uppercase;
 }
+.username-view { display: flex; align-items: center; gap: 10px; }
+.username-current { flex: 1; min-width: 0; font-size: 13px; font-weight: 700; color: var(--accent); letter-spacing: 0.04em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.username-current.unset { color: var(--muted); font-weight: 400; font-style: italic; }
 .username-row { display: flex; gap: 8px; }
 .username-row input {
   flex: 1; min-width: 0; background: var(--panel-2); border: 1px solid var(--line-2);
@@ -787,7 +790,8 @@ select.ui-modal-input { cursor: pointer; appearance: none; -webkit-appearance: n
 .note-row .note-text { flex: 1; font-size: 12px; }
 
 /* ---------- IDEAS ---------- */
-.idea-compose { display: grid; grid-template-columns: 1fr 220px auto; gap: 10px; margin-bottom: 16px; align-items: start; }
+.idea-compose { display: grid; grid-template-columns: 1fr auto; gap: 10px; margin-bottom: 16px; align-items: start; }
+.idea-compose-fields { display: flex; flex-direction: column; gap: 8px; }
 .idea-compose textarea { background: var(--panel-2); border: 1px solid var(--line); color: var(--text); padding: 10px; resize: vertical; }
 .idea-compose input { background: var(--panel-2); border: 1px solid var(--line); color: var(--text); padding: 10px; }
 .idea-filter { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
@@ -814,6 +818,9 @@ select.ui-modal-input { cursor: pointer; appearance: none; -webkit-appearance: n
 .idea-card.drop-after { box-shadow: inset 0 -2px 0 var(--accent); }
 .idea-card { background: var(--panel); border: 1px solid var(--line); border-top: 2px solid var(--accent-mid); padding: 12px; display: flex; flex-direction: column; gap: 8px; }
 .idea-card .idea-text { font-size: 13px; line-height: 1.5; white-space: pre-wrap; }
+.idea-card .idea-name { font-size: 13px; font-weight: 700; line-height: 1.35; color: var(--text-bright); letter-spacing: 0.02em; }
+.idea-card .idea-body { font-size: 12px; line-height: 1.5; color: var(--muted); white-space: pre-wrap; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.idea-card .idea-edit-name { background: var(--panel-2); border: 1px solid var(--line); color: var(--text-bright); font-family: inherit; font-size: 13px; font-weight: 700; padding: 8px; }
 .idea-card .idea-foot { display: flex; justify-content: space-between; align-items: center; gap: 6px; }
 .idea-tags { display: flex; flex-wrap: wrap; gap: 4px; }
 .tag { font-size: 10px; padding: 2px 6px; border: 1px solid var(--lc, var(--line-2)); color: var(--lc, var(--muted)); letter-spacing: 0.08em; background: transparent; }

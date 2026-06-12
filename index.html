@@ -59,6 +59,10 @@
             </div>
           </div>
 
+          <div class="auth-field signup-only">
+            <span class="auth-label">USERNAME</span>
+            <div class="auth-box"><input id="authUsername" type="text" autocomplete="username" maxlength="24" placeholder="your community handle" /></div>
+          </div>
           <div class="auth-field">
             <span class="auth-label">EMAIL</span>
             <div class="auth-box"><input id="authEmail" type="email" autocomplete="email" required /></div>
@@ -121,9 +125,14 @@
       </div>
       <div class="account-section">
         <div class="account-label">USERNAME</div>
-        <div class="username-row">
+        <div class="username-view" id="usernameView">
+          <span class="username-current" id="usernameCurrent">—</span>
+          <button class="add-btn" id="editUsernameBtn">EDIT</button>
+        </div>
+        <div class="username-row" id="usernameEdit" hidden>
           <input type="text" id="usernameInput" placeholder="username" maxlength="24" autocomplete="off" />
-          <button class="add-btn" id="saveUsernameBtn">SAVE</button>
+          <button class="add-btn solid" id="saveUsernameBtn">SAVE</button>
+          <button class="add-btn" id="cancelUsernameBtn">CANCEL</button>
         </div>
         <div class="username-msg" id="usernameMsg"></div>
       </div>
@@ -332,8 +341,11 @@
         <button class="add-btn" id="suggestIdeasBtn" title="AI: read every hop and propose ideas for what comes next"><span class="ai-star">✦</span> GENERATE IDEAS</button>
       </div>
       <div class="idea-compose">
-        <textarea id="ideaInput" placeholder="Drop an idea…" rows="2"></textarea>
-        <input type="text" id="ideaLabels" placeholder="tags, comma, separated" />
+        <div class="idea-compose-fields">
+          <input type="text" id="ideaName" placeholder="Idea name…" maxlength="120" />
+          <textarea id="ideaInput" placeholder="Flesh it out… (optional)" rows="2"></textarea>
+          <input type="text" id="ideaLabels" placeholder="tags, comma, separated" />
+        </div>
         <button class="add-btn solid" id="addIdeaBtn">PIN</button>
       </div>
       <div class="idea-filter" id="ideaLabelFilter"></div>

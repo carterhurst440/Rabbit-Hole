@@ -235,8 +235,35 @@ function renderSettings() {
   set('settingsAvatar', initials);
   set('settingsName', who);
   set('settingsEmail', currentUser.email);
-  const uInput = document.getElementById('usernameInput');
-  if (uInput && document.activeElement !== uInput) uInput.value = displayUsername();
+  const handle = displayUsername();
+  const cur = document.getElementById('usernameCurrent');
+  if (cur) {
+    cur.textContent = handle || 'not set';
+    cur.classList.toggle('unset', !handle);
+  }
+}
+
+// Reveal the username editor (called only after the user confirms the warning).
+function openUsernameEditor() {
+  const view = document.getElementById('usernameView');
+  const edit = document.getElementById('usernameEdit');
+  const input = document.getElementById('usernameInput');
+  const msg = document.getElementById('usernameMsg');
+  if (!view || !edit || !input) return;
+  view.hidden = true; edit.hidden = false;
+  if (msg) { msg.textContent = ''; msg.classList.remove('ok'); }
+  input.value = displayUsername();
+  input.focus(); input.select();
+}
+
+// Collapse the editor back to the read-only view.
+function closeUsernameEditor() {
+  const view = document.getElementById('usernameView');
+  const edit = document.getElementById('usernameEdit');
+  const msg = document.getElementById('usernameMsg');
+  if (!view || !edit) return;
+  edit.hidden = true; view.hidden = false;
+  if (msg) { msg.textContent = ''; msg.classList.remove('ok'); }
 }
 
 // Save / change the community handle. Enforces a simple format and surfaces the
@@ -257,7 +284,8 @@ async function saveUsername() {
     return;
   }
   if (currentProfile) currentProfile.username = name; else currentProfile = { username: name };
-  setMsg('Saved.', true);
+  renderSettings();
+  closeUsernameEditor();
 }
 
 /* =====================================================================
@@ -2760,7 +2788,7 @@ function renderLabelPane() {
       <h3>IDEAS (${ideas.length})</h3>
       <div class="idea-grid">
         ${ideas.length ? ideas.map(i => `
-          <div class="idea-card"><div class="idea-text">${esc(i.text)}</div></div>`).join('')
+          <div class="idea-card"><div class="idea-text">${esc(i.title || i.body || 'Untitled idea')}</div></div>`).join('')
           : '<span style="color:var(--muted)">No ideas tagged.</span>'}
       </div>
     </div>`;
@@ -2933,7 +2961,8 @@ function renderIdeaCard(i) {
   if (editingIdeas.has(i.id)) {
     return `
       <div class="idea-card editing" data-id="${i.id}">
-        <textarea class="idea-edit-text" data-f="text" rows="3">${esc(i.text)}</textarea>
+        <input class="idea-edit-name" data-f="title" placeholder="Idea name…" maxlength="120" value="${esc(i.title || '')}" />
+        <textarea class="idea-edit-text" data-f="body" rows="3" placeholder="Flesh it out… (optional)">${esc(i.body || '')}</textarea>
         ${labelEditorHTML(i.labelIds || [])}
         <div class="idea-foot">
           <button class="add-btn solid" data-f="save">SAVE</button>
@@ -2943,9 +2972,13 @@ function renderIdeaCard(i) {
   }
   const tags = (i.labelIds || []).map(id =>
     `<span class="tag" style="--lc:${labelColor(id)}">${esc(labelName(id))}</span>`).join('');
+  const name = i.title || '';
+  const body = i.body || '';
+  const nameHTML = name ? `<div class="idea-name">${esc(name)}</div>` : '';
+  const bodyHTML = body ? `<div class="idea-body">${esc(body)}</div>` : '';
   return `
     <div class="idea-card" data-id="${i.id}" draggable="true">
-      <div class="idea-text">${esc(i.text)}</div>
+      ${nameHTML || bodyHTML ? nameHTML + bodyHTML : `<div class="idea-name">Untitled idea</div>`}
       <div class="idea-foot">
         <div class="idea-tags">${tags}</div>
         <span class="idea-actions">
@@ -2971,7 +3004,8 @@ function wireIdeaCard(card) {
 
   const saveBtn = card.querySelector('[data-f="save"]');
   if (saveBtn) {
-    card.querySelector('[data-f="text"]').addEventListener('input', e => { idea.text = e.target.value; save(); });
+    card.querySelector('[data-f="title"]').addEventListener('input', e => { idea.title = e.target.value; save(); });
+    card.querySelector('[data-f="body"]').addEventListener('input', e => { idea.body = e.target.value; save(); });
     const le = card.querySelector('.label-editor');
     if (le) wireLabelEditor(le, idea);
     saveBtn.addEventListener('click', () => { editingIdeas.delete(id); save(); renderIdeas(); });
@@ -3064,14 +3098,16 @@ function deleteLane(laneId) {
 }
 
 document.getElementById('addIdeaBtn').addEventListener('click', () => {
-  const text = document.getElementById('ideaInput').value.trim();
-  if (!text) return;
+  const title = document.getElementById('ideaName').value.trim();
+  const body = document.getElementById('ideaInput').value.trim();
+  if (!title && !body) return;
   const labelIds = labelIdsFromString(document.getElementById('ideaLabels').value);
   const id = uid();
-  db.ideas.push({ id, text, labelIds, ts: Date.now() });
+  db.ideas.push({ id, title, body, labelIds, ts: Date.now() });
   const lanes = ideaLanes(), order = ideaOrder();
   if (!Array.isArray(order[lanes[0].id])) order[lanes[0].id] = [];
   order[lanes[0].id].unshift(id);   // new ideas land on top of the first lane
+  document.getElementById('ideaName').value = '';
   document.getElementById('ideaInput').value = '';
   document.getElementById('ideaLabels').value = '';
   save(); renderIdeas();
@@ -3101,7 +3137,7 @@ async function generateIdeaSuggestions() {
     const chosen = await ideaReviewModal(ideas);
     if (!chosen || !chosen.length) return;
     const now = Date.now();
-    chosen.forEach((text, i) => db.ideas.push({ id: uid(), text, labelIds: [], ts: now + i }));
+    chosen.forEach((text, i) => db.ideas.push({ id: uid(), title: text, body: '', labelIds: [], ts: now + i }));
     save(); renderIdeas();
     chosen.forEach(() => recordWritingActivity());
   } catch (err) {
@@ -3340,7 +3376,9 @@ const authEmail   = document.getElementById('authEmail');
 const authPassword= document.getElementById('authPassword');
 const authFirst   = document.getElementById('authFirst');
 const authLast    = document.getElementById('authLast');
+const authUsername= document.getElementById('authUsername');
 const authConfirm = document.getElementById('authConfirm');
+const USERNAME_RE = /^[a-zA-Z0-9_]{3,24}$/;
 let authMode = 'signin';
 let currentUser = null;
 let currentProfile = null;
@@ -3439,15 +3477,25 @@ async function doSubmit(e) {
   try {
     if (authMode === 'signup') {
       const first = authFirst.value.trim(), last = authLast.value.trim();
+      const username = authUsername.value.trim();
+      if (!USERNAME_RE.test(username)) { authMsg('Username: 3-24 chars, letters, numbers, underscore.'); return; }
       if (password !== authConfirm.value) { authMsg('Passwords do not match.'); return; }
       if (password.length < 6) { authMsg('Password must be at least 6 characters.'); return; }
+      const { data: avail } = await sb.rpc('username_available', { handle: username });
+      if (avail === false) { authMsg('That username is taken. Pick another.'); return; }
       // Claim the dive before awaiting so onAuthStateChange leaves the card up.
       authWhooshPending = true;
       const { data, error } = await sb.auth.signUp({
         email, password,
-        options: { data: { first_name: first, last_name: last }, emailRedirectTo: window.location.origin }
+        options: { data: { first_name: first, last_name: last, username }, emailRedirectTo: window.location.origin }
       });
       if (error) { authWhooshPending = false; authMsg(error.message); return; }
+      // Claim the handle now if we have a live session; otherwise it is stashed in
+      // user_metadata and applied on first sign-in (see applyPendingUsername).
+      if (data.session && data.user) {
+        const { error: uErr } = await sb.from('profiles').update({ username }).eq('id', data.user.id);
+        if (uErr && uErr.code === '23505') { authWhooshPending = false; authMsg('That username is taken. Pick another.'); return; }
+      }
       if (!data.session) { authWhooshPending = false; showAuthSent(email); return; }
       playTransition();
     } else {
@@ -3505,6 +3553,7 @@ async function bootApp() {
   try {
     await ensureProfile();
     await loadProfile();
+    await applyPendingUsername();
     await loadFluffle();
     await initProjects();
   } catch (e) {
@@ -3534,6 +3583,19 @@ async function loadProfile() {
   const { data, error } = await sb.from('profiles').select('*').eq('id', currentUser.id).single();
   if (error) { console.warn('loadProfile failed', error); return; }
   currentProfile = data || null;
+  renderSettings();
+}
+
+// Email-confirm signups stash their chosen handle in user_metadata; on the first
+// sign-in (profile row exists but has no username yet) we claim it. Best-effort:
+// if it was taken in the meantime, the user picks a new one in Settings.
+async function applyPendingUsername() {
+  if (!currentUser || (currentProfile && currentProfile.username)) return;
+  const pending = (currentUser.user_metadata || {}).username;
+  if (!pending || !USERNAME_RE.test(pending)) return;
+  const { error } = await sb.from('profiles').update({ username: pending }).eq('id', currentUser.id);
+  if (error) { if (error.code !== '23505') console.warn('applyPendingUsername failed', error); return; }
+  if (currentProfile) currentProfile.username = pending; else currentProfile = { username: pending };
   renderSettings();
 }
 
@@ -3659,7 +3721,7 @@ async function seedProjectContent(projectId, data) {
       characters: (data.characters || []).map(c => ({ ...c, id: rid(c.id) })),
       locations: (data.locations || []).map(c => ({ ...c, id: rid(c.id) })),
       labels: (data.labels || []).map(l => ({ ...l, id: rid(l.id) })),
-      ideas: (data.ideas || []).map(i => ({ ...i, id: rid(i.id), labelIds: (i.labelIds || []).map(rid) })),
+      ideas: (data.ideas || []).map(i => ({ ...i, id: rid(i.id), title: i.title || '', body: (i.body != null ? i.body : (i.text || '')), labelIds: (i.labelIds || []).map(rid) })),
       ui: {}
     };
     d.ui = { activeChapter: d.chapters[0]?.id || null, activeChar: null, activeLoc: null, activeLabel: null };
@@ -3705,7 +3767,7 @@ async function loadProject(projectId) {
     characters: (characters.data || []).map(r => ({ id: r.id, name: r.name, aliases: r.aliases || [], summary: r.summary || '', notes: r.notes || [], color: r.color || '', dismissedRefs: r.dismissed_refs || [], arc: r.arc || [], principles: r.principles || [] })),
     locations: (locations.data || []).map(r => ({ id: r.id, name: r.name, aliases: r.aliases || [], summary: r.summary || '', notes: r.notes || [], color: r.color || '', dismissedRefs: r.dismissed_refs || [] })),
     labels: (labels.data || []).map(r => ({ id: r.id, name: (r.name || '').toUpperCase(), color: r.color, summary: r.summary || '' })),
-    ideas: (ideas.data || []).map(r => ({ id: r.id, text: r.text, ts: r.ts || Date.parse(r.created_at), labelIds: il.filter(j => j.idea_id === r.id).map(j => j.label_id) })),
+    ideas: (ideas.data || []).map(r => ({ id: r.id, title: r.title || '', body: (r.body != null ? r.body : (r.text || '')), ts: r.ts || Date.parse(r.created_at), labelIds: il.filter(j => j.idea_id === r.id).map(j => j.label_id) })),
     ui: (proj.data && proj.data.ui) || {}
   };
   if (!db.ui.activeChapter) db.ui.activeChapter = db.chapters[0]?.id || null;
@@ -3763,7 +3825,7 @@ async function persistProject() {
     const characters = db.characters.map(c => ({ id: c.id, user_id: U, project_id: P, name: c.name, aliases: c.aliases || [], summary: c.summary || '', notes: c.notes || [], color: c.color || null, dismissed_refs: c.dismissedRefs || [], arc: c.arc || [], principles: c.principles || [] }));
     const locations = (db.locations || []).map(c => ({ id: c.id, user_id: U, project_id: P, name: c.name, aliases: c.aliases || [], summary: c.summary || '', notes: c.notes || [], color: c.color || null, dismissed_refs: c.dismissedRefs || [] }));
     const labels = db.labels.map(l => ({ id: l.id, user_id: U, project_id: P, name: l.name, color: l.color, summary: l.summary || null }));
-    const ideas = db.ideas.map(i => ({ id: i.id, user_id: U, project_id: P, text: i.text, ts: i.ts || Date.now() }));
+    const ideas = db.ideas.map(i => ({ id: i.id, user_id: U, project_id: P, title: i.title || null, body: i.body || null, text: (i.body || i.title || ''), ts: i.ts || Date.now() }));
 
     await upsertSync('chapters', chapters, P);
     await Promise.all([upsertSync('tags', labels, P), upsertSync('characters', characters, P), upsertSync('locations', locations, P)]);
@@ -4158,9 +4220,8 @@ function saveSuggestedAsIdea(s) {
   if (!s) return;
   const title = (s.title || '').trim();
   const desc = (s.description || '').trim();
-  const text = title && desc ? `${title} — ${desc}` : (title || desc);
-  if (!text) return;
-  db.ideas.push({ id: uid(), text, labelIds: [], ts: Date.now() });
+  if (!title && !desc) return;
+  db.ideas.push({ id: uid(), title: title || desc, body: title ? desc : '', labelIds: [], ts: Date.now() });
   save();
   recordWritingActivity();
   if (Array.isArray(suggestedChunks)) {
@@ -4241,9 +4302,17 @@ document.getElementById('signOutBtn').addEventListener('click', async () => {
 
 document.getElementById('communityRefreshBtn').addEventListener('click', renderCommunity);
 document.getElementById('saveUsernameBtn').addEventListener('click', saveUsername);
+document.getElementById('cancelUsernameBtn').addEventListener('click', closeUsernameEditor);
+document.getElementById('editUsernameBtn').addEventListener('click', async () => {
+  const ok = await confirmModal(
+    'Changing your username will NOT update it on hops, comments, or posts you have already shared - those keep your current handle. New activity will use the new name. Continue?',
+    { title: 'CHANGE USERNAME', okText: 'Change it', danger: false });
+  if (ok) openUsernameEditor();
+});
 document.getElementById('manageFluffleBtn').addEventListener('click', manageFluffleModal);
 document.getElementById('usernameInput').addEventListener('keydown', e => {
   if (e.key === 'Enter') { e.preventDefault(); saveUsername(); }
+  else if (e.key === 'Escape') { e.preventDefault(); closeUsernameEditor(); }
 });
 
 async function initAuth() {
