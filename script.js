@@ -3181,8 +3181,13 @@ let signinBusy = false;
 function positionAuthOverlay() {
   if (authOverlay.hidden) return;
   const VW = window.innerWidth, VH = window.innerHeight;
-  const K = Math.max(0.45, Math.min(1.05, (VW - 32) / 360));
-  const CX = VW / 2, CY = VH / 2;
+  // Use the component's OWN computed geometry (set in its layout()) so the
+  // overlay can never drift from the drawn card — these stay in layout-viewport
+  // space, so the mobile soft keyboard doesn't shift inputs off their boxes.
+  // Fall back to the component's identical K formula if not yet available.
+  const K  = (typeof authLogin.K  === 'number') ? authLogin.K  : Math.max(0.45, Math.min(1.05, (VW - 32) / 360));
+  const CX = (typeof authLogin.CX === 'number') ? authLogin.CX : VW / 2;
+  const CY = (typeof authLogin.CY === 'number') ? authLogin.CY : VH / 2;
   const place = (el, x, y, w, h) => {
     el.style.left = (CX + x * K) + 'px';
     el.style.top = (CY + y * K) + 'px';
@@ -3286,6 +3291,7 @@ loginPassword.addEventListener('keydown', e => { if (e.key === 'Enter') { e.prev
 authLogin.addEventListener('submit', () => doSignIn());     // SVG SIGN IN button
 authLogin.addEventListener('signin', () => { authWhooshPending = false; hideAuthUI(); });
 window.addEventListener('resize', positionAuthOverlay);
+window.addEventListener('orientationchange', () => setTimeout(positionAuthOverlay, 120));
 
 function showAuth() {
   currentUser = null;
