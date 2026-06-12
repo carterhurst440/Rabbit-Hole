@@ -300,15 +300,19 @@
           <span id="chunkModalProject" class="modal-proj"></span>
           <span id="chunkModalChapter" class="modal-chap">—</span>
         </span>
-        <button class="add-btn" id="chunkModalArchive">ARCHIVE</button>
+        <button class="add-btn solid" id="chunkModalSave" title="Save this hop">✓ SAVE</button>
+        <details class="hop-kebab" id="chunkModalKebab">
+          <summary title="Options">⋮</summary>
+          <div class="hop-menu">
+            <button class="add-btn" id="chunkModalArchive">ARCHIVE</button>
+          </div>
+        </details>
         <button class="icon-btn" id="chunkModalClose" title="Close">✕</button>
       </div>
       <div class="modal-scroll">
       <input class="chunk-title-input" id="chunkModalTitle" placeholder="Hop title" />
       <textarea class="chunk-body" id="chunkModalBody" placeholder="Write…" rows="18"></textarea>
       <div class="modal-tools">
-        <button class="add-btn solid" id="chunkModalSave" title="Save this hop">✓ SAVE</button>
-        <span class="modal-tools-sep"></span>
         <button class="add-btn" id="chunkDetectChars" title="AI: detect characters in this hop"><span class="ai-star">✦</span> DETECT CHARACTERS</button>
         <button class="add-btn" id="chunkDetectLocs" title="AI: detect locations in this hop"><span class="ai-star">✦</span> DETECT LOCATIONS</button>
         <button class="add-btn" id="chunkModalGenTags" title="AI: detect tags in this hop"><span class="ai-star">✦</span> DETECT TAGS</button>

@@ -500,7 +500,7 @@ button, input, textarea, select { font-family: inherit; }
   flex: 1 1 auto; min-height: 0; overflow-y: auto;
   display: flex; flex-direction: column; gap: 12px;
 }
-.modal-head { display: flex; align-items: center; justify-content: space-between; flex: none; }
+.modal-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex: none; }
 .modal-chap { font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; }
 
 /* ---------- generic dialog (prompt/confirm/alert) ---------- */

@@ -1947,7 +1947,10 @@ function rerenderActiveView() {
     const c = cur(); if (!c) return;
     c.archived = !c.archived; save(); markChunkDirty();
     e.currentTarget.textContent = c.archived ? 'UNARCHIVE' : 'ARCHIVE';
+    document.getElementById('chunkModalKebab')?.removeAttribute('open');
   });
+  const modalKebab = document.getElementById('chunkModalKebab');
+  if (modalKebab) modalKebab.addEventListener('toggle', () => { if (modalKebab.open) positionHopMenu(modalKebab); });
   // Label toggles and new-label typing also count as edits (character/location
   // add/remove mark dirty directly in renderEntityListInto). This container is
   // static, so wire once.
