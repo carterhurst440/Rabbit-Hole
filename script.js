@@ -2841,6 +2841,54 @@ document.getElementById('addTagCatBtn').addEventListener('click', async () => {
    ===================================================================== */
 let ideaFilterLabel = ''; // label id ('' = all)
 const editingIdeas = new Set();
+let draggingIdeaId = null;
+
+const DEFAULT_IDEA_LANES = [
+  { id: 'backlog', title: 'Backlog' },
+  { id: 'upnext', title: 'Up Next' },
+  { id: 'best', title: 'Best Ideas' }
+];
+
+function ideaLanes() {
+  if (!Array.isArray(db.ui.ideaLanes) || !db.ui.ideaLanes.length) {
+    db.ui.ideaLanes = DEFAULT_IDEA_LANES.map(l => ({ ...l }));
+  }
+  return db.ui.ideaLanes;
+}
+function ideaOrder() {
+  if (!db.ui.ideaOrder || typeof db.ui.ideaOrder !== 'object') db.ui.ideaOrder = {};
+  return db.ui.ideaOrder;
+}
+// laneId -> [idea,...] in saved order; any unfiled ideas drop into the first lane (newest first).
+function ideasByLane() {
+  const lanes = ideaLanes(), order = ideaOrder();
+  const byId = new Map(db.ideas.map(i => [i.id, i]));
+  const placed = new Set();
+  const result = new Map();
+  lanes.forEach(l => {
+    const arr = [];
+    (Array.isArray(order[l.id]) ? order[l.id] : []).forEach(id => {
+      const it = byId.get(id);
+      if (it && !placed.has(id)) { arr.push(it); placed.add(id); }
+    });
+    result.set(l.id, arr);
+  });
+  const leftover = db.ideas.filter(i => !placed.has(i.id)).sort((a, b) => b.ts - a.ts);
+  if (leftover.length) result.set(lanes[0].id, [...leftover, ...result.get(lanes[0].id)]);
+  return result;
+}
+function laneRemoveIdea(id) {
+  const order = ideaOrder();
+  Object.keys(order).forEach(k => { order[k] = (order[k] || []).filter(x => x !== id); });
+}
+function moveIdeaToLane(id, laneId, beforeId) {
+  const order = ideaOrder();
+  laneRemoveIdea(id);
+  if (!Array.isArray(order[laneId])) order[laneId] = [];
+  let idx = beforeId ? order[laneId].indexOf(beforeId) : order[laneId].length;
+  if (idx < 0) idx = order[laneId].length;
+  order[laneId].splice(idx, 0, id);
+}
 
 function renderIdeas() {
   const filterWrap = document.getElementById('ideaLabelFilter');
@@ -2854,14 +2902,31 @@ function renderIdeas() {
   filterWrap.querySelectorAll('.tag').forEach(t =>
     t.addEventListener('click', () => { ideaFilterLabel = t.dataset.l; renderIdeas(); }));
 
-  const grid = document.getElementById('ideaGrid');
-  const shown = db.ideas
-    .filter(i => !ideaFilterLabel || (i.labelIds || []).includes(ideaFilterLabel))
-    .sort((a, b) => b.ts - a.ts);
-  grid.innerHTML = shown.length
-    ? shown.map(renderIdeaCard).join('')
-    : `<div class="pane-empty">No ideas${ideaFilterLabel ? ' with that label' : ''} yet.</div>`;
-  grid.querySelectorAll('.idea-card').forEach(wireIdeaCard);
+  const board = document.getElementById('ideaGrid');
+  const lanes = ideaLanes();
+  const grouped = ideasByLane();
+  const matches = i => !ideaFilterLabel || (i.labelIds || []).includes(ideaFilterLabel);
+  board.innerHTML = `<div class="kanban">` + lanes.map(l => {
+    const items = (grouped.get(l.id) || []).filter(matches);
+    const cards = items.map(renderIdeaCard).join('') || `<div class="lane-empty">Drop ideas here</div>`;
+    return `
+      <div class="lane" data-lane="${l.id}">
+        <div class="lane-head">
+          <input class="lane-title" data-lane="${l.id}" value="${esc(l.title)}" />
+          <span class="lane-count">${items.length}</span>
+          ${lanes.length > 1 ? `<button class="lane-del" data-lane="${l.id}" title="Delete lane">✕</button>` : ''}
+        </div>
+        <div class="lane-cards" data-lane="${l.id}">${cards}</div>
+      </div>`;
+  }).join('') + `<button class="lane-add" id="addLaneBtn" title="Add a swim lane">+ LANE</button></div>`;
+
+  board.querySelectorAll('.idea-card').forEach(wireIdeaCard);
+  board.querySelectorAll('.lane-cards').forEach(wireLaneDnD);
+  board.querySelectorAll('.lane-title').forEach(wireLaneTitle);
+  board.querySelectorAll('.lane-del').forEach(btn =>
+    btn.addEventListener('click', () => deleteLane(btn.dataset.lane)));
+  const addBtn = board.querySelector('#addLaneBtn');
+  if (addBtn) addBtn.addEventListener('click', addLane);
 }
 
 function renderIdeaCard(i) {
@@ -2879,7 +2944,7 @@ function renderIdeaCard(i) {
   const tags = (i.labelIds || []).map(id =>
     `<span class="tag" style="--lc:${labelColor(id)}">${esc(labelName(id))}</span>`).join('');
   return `
-    <div class="idea-card" data-id="${i.id}">
+    <div class="idea-card" data-id="${i.id}" draggable="true">
       <div class="idea-text">${esc(i.text)}</div>
       <div class="idea-foot">
         <div class="idea-tags">${tags}</div>
@@ -2898,6 +2963,7 @@ function wireIdeaCard(card) {
   card.querySelector('[data-f="del"]').addEventListener('click', () => {
     db.ideas = db.ideas.filter(x => x.id !== id);
     editingIdeas.delete(id);
+    laneRemoveIdea(id);
     save(); renderIdeas();
   });
   const editBtn = card.querySelector('[data-f="edit"]');
@@ -2910,13 +2976,102 @@ function wireIdeaCard(card) {
     if (le) wireLabelEditor(le, idea);
     saveBtn.addEventListener('click', () => { editingIdeas.delete(id); save(); renderIdeas(); });
   }
+  if (card.getAttribute('draggable') === 'true') {
+    card.addEventListener('dragstart', e => {
+      draggingIdeaId = id;
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', id);
+      requestAnimationFrame(() => card.classList.add('dragging'));
+    });
+    card.addEventListener('dragend', () => {
+      card.classList.remove('dragging');
+      clearLaneMarkers();
+      draggingIdeaId = null;
+    });
+  }
+}
+
+/* ---- Kanban: drag-and-drop + lane management ---- */
+function ideaDragAfter(container, y) {
+  const cards = [...container.querySelectorAll('.idea-card:not(.dragging)')];
+  for (const c of cards) {
+    const r = c.getBoundingClientRect();
+    if (y < r.top + r.height / 2) return c;
+  }
+  return null;
+}
+function clearLaneMarkers() {
+  document.querySelectorAll('.idea-card.drop-before, .idea-card.drop-after')
+    .forEach(c => c.classList.remove('drop-before', 'drop-after'));
+  document.querySelectorAll('.lane-cards.drop-into').forEach(c => c.classList.remove('drop-into'));
+}
+function wireLaneDnD(container) {
+  container.addEventListener('dragover', e => {
+    if (!draggingIdeaId) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    clearLaneMarkers();
+    const after = ideaDragAfter(container, e.clientY);
+    if (after) after.classList.add('drop-before');
+    else {
+      const cards = container.querySelectorAll('.idea-card:not(.dragging)');
+      if (cards.length) cards[cards.length - 1].classList.add('drop-after');
+      else container.classList.add('drop-into');
+    }
+  });
+  container.addEventListener('drop', e => {
+    if (!draggingIdeaId) return;
+    e.preventDefault();
+    const id = e.dataTransfer.getData('text/plain') || draggingIdeaId;
+    const after = ideaDragAfter(container, e.clientY);
+    clearLaneMarkers();
+    moveIdeaToLane(id, container.dataset.lane, after ? after.dataset.id : null);
+    save(); renderIdeas();
+  });
+}
+function wireLaneTitle(input) {
+  const laneId = input.dataset.lane;
+  const commit = () => {
+    const lane = ideaLanes().find(l => l.id === laneId);
+    if (!lane) return;
+    const v = input.value.trim() || 'Untitled';
+    if (v !== lane.title) { lane.title = v; save(); }
+  };
+  input.addEventListener('blur', commit);
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); input.blur(); } });
+}
+function addLane() {
+  ideaLanes().push({ id: uid(), title: 'New Lane' });
+  save(); renderIdeas();
+  const inputs = document.querySelectorAll('.lane-title');
+  const last = inputs[inputs.length - 1];
+  if (last) { last.focus(); last.select(); }
+}
+function deleteLane(laneId) {
+  const lanes = ideaLanes();
+  if (lanes.length <= 1) return;
+  const order = ideaOrder();
+  const moved = order[laneId] || [];
+  if (moved.length && !confirm('Delete this lane? Its ideas move to the first lane.')) return;
+  const idx = lanes.findIndex(l => l.id === laneId);
+  if (idx < 0) return;
+  lanes.splice(idx, 1);
+  const target = lanes[0].id;
+  if (!Array.isArray(order[target])) order[target] = [];
+  order[target].push(...moved);
+  delete order[laneId];
+  save(); renderIdeas();
 }
 
 document.getElementById('addIdeaBtn').addEventListener('click', () => {
   const text = document.getElementById('ideaInput').value.trim();
   if (!text) return;
   const labelIds = labelIdsFromString(document.getElementById('ideaLabels').value);
-  db.ideas.push({ id: uid(), text, labelIds, ts: Date.now() });
+  const id = uid();
+  db.ideas.push({ id, text, labelIds, ts: Date.now() });
+  const lanes = ideaLanes(), order = ideaOrder();
+  if (!Array.isArray(order[lanes[0].id])) order[lanes[0].id] = [];
+  order[lanes[0].id].unshift(id);   // new ideas land on top of the first lane
   document.getElementById('ideaInput').value = '';
   document.getElementById('ideaLabels').value = '';
   save(); renderIdeas();

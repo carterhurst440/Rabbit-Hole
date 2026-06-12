@@ -792,6 +792,26 @@ select.ui-modal-input { cursor: pointer; appearance: none; -webkit-appearance: n
 .idea-compose input { background: var(--panel-2); border: 1px solid var(--line); color: var(--text); padding: 10px; }
 .idea-filter { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
 .idea-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+.idea-board { width: 100%; }
+.kanban { display: flex; gap: 14px; align-items: flex-start; overflow-x: auto; padding-bottom: 8px; }
+.lane { flex: 0 0 280px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; display: flex; flex-direction: column; max-height: calc(100vh - 280px); }
+.lane-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.lane-title { flex: 1; min-width: 0; background: transparent; border: 1px solid transparent; color: var(--text-bright); font-family: inherit; font-size: 12px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; padding: 4px 6px; border-radius: 4px; }
+.lane-title:hover { border-color: var(--line-2); }
+.lane-title:focus { outline: none; border-color: var(--accent); background: var(--panel-2); }
+.lane-count { font-size: 11px; color: var(--muted); background: var(--panel-2); border-radius: 10px; padding: 1px 8px; }
+.lane-del { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 13px; padding: 2px 4px; opacity: 0; transition: opacity .15s; }
+.lane:hover .lane-del { opacity: 1; }
+.lane-del:hover { color: var(--accent); }
+.lane-cards { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 10px; min-height: 60px; }
+.lane-cards.drop-into { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.lane-empty { font-size: 11px; color: var(--muted); text-align: center; padding: 18px 8px; border: 1px dashed var(--line-2); border-radius: 6px; }
+.lane-add { flex: 0 0 auto; align-self: flex-start; background: var(--panel-2); border: 1px dashed var(--line-2); color: var(--muted); cursor: pointer; font-family: inherit; font-size: 11px; letter-spacing: 0.14em; padding: 12px 16px; border-radius: 8px; }
+.lane-add:hover { color: var(--accent); border-color: var(--accent); }
+.idea-card[draggable="true"] { cursor: grab; }
+.idea-card.dragging { opacity: 0.4; }
+.idea-card.drop-before { box-shadow: inset 0 2px 0 var(--accent); }
+.idea-card.drop-after { box-shadow: inset 0 -2px 0 var(--accent); }
 .idea-card { background: var(--panel); border: 1px solid var(--line); border-top: 2px solid var(--accent-mid); padding: 12px; display: flex; flex-direction: column; gap: 8px; }
 .idea-card .idea-text { font-size: 13px; line-height: 1.5; white-space: pre-wrap; }
 .idea-card .idea-foot { display: flex; justify-content: space-between; align-items: center; gap: 6px; }
