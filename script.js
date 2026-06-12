@@ -722,10 +722,19 @@ function renderChunkCardDisplay(c) {
       ${c.archived ? '<span class="arch-badge">ARCHIVED</span>' : ''}
       <span class="chunk-disp-meta">${meta}</span>
       <span class="chunk-disp-actions">
-        <button class="add-btn" data-f="analyze" title="AI: analyze this hop">${hasAnalysis(c.analysis) ? '✨ VIEW ANALYSIS' : '✨ ANALYZE'}</button>
-        <button class="add-btn" data-f="archive">${c.archived ? 'UNARCHIVE' : 'ARCHIVE'}</button>
-        <button class="add-btn" data-f="edit">EDIT</button>
-        <button class="icon-btn" data-f="del" title="Delete hop">✕</button>
+        <button class="add-btn hop-act" data-f="analyze" title="AI: analyze this hop">${hasAnalysis(c.analysis) ? '✨ VIEW ANALYSIS' : '✨ ANALYZE'}</button>
+        <button class="add-btn hop-act" data-f="archive">${c.archived ? 'UNARCHIVE' : 'ARCHIVE'}</button>
+        <button class="add-btn hop-act" data-f="edit">EDIT</button>
+        <button class="icon-btn hop-act" data-f="del" title="Delete hop">✕</button>
+        <details class="hop-kebab">
+          <summary title="Options">⋮</summary>
+          <div class="hop-menu">
+            <button class="add-btn" data-f="analyze">${hasAnalysis(c.analysis) ? '✨ VIEW ANALYSIS' : '✨ ANALYZE'}</button>
+            <button class="add-btn" data-f="archive">${c.archived ? 'UNARCHIVE' : 'ARCHIVE'}</button>
+            <button class="add-btn" data-f="edit">EDIT</button>
+            <button class="add-btn danger" data-f="del">DELETE</button>
+          </div>
+        </details>
       </span>
     </div>
     ${body}
@@ -791,6 +800,7 @@ function wireChunkCard(card) {
 
   card.querySelector('.chunk-display').addEventListener('click', e => {
     if (e.target.closest('[data-f="grip"]')) { e.stopPropagation(); return; }
+    if (e.target.closest('.hop-kebab > summary')) { e.stopPropagation(); return; }
     if (e.target.closest('[data-f="del"]')) { e.stopPropagation(); del(); return; }
     if (e.target.closest('[data-f="archive"]')) {
       e.stopPropagation(); c.archived = !c.archived; save(); renderSections(); return;
@@ -803,6 +813,13 @@ function wireChunkCard(card) {
     renderSections();
   });
 }
+
+// Close any open hop kebab menu when tapping outside of it.
+document.addEventListener('click', e => {
+  document.querySelectorAll('.hop-kebab[open]').forEach(d => {
+    if (!d.contains(e.target)) d.removeAttribute('open');
+  });
+});
 
 document.getElementById('addChapterBtn').addEventListener('click', () => {
   const id = uid();

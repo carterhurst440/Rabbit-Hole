@@ -322,7 +322,22 @@ button, input, textarea, select { font-family: inherit; }
 .chunk-disp-title em { color: var(--muted); font-style: italic; }
 .chunk-disp-meta { font-size: 10px; color: var(--muted); white-space: nowrap; }
 .chunk-disp-meta .hop-ord { color: var(--accent); font-weight: 600; letter-spacing: 0.06em; }
-.chunk-disp-actions { display: flex; gap: 2px; }
+.chunk-disp-actions { display: flex; gap: 2px; align-items: center; }
+/* kebab menu — hidden on desktop, replaces the inline buttons on mobile */
+.hop-kebab { display: none; position: relative; }
+.hop-kebab > summary {
+  list-style: none; cursor: pointer; color: var(--muted);
+  font-size: 18px; line-height: 1; padding: 2px 6px; user-select: none;
+}
+.hop-kebab > summary::-webkit-details-marker { display: none; }
+.hop-kebab > summary:hover { color: var(--accent); }
+.hop-menu {
+  position: absolute; top: calc(100% + 4px); right: 0; z-index: 20;
+  display: flex; flex-direction: column; gap: 4px; min-width: 150px; padding: 8px;
+  background: var(--panel); border: 1px solid var(--line-2);
+  box-shadow: 0 12px 32px rgba(0,0,0,0.5);
+}
+.hop-menu .add-btn { text-align: left; }
 .icon-btn.edit:hover { color: var(--accent); }
 .chunk-chevron { color: var(--muted); font-size: 10px; width: 12px; flex: 0 0 auto; text-align: center; }
 .chunk-card.is-expanded .chunk-display { background: var(--panel-2); }
@@ -787,12 +802,11 @@ body.locked .ai-overlay { display: none !important; }
   .timeline-controls label { width: 100%; }
   .timeline-controls select { width: 100%; }
 
-  /* hop rows wrap: title on top, meta + action buttons drop below */
+  /* hop rows: collapse the inline actions into a right-side kebab menu */
   .chunk-grip { display: none; }
-  .chunk-display { flex-wrap: wrap; column-gap: 10px; row-gap: 8px; }
-  .chunk-disp-title { flex: 1 1 60%; }
   .chunk-disp-meta { white-space: normal; }
-  .chunk-disp-actions { flex-wrap: wrap; margin-left: auto; }
+  .hop-act { display: none; }
+  .hop-kebab { display: block; }
   .add-btn { white-space: nowrap; }
 }
 
