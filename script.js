@@ -441,7 +441,7 @@ function postToCommunityModal(chunk) {
       project_name: proj.name || null,
       project_type: proj.type || null,
       project_genre: proj.genre || null,
-      accent: proj.accent || null,
+      accent: proj.accent || DEFAULT_ACCENT,
       entities
     });
     if (error) {
@@ -578,7 +578,7 @@ function feedCardHtml(p) {
   const mine = currentUser && p.user_id === currentUser.id;
   const comments = p.comments.map(c =>
     `<div class="feed-comment"><span class="feed-comment-user">@${esc(c.username)}</span> ${esc(c.body)}</div>`).join('');
-  const accentStyle = p.accent ? ` style="--accent:${esc(p.accent)}"` : '';
+  const accentStyle = ` style="--accent:${esc(p.accent || DEFAULT_ACCENT)}"`;
   return `
   <article class="feed-card"${accentStyle} data-id="${p.id}">
     <div class="feed-head">
@@ -787,7 +787,7 @@ async function viewArchivedPostModal(p) {
   const overlay = document.createElement('div');
   overlay.className = 'ui-modal-overlay';
   overlay.innerHTML = `
-    <div class="ui-modal"${p.accent ? ` style="--accent:${esc(p.accent)}"` : ''}>
+    <div class="ui-modal" style="--accent:${esc(p.accent || DEFAULT_ACCENT)}">
       <div class="ui-modal-title">${p.hop_title ? esc(p.hop_title) : 'ARCHIVED POST'}</div>
       <div class="ui-modal-scroll" id="apScroll"><div class="feed-empty">Loading…</div></div>
       <div class="ui-modal-actions">
