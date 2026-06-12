@@ -786,6 +786,14 @@ body.locked .ai-overlay { display: none !important; }
   .timeline-controls { display: flex; flex-direction: column; gap: 10px; }
   .timeline-controls label { width: 100%; }
   .timeline-controls select { width: 100%; }
+
+  /* hop rows wrap: title on top, meta + action buttons drop below */
+  .chunk-grip { display: none; }
+  .chunk-display { flex-wrap: wrap; column-gap: 10px; row-gap: 8px; }
+  .chunk-disp-title { flex: 1 1 60%; }
+  .chunk-disp-meta { white-space: normal; }
+  .chunk-disp-actions { flex-wrap: wrap; margin-left: auto; }
+  .add-btn { white-space: nowrap; }
 }
 
 @media (max-width: 480px) {
