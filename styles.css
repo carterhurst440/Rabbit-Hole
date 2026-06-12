@@ -404,6 +404,13 @@ button, input, textarea, select { font-family: inherit; }
 .timeline-controls label { font-size: 11px; letter-spacing: 0.12em; color: var(--muted); display: inline-flex; gap: 8px; align-items: center; }
 .timeline-controls select { background: var(--panel-2); border: 1px solid var(--line); color: var(--text); padding: 6px 8px; }
 .timelines-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
+.tl-axis-tabs { display: none; gap: 8px; margin-bottom: 16px; }
+.tl-axis-tab {
+  flex: 1; background: var(--panel); border: 1px solid var(--line-2);
+  color: var(--muted); font-family: inherit; cursor: pointer;
+  padding: 10px 12px; font-size: 11px; letter-spacing: 0.12em;
+}
+.tl-axis-tab.active { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
 .timeline-col { background: var(--panel); border: 1px solid var(--line); }
 .tl-col-head { padding: 12px 14px; border-bottom: 1px solid var(--line); font-size: 11px; letter-spacing: 0.16em; color: var(--accent); }
 .tl-track { display: flex; flex-direction: column; padding: 10px; gap: 8px; min-height: 120px; }
@@ -805,6 +812,11 @@ body.locked .ai-overlay { display: none !important; }
   .timeline-controls { display: flex; flex-direction: column; gap: 10px; }
   .timeline-controls label { width: 100%; }
   .timeline-controls select { width: 100%; }
+
+  /* one timeline axis at a time, switched by the chip toggle */
+  .tl-axis-tabs { display: flex; }
+  .timelines-layout.show-narrative [data-col="chrono"],
+  .timelines-layout.show-chrono [data-col="narrative"] { display: none; }
 
   /* hop rows: collapse the inline actions into a right-side kebab menu */
   .chunk-grip { display: none; }

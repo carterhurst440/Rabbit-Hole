@@ -821,6 +821,18 @@ document.addEventListener('click', e => {
   });
 });
 
+// Timelines axis toggle (mobile): chips switch which order column is shown.
+document.querySelectorAll('#tlAxisTabs .tl-axis-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    const axis = tab.dataset.axis;
+    document.querySelectorAll('#tlAxisTabs .tl-axis-tab').forEach(t =>
+      t.classList.toggle('active', t === tab));
+    const layout = document.getElementById('timelinesLayout');
+    layout.classList.toggle('show-narrative', axis === 'narrative');
+    layout.classList.toggle('show-chrono', axis === 'chrono');
+  });
+});
+
 document.getElementById('addChapterBtn').addEventListener('click', () => {
   const id = uid();
   const color = CHAPTER_PALETTE[db.chapters.length % CHAPTER_PALETTE.length];

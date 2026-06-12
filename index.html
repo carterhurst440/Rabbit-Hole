@@ -166,12 +166,16 @@
           <select id="timelineLabelFilter"><option value="">— all —</option></select>
         </label>
       </div>
-      <div class="timelines-layout">
-        <div class="timeline-col">
+      <div class="tl-axis-tabs" id="tlAxisTabs">
+        <button class="tl-axis-tab active" data-axis="narrative">NARRATIVE</button>
+        <button class="tl-axis-tab" data-axis="chrono">CHRONOLOGICAL</button>
+      </div>
+      <div class="timelines-layout show-narrative" id="timelinesLayout">
+        <div class="timeline-col" data-col="narrative">
           <div class="tl-col-head">NARRATIVE ORDER</div>
           <div class="tl-track" id="narrativeTrack" data-axis="narrative"></div>
         </div>
-        <div class="timeline-col">
+        <div class="timeline-col" data-col="chrono">
           <div class="tl-col-head">CHRONOLOGICAL ORDER</div>
           <div class="tl-track" id="chronoTrack" data-axis="chrono"></div>
         </div>
