@@ -11,12 +11,24 @@
 </head>
 <body class="locked">
   <!-- ============ AUTH GATE ============ -->
+  <!-- The line-art component IS the sign-in modal. Real inputs are overlaid onto
+       its drawn EMAIL/PASSWORD boxes; its SIGN IN button runs auth, then the
+       exact dive transition plays in place. -->
+  <rabbit-hole-signin id="authLogin" hidden></rabbit-hole-signin>
+  <div class="auth-overlay" id="authOverlay" hidden>
+    <input class="auth-overlay-input" id="loginEmail" type="email" autocomplete="email" aria-label="Email" />
+    <input class="auth-overlay-input" id="loginPassword" type="password" autocomplete="current-password" aria-label="Password" />
+    <button class="auth-overlay-hotspot" id="signupHotspot" type="button" aria-label="Switch to sign up"></button>
+    <div class="auth-overlay-msg" id="loginMsg"></div>
+  </div>
+  <!-- Sign-up + "check your email" use the styled fallback card (the mockup card
+       has no name/confirm fields). -->
   <div class="auth-screen" id="authScreen" hidden>
     <div class="auth-card">
       <div class="auth-brand">// RABBIT HOLE</div>
       <div class="auth-tabs">
-        <button class="auth-tab active" id="tabSignIn" type="button" data-mode="signin">SIGN IN</button>
-        <button class="auth-tab" id="tabSignUp" type="button" data-mode="signup">SIGN UP</button>
+        <button class="auth-tab" id="tabSignIn" type="button" data-mode="signin">SIGN IN</button>
+        <button class="auth-tab active" id="tabSignUp" type="button" data-mode="signup">SIGN UP</button>
       </div>
       <form class="auth-form" id="authForm" autocomplete="on">
         <div class="auth-names signup-only">
@@ -24,9 +36,9 @@
           <label>LAST NAME<input id="authLast" type="text" autocomplete="family-name" /></label>
         </div>
         <label>EMAIL<input id="authEmail" type="email" autocomplete="email" required /></label>
-        <label>PASSWORD<input id="authPassword" type="password" autocomplete="current-password" required /></label>
+        <label>PASSWORD<input id="authPassword" type="password" autocomplete="new-password" required /></label>
         <label class="signup-only">CONFIRM PASSWORD<input id="authConfirm" type="password" autocomplete="new-password" /></label>
-        <button class="auth-submit" id="authSubmit" type="submit">SIGN IN</button>
+        <button class="auth-submit" id="authSubmit" type="submit">CREATE ACCOUNT</button>
         <div class="auth-msg" id="authMsg"></div>
       </form>
       <div class="auth-sent" id="authSent">
@@ -36,9 +48,6 @@
       </div>
     </div>
   </div>
-  <!-- Exact sign-in transition (drop-in web component). Plays full-screen on a
-       successful sign-in; the real form above handles input/errors/sign-up. -->
-  <rabbit-hole-signin id="authTransition" hidden></rabbit-hole-signin>
 
   <!-- ============ HEADER ============ -->
   <header class="app-header">

@@ -3164,32 +3164,93 @@ let authMode = 'signin';
 let currentUser = null;
 let currentProfile = null;
 let booted = false;
-let authWhooshPending = false;
-const authReduceMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-const authTransition = document.getElementById('authTransition');
-let authTransitionWired = false;
+let authWhooshPending = false;       // a sign-in dive is in flight → wait for `signin`
+const authLogin    = document.getElementById('authLogin');     // the line-art modal
+const authOverlay  = document.getElementById('authOverlay');   // real inputs over its card
+const loginEmail   = document.getElementById('loginEmail');
+const loginPassword= document.getElementById('loginPassword');
+const loginMsg     = document.getElementById('loginMsg');
+const signupHotspot= document.getElementById('signupHotspot');
+let signinBusy = false;
 
-// Play the exact <rabbit-hole-signin> transition full-screen, then hide the
-// auth UI. The app has already mounted underneath, so revealing it is just a
-// matter of hiding this overlay when the component fires `signin`.
-function playAuthTransition(email) {
-  const finish = () => {
-    authTransition.hidden = true;   // mode stays 'done'; peek RAF is not running
-    authScreen.hidden = true;
+// Place the real inputs over the component's drawn field boxes. The component
+// renders in SVG user-space centered on the viewport and scaled by K; a card
+// point (x,y) maps to screen px (CX + x*K, CY + y*K) with CX/CY the viewport
+// center. We replicate the component's exact K formula so the overlay tracks it.
+function positionAuthOverlay() {
+  if (authOverlay.hidden) return;
+  const VW = window.innerWidth, VH = window.innerHeight;
+  const K = Math.max(0.45, Math.min(1.05, (VW - 32) / 360));
+  const CX = VW / 2, CY = VH / 2;
+  const place = (el, x, y, w, h) => {
+    el.style.left = (CX + x * K) + 'px';
+    el.style.top = (CY + y * K) + 'px';
+    el.style.width = (w * K) + 'px';
+    el.style.height = (h * K) + 'px';
   };
-  if (authReduceMotion() || typeof authTransition.play !== 'function') {
-    finish();
-    return;
-  }
-  if (!authTransitionWired) {
-    authTransitionWired = true;
-    authTransition.addEventListener('signin', finish);
-  }
-  if (email) authTransition.setAttribute('email', email);
-  authTransition.hidden = false;   // now visible: redraw the card at real size + peek
-  authTransition.reset();
-  // let the card draw in and the rabbit take a peek, then run the dive
-  setTimeout(() => authTransition.play(), 1300);
+  place(loginEmail, -135, -50, 270, 36);
+  place(loginPassword, -135, 6, 270, 36);
+  loginEmail.style.paddingLeft = loginPassword.style.paddingLeft = (13 * K) + 'px';
+  loginEmail.style.fontSize = (13 * K) + 'px';
+  loginPassword.style.fontSize = (14 * K) + 'px';
+  loginPassword.style.letterSpacing = (3 * K) + 'px';
+  // SIGN UP tab = right half of the toggle row (x 0..135, y -122..-86)
+  place(signupHotspot, 0, -122, 135, 36);
+  // error line, just above the bottom hint
+  place(loginMsg, -135, 118, 270, 18);
+  loginMsg.style.height = 'auto';
+  loginMsg.style.fontSize = (10 * K) + 'px';
+}
+
+// Show the line-art component as the live sign-in modal with inputs overlaid.
+function showSignIn() {
+  authMode = 'signin';
+  authScreen.hidden = true;
+  authScreen.classList.remove('mode-sent');
+  loginMsg.textContent = '';
+  authLogin.hidden = false;
+  authLogin.setAttribute('email', '');   // clear the mockup email line
+  if (typeof authLogin.reset === 'function') authLogin.reset(); // redraw card + peek
+  authOverlay.hidden = false;
+  positionAuthOverlay();
+  setTimeout(() => { try { loginEmail.focus({ preventScroll: true }); } catch (_) {} }, 60);
+}
+
+// Sign-up needs name/confirm fields the mockup card can't show → styled card.
+function showSignUp() {
+  authMode = 'signup';
+  authOverlay.hidden = true;
+  authLogin.hidden = true;
+  authScreen.classList.remove('mode-sent');
+  authScreen.classList.add('mode-signup');
+  document.getElementById('tabSignIn').classList.remove('active');
+  document.getElementById('tabSignUp').classList.add('active');
+  authSubmit.textContent = 'CREATE ACCOUNT';
+  authMsg('');
+  authScreen.hidden = false;
+}
+
+function hideAuthUI() {
+  authLogin.hidden = true;
+  authOverlay.hidden = true;
+  authScreen.hidden = true;
+}
+
+// Run real auth from the overlaid inputs, then play the exact dive on success.
+async function doSignIn() {
+  if (signinBusy) return;
+  const email = loginEmail.value.trim();
+  const password = loginPassword.value;
+  if (!email || !password) { loginMsg.textContent = 'Enter your email and password.'; return; }
+  signinBusy = true;
+  loginMsg.textContent = '';
+  const { error } = await sb.auth.signInWithPassword({ email, password });
+  if (error) { signinBusy = false; loginMsg.textContent = error.message; return; }
+  // success → onAuthStateChange boots the app underneath; play the dive in place.
+  authWhooshPending = true;
+  authOverlay.hidden = true;           // get the inputs out of the way of the dive
+  if (typeof authLogin.play === 'function') authLogin.play();
+  else { hideAuthUI(); }               // no component → just reveal
 }
 
 // The handle the user posts under in the community feed.
@@ -3200,32 +3261,35 @@ function displayUsername() {
 function authMsg(t) { authMsgEl.textContent = t || ''; }
 
 function setAuthMode(m) {
-  authMode = m;
-  authScreen.classList.remove('mode-sent');
-  authScreen.classList.toggle('mode-signup', m === 'signup');
-  document.getElementById('tabSignIn').classList.toggle('active', m === 'signin');
-  document.getElementById('tabSignUp').classList.toggle('active', m === 'signup');
-  authSubmit.textContent = m === 'signup' ? 'CREATE ACCOUNT' : 'SIGN IN';
-  authMsg('');
+  if (m === 'signup') showSignUp(); else showSignIn();
 }
 function showAuthSent(email) {
+  authOverlay.hidden = true;
+  authLogin.hidden = true;
   document.getElementById('authSentEmail').textContent = email;
+  authScreen.hidden = false;
   authScreen.classList.add('mode-sent');
 }
-document.getElementById('tabSignIn').addEventListener('click', () => setAuthMode('signin'));
-document.getElementById('tabSignUp').addEventListener('click', () => setAuthMode('signup'));
-document.getElementById('authBackBtn').addEventListener('click', () => setAuthMode('signin'));
+document.getElementById('tabSignIn').addEventListener('click', () => showSignIn());
+document.getElementById('tabSignUp').addEventListener('click', () => showSignUp());
+document.getElementById('authBackBtn').addEventListener('click', () => showSignIn());
+signupHotspot.addEventListener('click', () => showSignUp());
+loginEmail.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); doSignIn(); } });
+loginPassword.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); doSignIn(); } });
+authLogin.addEventListener('submit', () => doSignIn());     // SVG SIGN IN button
+authLogin.addEventListener('signin', () => { authWhooshPending = false; hideAuthUI(); });
+window.addEventListener('resize', positionAuthOverlay);
 
 function showAuth() {
   currentUser = null;
   activeProjectId = null;
   booted = false;
+  signinBusy = false;
   db = seed();
   applyProjectAccent(DEFAULT_ACCENT);
   document.body.classList.add('locked');
   authWhooshPending = false;
-  if (authTransition) authTransition.hidden = true;
-  authScreen.hidden = false;
+  showSignIn();
 }
 function showApp(session) {
   currentUser = session.user;
@@ -3240,12 +3304,8 @@ function showApp(session) {
   // App mounts underneath; the auth screen (z-index 100) stays on top during the whoosh.
   document.body.classList.remove('locked');
   bootApp();
-  if (authWhooshPending) {
-    authWhooshPending = false;
-    playAuthTransition(currentUser.email);
-  } else {
-    authScreen.hidden = true;
-  }
+  // If a dive is in flight, leave the login on top — its `signin` event hides it.
+  if (!authWhooshPending) hideAuthUI();
 }
 
 async function bootApp() {
@@ -3896,6 +3956,7 @@ document.getElementById('projectSelect').addEventListener('change', e => openPro
 
 document.getElementById('suggestRefreshBtn').addEventListener('click', () => { suggestedChunks = null; fetchSuggestedChunks(); });
 
+// The styled card form handles SIGN UP only — sign-in lives on the component overlay.
 authForm.addEventListener('submit', async e => {
   e.preventDefault();
   authSubmit.disabled = true;
@@ -3903,32 +3964,21 @@ authForm.addEventListener('submit', async e => {
   const email = document.getElementById('authEmail').value.trim();
   const password = document.getElementById('authPassword').value;
   try {
-    if (authMode === 'signup') {
-      const first = document.getElementById('authFirst').value.trim();
-      const last = document.getElementById('authLast').value.trim();
-      const confirm = document.getElementById('authConfirm').value;
-      if (password !== confirm) { authMsg('Passwords do not match.'); return; }
-      if (password.length < 6) { authMsg('Password must be at least 6 characters.'); return; }
-      authWhooshPending = true;
-      const { data, error } = await sb.auth.signUp({
-        email, password,
-        options: {
-          data: { first_name: first, last_name: last },
-          emailRedirectTo: window.location.origin
-        }
-      });
-      if (error) { authWhooshPending = false; authMsg(error.message); return; }
-      if (!data.session) {
-        authWhooshPending = false;
-        showAuthSent(email);
-        return;
+    const first = document.getElementById('authFirst').value.trim();
+    const last = document.getElementById('authLast').value.trim();
+    const confirm = document.getElementById('authConfirm').value;
+    if (password !== confirm) { authMsg('Passwords do not match.'); return; }
+    if (password.length < 6) { authMsg('Password must be at least 6 characters.'); return; }
+    const { data, error } = await sb.auth.signUp({
+      email, password,
+      options: {
+        data: { first_name: first, last_name: last },
+        emailRedirectTo: window.location.origin
       }
-      // session present → onAuthStateChange shows the app (with the whoosh)
-    } else {
-      authWhooshPending = true;
-      const { error } = await sb.auth.signInWithPassword({ email, password });
-      if (error) { authWhooshPending = false; authMsg(error.message); return; }
-    }
+    });
+    if (error) { authMsg(error.message); return; }
+    if (!data.session) { showAuthSent(email); return; }
+    // session present → onAuthStateChange → showApp() reveals the app
   } finally {
     authSubmit.disabled = false;
   }
