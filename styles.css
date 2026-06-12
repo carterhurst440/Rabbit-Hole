@@ -151,8 +151,9 @@ button, input, textarea, select { font-family: inherit; }
 /* ---------- HOME: activity heat map ---------- */
 .heatmap {
   background: var(--panel); border: 1px solid var(--line);
-  padding: 14px 16px; margin-bottom: 20px; overflow-x: auto;
+  padding: 14px 16px; margin-bottom: 20px;
 }
+.hm-scroll { overflow-x: auto; }
 .hm-title {
   font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase;
   color: var(--muted); margin-bottom: 10px;
@@ -774,6 +775,9 @@ body.locked .ai-overlay { display: none !important; }
 
   /* tighten the page gutters so nothing scrolls sideways */
   .app-main { padding: 18px 14px 72px; }
+
+  /* streak bar wraps: count on top, progress cells below */
+  .streak-bar { flex-wrap: wrap; gap: 10px 16px; }
 
   /* keep view-head action buttons in flow instead of overlapping the text */
   .view-head { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }

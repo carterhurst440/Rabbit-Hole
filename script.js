@@ -2437,10 +2437,15 @@ function renderHeatmap() {
   el.innerHTML = `
     <div class="heatmap">
       <div class="hm-title">Activity</div>
-      <div class="hm-months">${months.join('')}</div>
-      <div class="hm-grid">${cells.join('')}</div>
+      <div class="hm-scroll">
+        <div class="hm-months">${months.join('')}</div>
+        <div class="hm-grid">${cells.join('')}</div>
+      </div>
       <div class="hm-legend"><span>Less</span>${legend}<span>More</span></div>
     </div>`;
+  // Orient to the present: show today at the right, scroll back for older days.
+  const scroller = el.querySelector('.hm-scroll');
+  if (scroller) scroller.scrollLeft = scroller.scrollWidth;
 }
 
 /* ---- HOME: project cards ---- */
