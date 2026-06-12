@@ -226,6 +226,23 @@ function timeAgo(iso) {
 
 // Share a hop to the community feed: snapshots the hop + project so the post
 // stands alone even if the source hop later changes.
+// Snapshot of every character/location present in a hop, with their overview
+// (summary) and highlights (notes), frozen into a post so the community sees
+// the same reference detail the author had at post time.
+function chunkEntitySnapshot(chunk) {
+  const build = (K, kind) => (db[K.coll] || [])
+    .filter(e => chunkEntityPresence(K, chunk, e).on)
+    .map(e => ({
+      kind, name: e.name, color: e.color || '',
+      summary: e.summary || '',
+      notes: (e.notes || []).map(n => (n.text || '').trim()).filter(Boolean)
+    }));
+  return [
+    ...build(ENTITY_KINDS.character, 'character'),
+    ...build(ENTITY_KINDS.location, 'location')
+  ];
+}
+
 function postToCommunityModal(chunk) {
   const username = displayUsername();
   if (!username) {
@@ -238,6 +255,8 @@ function postToCommunityModal(chunk) {
   }
   const proj = projectsCache.find(p => p.id === activeProjectId) || {};
   const projLine = [proj.name, proj.type, proj.genre].filter(Boolean).join(' · ');
+  const entities = chunkEntitySnapshot(chunk);
+  const entPreview = entitySnapshotHtml(entities);
   const overlay = document.createElement('div');
   overlay.className = 'ui-modal-overlay';
   overlay.innerHTML = `
@@ -252,6 +271,7 @@ function postToCommunityModal(chunk) {
           <div class="post-preview-proj">${esc(projLine) || 'Untitled project'}</div>
           ${chunk.title ? `<div class="post-preview-title">${esc(chunk.title)}</div>` : ''}
           <div class="post-preview-body">${esc(chunk.body)}</div>
+          ${entPreview}
         </div>
       </div>
       <div class="ui-modal-actions">
@@ -272,12 +292,14 @@ function postToCommunityModal(chunk) {
     const { error } = await sb.from('community_posts').insert({
       user_id: currentUser.id,
       username,
+      chunk_id: chunk.id,
       hop_title: chunk.title || null,
       hop_body: chunk.body || '',
       context: ta.value.trim() || null,
       project_name: proj.name || null,
       project_type: proj.type || null,
-      project_genre: proj.genre || null
+      project_genre: proj.genre || null,
+      entities
     });
     if (error) {
       btn.disabled = false; btn.textContent = 'POST';
@@ -295,7 +317,7 @@ async function renderCommunity() {
   if (!el) return;
   el.innerHTML = '<div class="feed-empty">Loading…</div>';
   const { data: posts, error } = await sb.from('community_posts')
-    .select('*').order('created_at', { ascending: false }).limit(100);
+    .select('*').eq('status', 'open').order('created_at', { ascending: false }).limit(100);
   if (error) { el.innerHTML = '<div class="feed-empty">Could not load the feed.</div>'; return; }
   const ids = posts.map(p => p.id);
   let likes = [], comments = [];
@@ -328,6 +350,27 @@ function drawFeed() {
   feedCache.forEach(p => wireFeedCard(el.querySelector(`.feed-card[data-id="${p.id}"]`), p));
 }
 
+// Render a frozen character/location snapshot — each entity's name in its own
+// color, plus its overview (summary) and highlights (notes). Shared by the post
+// preview, the live feed card, and the manage-posts modal.
+function entitySnapshotHtml(entities) {
+  if (!entities || !entities.length) return '';
+  const group = kind => entities.filter(e => e.kind === kind).map(e => {
+    const notes = (e.notes || []).map(n => `<li>${esc(n)}</li>`).join('');
+    return `<div class="ent-snap-item">
+      <div class="ent-snap-name" style="color:${e.color || 'var(--accent)'}">${esc(e.name)}</div>
+      ${e.summary ? `<div class="ent-snap-overview">${esc(e.summary)}</div>` : ''}
+      ${notes ? `<ul class="ent-snap-notes">${notes}</ul>` : ''}
+    </div>`;
+  }).join('');
+  const section = (label, kind) => {
+    const items = group(kind);
+    return items ? `<div class="ent-snap-group"><div class="ent-snap-label">${label}</div>${items}</div>` : '';
+  };
+  const body = section('CHARACTERS', 'character') + section('LOCATIONS', 'location');
+  return body ? `<div class="ent-snap">${body}</div>` : '';
+}
+
 function feedCardHtml(p) {
   const proj = [p.project_name, p.project_type, p.project_genre].filter(Boolean).join(' · ');
   const mine = currentUser && p.user_id === currentUser.id;
@@ -344,6 +387,7 @@ function feedCardHtml(p) {
     <div class="feed-hop">
       ${p.hop_title ? `<div class="feed-hop-title">${esc(p.hop_title)}</div>` : ''}
       <div class="feed-hop-body">${esc(p.hop_body)}</div>
+      ${entitySnapshotHtml(p.entities)}
     </div>
     <div class="feed-actions">
       <button class="feed-btn like ${p.likedByMe ? 'on' : ''}" data-f="like">♥ <span>${p.likeCount}</span></button>
@@ -406,6 +450,85 @@ async function deletePost(p) {
   if (error) { alertModal('Could not delete.', { title: 'DELETE' }); return; }
   feedCache = feedCache.filter(x => x.id !== p.id);
   drawFeed();
+}
+
+// All of a hop's community posts (open + closed), owned by the current user, with
+// per-post like/comment activity and CLOSE / REOPEN / DELETE controls. CLOSE hides
+// a post from the community but keeps the record here; DELETE is a hard delete.
+async function managePostsModal(chunk) {
+  const overlay = document.createElement('div');
+  overlay.className = 'ui-modal-overlay';
+  overlay.innerHTML = `
+    <div class="ui-modal">
+      <div class="ui-modal-title">COMMUNITY POSTS</div>
+      <div class="ui-modal-scroll" id="mpScroll"><div class="feed-empty">Loading…</div></div>
+      <div class="ui-modal-actions">
+        <button class="ui-modal-btn" data-act="close">Done</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const close = () => overlay.remove();
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  overlay.querySelector('[data-act="close"]').addEventListener('click', close);
+  const scroll = overlay.querySelector('#mpScroll');
+
+  async function load() {
+    const { data: posts, error } = await sb.from('community_posts')
+      .select('*').eq('chunk_id', chunk.id).eq('user_id', currentUser.id)
+      .order('created_at', { ascending: false });
+    if (error) { scroll.innerHTML = '<div class="feed-empty">Could not load posts.</div>'; return; }
+    if (!posts.length) {
+      scroll.innerHTML = '<div class="feed-empty">No posts for this hop yet. Use ↗ POST to share it.</div>';
+      return;
+    }
+    const ids = posts.map(p => p.id);
+    const [lr, cr] = await Promise.all([
+      sb.from('community_likes').select('post_id').in('post_id', ids),
+      sb.from('community_comments').select('post_id').in('post_id', ids)
+    ]);
+    const likes = lr.data || [], comments = cr.data || [];
+    scroll.innerHTML = posts.map(p => {
+      const lc = likes.filter(l => l.post_id === p.id).length;
+      const cc = comments.filter(c => c.post_id === p.id).length;
+      const closed = p.status === 'closed';
+      return `
+      <div class="mp-post ${closed ? 'is-closed' : ''}" data-id="${p.id}">
+        <div class="mp-head">
+          <span class="mp-status ${closed ? 'closed' : 'open'}">${closed ? 'CLOSED' : 'OPEN'}</span>
+          <span class="mp-time">${timeAgo(p.created_at)}</span>
+        </div>
+        ${p.context ? `<div class="mp-context">${esc(p.context)}</div>` : ''}
+        <div class="mp-activity">♥ ${lc} · COMMENTS ${cc}</div>
+        <div class="mp-actions">
+          ${closed
+            ? '<button class="add-btn" data-f="reopen">REOPEN</button>'
+            : '<button class="add-btn" data-f="close">CLOSE</button>'}
+          <button class="add-btn danger" data-f="delete">DELETE</button>
+        </div>
+      </div>`;
+    }).join('');
+    posts.forEach(p => {
+      const row = scroll.querySelector(`.mp-post[data-id="${p.id}"]`);
+      if (!row) return;
+      row.querySelector('[data-f="close"]')?.addEventListener('click', async () => {
+        await sb.from('community_posts').update({ status: 'closed' }).eq('id', p.id);
+        load();
+        if (currentRoute() === 'community') renderCommunity();
+      });
+      row.querySelector('[data-f="reopen"]')?.addEventListener('click', async () => {
+        await sb.from('community_posts').update({ status: 'open' }).eq('id', p.id);
+        load();
+        if (currentRoute() === 'community') renderCommunity();
+      });
+      row.querySelector('[data-f="delete"]')?.addEventListener('click', async () => {
+        if (!await confirmModal('Delete this post permanently? This cannot be undone.')) return;
+        await sb.from('community_posts').delete().eq('id', p.id);
+        load();
+        if (currentRoute() === 'community') renderCommunity();
+      });
+    });
+  }
+  load();
 }
 
 window.addEventListener('hashchange', route);
@@ -946,6 +1069,7 @@ function renderChunkCardDisplay(c) {
       <span class="chunk-disp-actions">
         <button class="add-btn hop-act" data-f="analyze" title="AI: analyze this hop">${hasAnalysis(c.analysis) ? '✨ VIEW ANALYSIS' : '✨ ANALYZE'}</button>
         <button class="add-btn hop-act" data-f="post" title="Share this hop to the community">↗ POST</button>
+        <button class="add-btn hop-act" data-f="viewposts" title="Manage this hop's community posts">▤ POSTS</button>
         <button class="add-btn hop-act" data-f="archive">${c.archived ? 'UNARCHIVE' : 'ARCHIVE'}</button>
         <button class="add-btn hop-act" data-f="edit">EDIT</button>
         <button class="icon-btn hop-act" data-f="del" title="Delete hop">✕</button>
@@ -954,6 +1078,7 @@ function renderChunkCardDisplay(c) {
           <div class="hop-menu">
             <button class="add-btn" data-f="analyze">${hasAnalysis(c.analysis) ? '✨ VIEW ANALYSIS' : '✨ ANALYZE'}</button>
             <button class="add-btn" data-f="post">↗ POST TO COMMUNITY</button>
+            <button class="add-btn" data-f="viewposts">▤ VIEW POSTS</button>
             <button class="add-btn" data-f="archive">${c.archived ? 'UNARCHIVE' : 'ARCHIVE'}</button>
             <button class="add-btn" data-f="edit">EDIT</button>
             <button class="add-btn danger" data-f="del">DELETE</button>
@@ -1037,6 +1162,11 @@ function wireChunkCard(card) {
       e.stopPropagation();
       card.querySelector('.hop-kebab[open]')?.removeAttribute('open');
       postToCommunityModal(c); return;
+    }
+    if (e.target.closest('[data-f="viewposts"]')) {
+      e.stopPropagation();
+      card.querySelector('.hop-kebab[open]')?.removeAttribute('open');
+      managePostsModal(c); return;
     }
     if (expandedChunks.has(id)) expandedChunks.delete(id); else expandedChunks.add(id);
     renderSections();
