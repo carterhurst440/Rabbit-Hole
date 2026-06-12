@@ -10,7 +10,7 @@ const uid = () => crypto.randomUUID();
 
 const CHAPTER_PALETTE = ['#e0a96d', '#6da9e0', '#9ad06b', '#d06b9a', '#c9a227', '#6bd0c0', '#b58be0', '#e07a5f'];
 
-const PROJECT_TYPES = ['Book', 'Movie', 'Play', 'Show', 'Short Story', 'Other'];
+const PROJECT_TYPES = ['Book', 'Movie', 'Play', 'Show', 'Short Story', 'Journal', 'Other'];
 const GENRES = [
   'Literary Fiction', 'Fantasy', 'Science Fiction', 'Mystery', 'Thriller',
   'Horror', 'Romance', 'Historical Fiction', 'Adventure', 'Young Adult',
@@ -1305,13 +1305,17 @@ function analysisResultModal(chunk) {
   const body = overlay.querySelector('#analysisBody');
   const reBtn = overlay.querySelector('[data-act="reanalyze"]');
   const list = (items, cls) => items.map(t => `<li class="analysis-item ${cls}">${esc(t)}</li>`).join('');
+  const proj = projectsCache.find(p => p.id === activeProjectId);
+  const isJournal = (proj?.type || '').toLowerCase() === 'journal';
+  const strengthsHead = isJournal ? 'POWERFUL MOMENTS' : "WHAT'S WORKING";
+  const suggestionsHead = isJournal ? 'OBSERVATIONS & ADVICE' : 'GENTLE NUDGES';
   const renderBody = () => {
     const a = chunk.analysis || {};
     const strengths = a.strengths || [], suggestions = a.suggestions || [];
     const stamp = a.ts ? `<div class="analysis-stamp">Saved ${new Date(a.ts).toLocaleString()}</div>` : '';
     body.innerHTML =
-      (strengths.length ? `<div class="analysis-group"><div class="analysis-head">WHAT'S WORKING</div><ul class="analysis-list">${list(strengths, 'good')}</ul></div>` : '') +
-      (suggestions.length ? `<div class="analysis-group"><div class="analysis-head">GENTLE NUDGES</div><ul class="analysis-list">${list(suggestions, 'nudge')}</ul></div>` : '') +
+      (strengths.length ? `<div class="analysis-group"><div class="analysis-head">${strengthsHead}</div><ul class="analysis-list">${list(strengths, 'good')}</ul></div>` : '') +
+      (suggestions.length ? `<div class="analysis-group"><div class="analysis-head">${suggestionsHead}</div><ul class="analysis-list">${list(suggestions, 'nudge')}</ul></div>` : '') +
       stamp;
   };
   renderBody();

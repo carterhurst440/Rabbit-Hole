@@ -273,22 +273,34 @@ async function doAnalyzeChunk(
   const kind = [body.type, body.genre].filter(Boolean).join(" / ");
   const characters = (body.characters || []).filter(Boolean);
   const locations = (body.locations || []).filter(Boolean);
-  const system =
-    "You are a perceptive, generous developmental editor inside RABBIT HOLE, a book workbench. " +
-    "The author will give you ONE hop (a scene/excerpt) plus the surrounding manuscript for context. " +
-    "Read the focus hop closely against that context. " +
-    (kind ? `This is a ${kind}; judge it on the terms of that format and genre. ` : "") +
-    "Return two things. First, the 2-3 things that genuinely work in this hop — what is compelling, " +
-    "specific, and alive. Name concrete moments, lines, or choices; never generic praise. " +
-    "Second, a few (2-4) suggestions, delivered very delicately — framed as gentle invitations or " +
-    "questions, never commands or harsh criticism. Ground everything in this story's actual " +
-    "characters and places. Respond with ONLY a JSON object of the form " +
-    `{"strengths":["..."],"suggestions":["..."]}. No markdown, no commentary.`;
-  const user =
-    (characters.length ? `CHARACTERS: ${characters.join(", ")}\n` : "") +
-    (locations.length ? `LOCATIONS: ${locations.join(", ")}\n` : "") +
-    `\nFOCUS HOP${chunk.title ? ` — ${chunk.title}` : ""}:\n${chunk.body || "(empty)"}\n\n` +
-    (context.length ? `SURROUNDING MANUSCRIPT (for context only):\n\n${joinChunks(context)}` : "(no other hops written yet)");
+  const isJournal = (body.type || "").toLowerCase() === "journal";
+  const system = isJournal
+    ? "You are a warm, perceptive reader inside RABBIT HOLE, reflecting on a personal journal entry. " +
+      "The author will give you ONE entry plus their surrounding entries for context. This is private " +
+      "journaling, NOT fiction — do not treat it as a manuscript or give writing-craft critique. " +
+      "Return two things. First, 2-3 powerful parts of this entry — the moments of genuine insight, " +
+      "emotional honesty, courage, or meaningful reflection. Quote or name the specific moment; never " +
+      "generic praise. Second, a few (2-4) observations or pieces of caring advice — what the entry " +
+      "reveals about how the author is doing, patterns worth noticing, and gentle, supportive " +
+      "encouragement. Be kind and human, never clinical or preachy. Respond with ONLY a JSON object " +
+      `of the form {"strengths":["..."],"suggestions":["..."]}. No markdown, no commentary.`
+    : "You are a perceptive, generous developmental editor inside RABBIT HOLE, a book workbench. " +
+      "The author will give you ONE hop (a scene/excerpt) plus the surrounding manuscript for context. " +
+      "Read the focus hop closely against that context. " +
+      (kind ? `This is a ${kind}; judge it on the terms of that format and genre. ` : "") +
+      "Return two things. First, the 2-3 things that genuinely work in this hop — what is compelling, " +
+      "specific, and alive. Name concrete moments, lines, or choices; never generic praise. " +
+      "Second, a few (2-4) suggestions, delivered very delicately — framed as gentle invitations or " +
+      "questions, never commands or harsh criticism. Ground everything in this story's actual " +
+      "characters and places. Respond with ONLY a JSON object of the form " +
+      `{"strengths":["..."],"suggestions":["..."]}. No markdown, no commentary.`;
+  const user = isJournal
+    ? `JOURNAL ENTRY${chunk.title ? ` — ${chunk.title}` : ""}:\n${chunk.body || "(empty)"}\n\n` +
+      (context.length ? `EARLIER ENTRIES (for context only):\n\n${joinChunks(context)}` : "(no other entries yet)")
+    : (characters.length ? `CHARACTERS: ${characters.join(", ")}\n` : "") +
+      (locations.length ? `LOCATIONS: ${locations.join(", ")}\n` : "") +
+      `\nFOCUS HOP${chunk.title ? ` — ${chunk.title}` : ""}:\n${chunk.body || "(empty)"}\n\n` +
+      (context.length ? `SURROUNDING MANUSCRIPT (for context only):\n\n${joinChunks(context)}` : "(no other hops written yet)");
   const raw = await callClaude(apiKey, { system, messages: [{ role: "user", content: user }], max_tokens: 1100 });
   const parsed = parseJsonObject(raw);
   const clean = (arr: unknown): string[] =>
