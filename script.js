@@ -243,6 +243,7 @@ let myFluffle = new Set();    // user_ids the current user has favorited
 let fluffleNames = new Map(); // user_id -> username for Fluffle members
 let feedScope = 'all';        // 'all' | 'fluffle'
 let feedGenre = '';           // '' = all genres, else a project_genre
+let feedType = '';            // '' = all types, else a project_type
 let pendingFeedFocus = null;  // post id to scroll to after the feed draws
 
 // How many community posts the current user has per hop, so each hop can show a
@@ -485,31 +486,39 @@ async function renderCommunity() {
   drawFeed();
 }
 
-// Genre chips + scope toggle (ALL / MY FLUFFLE) above the feed.
+// Scope toggle (ALL / MY FLUFFLE) plus GENRE and PROJECT TYPE dropdown filters.
 function renderCommunityFilters() {
   const bar = document.getElementById('communityFilters');
   if (!bar) return;
-  const genreChips = ['<button class="cf-chip ' + (feedGenre === '' ? 'active' : '') + '" data-genre="">ALL GENRES</button>']
-    .concat(GENRES.map(g =>
-      `<button class="cf-chip ${feedGenre === g ? 'active' : ''}" data-genre="${esc(g)}">${esc(g)}</button>`)).join('');
+  const genreOpts = ['<option value="">ALL GENRES</option>']
+    .concat(GENRES.map(g => `<option value="${esc(g)}" ${feedGenre === g ? 'selected' : ''}>${esc(g)}</option>`)).join('');
+  const typeOpts = ['<option value="">ALL TYPES</option>']
+    .concat(PROJECT_TYPES.map(t => `<option value="${esc(t)}" ${feedType === t ? 'selected' : ''}>${esc(t)}</option>`)).join('');
   bar.innerHTML = `
     <div class="cf-scope">
       <button class="cf-scope-btn ${feedScope === 'all' ? 'active' : ''}" data-scope="all">ALL</button>
       <button class="cf-scope-btn ${feedScope === 'fluffle' ? 'active' : ''}" data-scope="fluffle">MY FLUFFLE <span class="cf-fluffle-count">${myFluffle.size}</span></button>
     </div>
-    <div class="cf-genres">${genreChips}</div>`;
+    <div class="cf-selects">
+      <select class="cf-select" data-filter="genre">${genreOpts}</select>
+      <select class="cf-select" data-filter="type">${typeOpts}</select>
+    </div>`;
   bar.querySelectorAll('[data-scope]').forEach(b => b.addEventListener('click', () => {
     feedScope = b.dataset.scope; renderCommunityFilters(); drawFeed();
   }));
-  bar.querySelectorAll('[data-genre]').forEach(b => b.addEventListener('click', () => {
-    feedGenre = b.dataset.genre; renderCommunityFilters(); drawFeed();
-  }));
+  bar.querySelector('[data-filter="genre"]').addEventListener('change', e => {
+    feedGenre = e.target.value; drawFeed();
+  });
+  bar.querySelector('[data-filter="type"]').addEventListener('change', e => {
+    feedType = e.target.value; drawFeed();
+  });
 }
 
 function visibleFeed() {
   return feedCache.filter(p =>
     (feedScope !== 'fluffle' || myFluffle.has(p.user_id)) &&
-    (!feedGenre || p.project_genre === feedGenre));
+    (!feedGenre || p.project_genre === feedGenre) &&
+    (!feedType || p.project_type === feedType));
 }
 
 function drawFeed() {
@@ -519,7 +528,7 @@ function drawFeed() {
   if (!list.length) {
     const msg = feedScope === 'fluffle'
       ? 'No posts from your Fluffle yet. Add members from their profile.'
-      : (feedGenre ? 'No posts in this genre yet.' : 'No posts yet. Share a hop from its menu.');
+      : ((feedGenre || feedType) ? 'No posts match these filters yet.' : 'No posts yet. Share a hop from its menu.');
     el.innerHTML = `<div class="feed-empty">${msg}</div>`;
     return;
   }

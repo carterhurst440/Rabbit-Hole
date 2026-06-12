@@ -891,13 +891,13 @@ body.locked .ai-overlay { display: none !important; }
   padding: 6px 14px; font-size: 11px; letter-spacing: 0.1em;
 }
 .cf-scope-btn.active { background: var(--accent); color: #0a0a0a; font-weight: 700; }
-.cf-genres { display: flex; flex-wrap: wrap; gap: 6px; }
-.cf-chip {
-  background: none; border: 1px solid var(--line-2); color: var(--muted); font-family: inherit; cursor: pointer;
-  padding: 4px 10px; font-size: 10px; letter-spacing: 0.06em;
+.cf-selects { display: flex; flex-wrap: wrap; gap: 8px; }
+.cf-select {
+  background: var(--panel-2); color: var(--text-bright);
+  border: 1px solid var(--line-2); padding: 5px 8px; cursor: pointer;
+  font-family: inherit; font-size: 11px; letter-spacing: 0.06em;
 }
-.cf-chip:hover { border-color: var(--accent-mid); color: var(--accent); }
-.cf-chip.active { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+.cf-select:focus { outline: none; border-color: var(--accent-mid); }
 .cf-fluffle-count {
   display: inline-flex; align-items: center; justify-content: center; min-width: 16px; height: 16px;
   padding: 0 4px; margin-left: 4px; border-radius: 8px; font-size: 9px; font-weight: 700;
