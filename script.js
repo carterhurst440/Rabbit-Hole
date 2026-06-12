@@ -3244,10 +3244,12 @@ async function doSignIn() {
   if (!email || !password) { loginMsg.textContent = 'Enter your email and password.'; return; }
   signinBusy = true;
   loginMsg.textContent = '';
-  const { error } = await sb.auth.signInWithPassword({ email, password });
-  if (error) { signinBusy = false; loginMsg.textContent = error.message; return; }
-  // success → onAuthStateChange boots the app underneath; play the dive in place.
+  // Claim the dive BEFORE awaiting: onAuthStateChange fires showApp the instant
+  // auth resolves, and it must see this true so it leaves the login card up.
   authWhooshPending = true;
+  const { error } = await sb.auth.signInWithPassword({ email, password });
+  if (error) { authWhooshPending = false; signinBusy = false; loginMsg.textContent = error.message; return; }
+  // success → onAuthStateChange boots the app underneath; play the dive in place.
   authOverlay.hidden = true;           // get the inputs out of the way of the dive
   if (typeof authLogin.play === 'function') authLogin.play();
   else { hideAuthUI(); }               // no component → just reveal
