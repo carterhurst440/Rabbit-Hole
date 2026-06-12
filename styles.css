@@ -663,6 +663,17 @@ select.ui-modal-input { cursor: pointer; appearance: none; -webkit-appearance: n
 }
 .arc-stage-label { font-size: 12px; font-weight: 700; color: var(--text-bright); letter-spacing: 0.03em; }
 .arc-stage-summary { font-size: 11px; color: var(--muted); margin-top: 3px; line-height: 1.55; white-space: pre-wrap; }
+.char-principles { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+.principles-head { font-size: 11px; letter-spacing: 0.08em; color: var(--muted); margin: 0 0 10px; font-weight: 700; }
+.principle { padding: 8px 10px; margin-bottom: 8px; background: var(--panel-2); border-left: 3px solid var(--arc, var(--accent)); }
+.principle:last-child { margin-bottom: 0; }
+.principle-name { font-size: 12px; font-weight: 700; color: var(--text-bright); display: flex; align-items: center; gap: 8px; }
+.principle-tag { font-size: 9px; letter-spacing: 0.08em; padding: 1px 6px; border-radius: 2px; font-weight: 700; }
+.principle-tag.held { background: color-mix(in srgb, var(--muted) 22%, transparent); color: var(--muted); }
+.principle-tag.changed { background: color-mix(in srgb, var(--arc, var(--accent)) 24%, transparent); color: var(--arc, var(--accent)); }
+.principle-flow { margin-top: 5px; font-size: 11px; color: var(--muted); line-height: 1.5; display: flex; gap: 6px; align-items: flex-start; flex-wrap: wrap; }
+.principle-arrow { color: var(--arc, var(--accent)); flex-shrink: 0; }
+.principle-end { color: var(--text); }
 .ref-row { font-size: 12px; background: var(--panel-2); border: 1px solid var(--line); }
 .ref-row.is-open { border-color: var(--accent-mid); }
 .ref-head { display: flex; align-items: center; gap: 8px; padding: 6px 8px; }

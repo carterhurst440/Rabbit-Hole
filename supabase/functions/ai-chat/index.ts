@@ -6,7 +6,7 @@
 //   chat              { messages, context }            -> { reply }
 //   tag_summary       { tagName, chunks }              -> { reply }
 //   char_summary      { name, aliases, chunks }        -> { reply }
-//   char_arc          { name, aliases, chunks }         -> { arc: [{ stage, summary }] }
+//   char_arc          { name, aliases, chunks }         -> { arc: [{ stage, summary }], principles: [{ principle, start, end, changed }] }
 //   loc_summary       { name, aliases, chunks }        -> { reply }
 //   detect_characters { chunks, existing }             -> { characters: [{ name, aliases }] }
 //   detect_locations  { chunks, existing }             -> { locations: [{ name, aliases }] }
@@ -101,19 +101,26 @@ async function doCharArc(apiKey: string, body: { name?: string; aliases?: string
   const aliases = (body.aliases || []).filter(Boolean);
   const system =
     "You are a story-bible analyst inside RABBIT HOLE. Given a character and every excerpt that " +
-    "references them — presented in narrative order — trace the character's arc across the story: " +
-    "how they grow, change, are tested, and shift over time. Identify the distinct stages along their " +
-    "arc, in order (use 4-8 stages depending on how much the material supports). For each stage give a " +
-    "short stage label (a turning point, phase, or beat — e.g. 'Reluctant call', 'First betrayal', " +
-    "'Hardened resolve') and a 1-2 sentence summary of where the character is emotionally and how they " +
-    "have changed by that point. Track genuine internal growth, not just plot events. Use only what the " +
-    "excerpts support. Respond with ONLY a JSON object of the form " +
-    `{"arc":[{"stage":"...","summary":"..."}]}. No markdown, no commentary.`;
+    "references them — presented in narrative order — produce TWO things.\n\n" +
+    "1) ARC: trace the character's arc across the story: how they grow, change, are tested, and shift " +
+    "over time. Identify the distinct stages along their arc, in order (use 4-8 stages depending on how " +
+    "much the material supports). For each stage give a short stage label (a turning point, phase, or " +
+    "beat — e.g. 'Reluctant call', 'First betrayal', 'Hardened resolve') and a 1-2 sentence summary of " +
+    "where the character is emotionally and how they have changed by that point.\n\n" +
+    "2) PRINCIPLES: distill this character down to 3-5 CORE PRINCIPLES — the deep values, beliefs, or " +
+    "drives that define who they are. For each principle give: a short name/statement of the principle; " +
+    "how it stands at the START of the story; how it stands at the END; and whether it changed (true if " +
+    "it shifted, deepened, broke, or was abandoned; false if it held constant). Show genuine evolution " +
+    "where it exists — and be honest when a principle stays the same.\n\n" +
+    "Track genuine internal growth, not just plot events. Use only what the excerpts support. Respond " +
+    "with ONLY a JSON object of the form " +
+    `{"arc":[{"stage":"...","summary":"..."}],"principles":[{"principle":"...","start":"...","end":"...","changed":true}]}. ` +
+    "No markdown, no commentary.";
   const user =
     `CHARACTER: ${body.name || "(unnamed)"}` +
     (aliases.length ? `\nALSO KNOWN AS: ${aliases.join(", ")}` : "") +
     `\n\nEXCERPTS (in narrative order):\n\n${joinChunks(chunks)}`;
-  const raw = await callClaude(apiKey, { system, messages: [{ role: "user", content: user }], max_tokens: 1400 });
+  const raw = await callClaude(apiKey, { system, messages: [{ role: "user", content: user }], max_tokens: 1800 });
   const parsed = parseJsonObject(raw);
   const arc = Array.isArray(parsed?.arc)
     ? (parsed.arc as unknown[])
@@ -125,7 +132,19 @@ async function doCharArc(apiKey: string, body: { name?: string; aliases?: string
         .filter((s) => s.stage || s.summary)
         .slice(0, 8)
     : [];
-  return json({ arc });
+  const principles = Array.isArray(parsed?.principles)
+    ? (parsed.principles as unknown[])
+        .filter((p): p is { principle?: unknown; start?: unknown; end?: unknown; changed?: unknown } => !!p && typeof p === "object")
+        .map((p) => ({
+          principle: typeof p.principle === "string" ? p.principle.trim() : "",
+          start: typeof p.start === "string" ? p.start.trim() : "",
+          end: typeof p.end === "string" ? p.end.trim() : "",
+          changed: p.changed === true,
+        }))
+        .filter((p) => p.principle)
+        .slice(0, 5)
+    : [];
+  return json({ arc, principles });
 }
 
 async function doLocSummary(apiKey: string, body: { name?: string; aliases?: string[]; chunks?: Chunk[] }) {
@@ -376,7 +395,7 @@ function joinChunks(chunks: Chunk[]): string {
     .join("\n\n");
 }
 
-function parseJsonObject(s: string): { characters?: unknown[]; locations?: unknown[]; ideas?: unknown[]; assign?: unknown[]; suggest?: unknown[]; chunks?: unknown[]; strengths?: unknown[]; suggestions?: unknown[]; arc?: unknown[] } | null {
+function parseJsonObject(s: string): { characters?: unknown[]; locations?: unknown[]; ideas?: unknown[]; assign?: unknown[]; suggest?: unknown[]; chunks?: unknown[]; strengths?: unknown[]; suggestions?: unknown[]; arc?: unknown[]; principles?: unknown[] } | null {
   try {
     const start = s.indexOf("{");
     const end = s.lastIndexOf("}");

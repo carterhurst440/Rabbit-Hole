@@ -2097,9 +2097,10 @@ function renderEntityPane(K) {
     <div class="char-block">
       <h3>CHARACTER ARC</h3>
       ${renderArc(c)}
+      ${renderPrinciples(c)}
       <div style="margin-top:10px;display:flex;gap:8px">
-        <button class="add-btn" data-f="genarc" title="AI: trace this character's growth across every reference, in story order">${AI_STAR} ${(c.arc || []).length ? 'REGENERATE ARC' : 'GENERATE ARC'}</button>
-        ${(c.arc || []).length ? '<button class="add-btn" data-f="cleararc">CLEAR</button>' : ''}
+        <button class="add-btn" data-f="genarc" title="AI: trace this character's growth and core principles across every reference, in story order">${AI_STAR} ${((c.arc || []).length || (c.principles || []).length) ? 'REGENERATE ARC' : 'GENERATE ARC'}</button>
+        ${((c.arc || []).length || (c.principles || []).length) ? '<button class="add-btn" data-f="cleararc">CLEAR</button>' : ''}
       </div>
     </div>` : ''}
     <div class="char-block">
@@ -2174,7 +2175,7 @@ function renderEntityPane(K) {
   q('[data-f="genarc"]')?.addEventListener('click', e => generateCharArc(K, c, e.currentTarget));
   q('[data-f="cleararc"]')?.addEventListener('click', async () => {
     if (!await confirmModal('Clear this character arc?', { title: 'CHARACTER ARC', okText: 'Clear', danger: false })) return;
-    c.arc = []; save(); renderEntityPane(K);
+    c.arc = []; c.principles = []; save(); renderEntityPane(K);
   });
   q('[data-f="editsum"]').addEventListener('click', async () => {
     const next = await promptModal(`${K.NOUN[0] + K.noun.slice(1)} summary:`, c.summary || '', { okText: 'Save' });
@@ -2323,6 +2324,26 @@ function renderArc(c) {
     </div>`).join('')}</div>`;
 }
 
+// CORE PRINCIPLES — the 3-5 values that define the character, each shown as a
+// start→end pair with a tag marking whether it held or shifted across the story.
+function renderPrinciples(c) {
+  const principles = c.principles || [];
+  if (!principles.length) return '';
+  const col = c.color || 'var(--accent)';
+  return `<div class="char-principles" style="--arc:${esc(col)}">
+    <h4 class="principles-head">CORE PRINCIPLES</h4>
+    ${principles.map(p => `
+    <div class="principle">
+      <div class="principle-name">${esc(p.principle || '')}<span class="principle-tag ${p.changed ? 'changed' : 'held'}">${p.changed ? 'CHANGED' : 'HELD'}</span></div>
+      <div class="principle-flow">
+        <span class="principle-start">${esc(p.start || '')}</span>
+        <span class="principle-arrow">→</span>
+        <span class="principle-end">${esc(p.end || '')}</span>
+      </div>
+    </div>`).join('')}
+  </div>`;
+}
+
 // AI character arc — sends every reference in narrative order and plots the
 // character's growth as an ordered set of stages stored on c.arc.
 async function generateCharArc(K, c, btn) {
@@ -2331,15 +2352,16 @@ async function generateCharArc(K, c, btn) {
   const original = btn ? btn.innerHTML : '';
   if (btn) { btn.disabled = true; btn.innerHTML = AI_STAR + ' PLOTTING…'; }
   try {
-    const { arc } = await aiInvoke({
+    const { arc, principles } = await aiInvoke({
       task: 'char_arc',
       name: c.name,
       aliases: c.aliases || [],
       chunks: refs.map(r => ({ title: r.title, body: r.body }))
     });
     c.arc = Array.isArray(arc) ? arc : [];
+    c.principles = Array.isArray(principles) ? principles : [];
     save(); renderEntityPane(K);
-    if (!c.arc.length) alertModal('Could not plot an arc from these references.', { title: 'CHARACTER ARC' });
+    if (!c.arc.length && !c.principles.length) alertModal('Could not plot an arc from these references.', { title: 'CHARACTER ARC' });
   } catch (err) {
     if (btn) { btn.disabled = false; btn.innerHTML = original; }
     alertModal('Could not generate arc.\n\n' + (err.message || ''), { title: 'CHARACTER ARC' });
@@ -3163,7 +3185,7 @@ async function loadProject(projectId) {
       locationIds: clo.filter(j => j.chunk_id === r.id).map(j => j.location_id),
       labelIds: cl.filter(j => j.chunk_id === r.id).map(j => j.label_id)
     })),
-    characters: (characters.data || []).map(r => ({ id: r.id, name: r.name, aliases: r.aliases || [], summary: r.summary || '', notes: r.notes || [], color: r.color || '', dismissedRefs: r.dismissed_refs || [], arc: r.arc || [] })),
+    characters: (characters.data || []).map(r => ({ id: r.id, name: r.name, aliases: r.aliases || [], summary: r.summary || '', notes: r.notes || [], color: r.color || '', dismissedRefs: r.dismissed_refs || [], arc: r.arc || [], principles: r.principles || [] })),
     locations: (locations.data || []).map(r => ({ id: r.id, name: r.name, aliases: r.aliases || [], summary: r.summary || '', notes: r.notes || [], color: r.color || '', dismissedRefs: r.dismissed_refs || [] })),
     labels: (labels.data || []).map(r => ({ id: r.id, name: (r.name || '').toUpperCase(), color: r.color, summary: r.summary || '' })),
     ideas: (ideas.data || []).map(r => ({ id: r.id, text: r.text, ts: r.ts || Date.parse(r.created_at), labelIds: il.filter(j => j.idea_id === r.id).map(j => j.label_id) })),
@@ -3221,7 +3243,7 @@ async function persistProject() {
   try {
     const chapters = db.chapters.map((c, i) => ({ id: c.id, user_id: U, project_id: P, title: c.title, color: c.color, position: c.order ?? i }));
     const chunks = db.chunks.map((c, i) => ({ id: c.id, user_id: U, project_id: P, chapter_id: c.chapterId || null, title: c.title, body: c.body, chrono_label: c.chronoLabel || null, narrative_pos: c.narrativeOrder ?? i, chrono_pos: c.chronoOrder ?? i, order_in_chapter: c.orderInChapter ?? 0, archived: !!c.archived, analysis: c.analysis || null }));
-    const characters = db.characters.map(c => ({ id: c.id, user_id: U, project_id: P, name: c.name, aliases: c.aliases || [], summary: c.summary || '', notes: c.notes || [], color: c.color || null, dismissed_refs: c.dismissedRefs || [], arc: c.arc || [] }));
+    const characters = db.characters.map(c => ({ id: c.id, user_id: U, project_id: P, name: c.name, aliases: c.aliases || [], summary: c.summary || '', notes: c.notes || [], color: c.color || null, dismissed_refs: c.dismissedRefs || [], arc: c.arc || [], principles: c.principles || [] }));
     const locations = (db.locations || []).map(c => ({ id: c.id, user_id: U, project_id: P, name: c.name, aliases: c.aliases || [], summary: c.summary || '', notes: c.notes || [], color: c.color || null, dismissed_refs: c.dismissedRefs || [] }));
     const labels = db.labels.map(l => ({ id: l.id, user_id: U, project_id: P, name: l.name, color: l.color, summary: l.summary || null }));
     const ideas = db.ideas.map(i => ({ id: i.id, user_id: U, project_id: P, text: i.text, ts: i.ts || Date.now() }));
