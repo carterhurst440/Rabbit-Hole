@@ -3160,6 +3160,19 @@ let authMode = 'signin';
 let currentUser = null;
 let currentProfile = null;
 let booted = false;
+let authWhooshPending = false;
+const authReduceMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// Play the rabbit-down-the-hole transition over the auth screen, then hide it.
+function playAuthWhoosh(done) {
+  if (authReduceMotion()) { authScreen.hidden = true; done && done(); return; }
+  authScreen.classList.add('whooshing');
+  setTimeout(() => {
+    authScreen.hidden = true;
+    authScreen.classList.remove('whooshing');
+    done && done();
+  }, 920);
+}
 
 // The handle the user posts under in the community feed.
 function displayUsername() {
@@ -3192,12 +3205,12 @@ function showAuth() {
   db = seed();
   applyProjectAccent(DEFAULT_ACCENT);
   document.body.classList.add('locked');
+  authWhooshPending = false;
+  authScreen.classList.remove('whooshing');
   authScreen.hidden = false;
 }
 function showApp(session) {
   currentUser = session.user;
-  authScreen.hidden = true;
-  document.body.classList.remove('locked');
   const meta = currentUser.user_metadata || {};
   const who = [meta.first_name, meta.last_name].filter(Boolean).join(' ') || currentUser.email;
   const initials = ([meta.first_name, meta.last_name].filter(Boolean).map(s => s[0]).join('')
@@ -3206,7 +3219,15 @@ function showApp(session) {
   userEl.textContent = initials;
   document.getElementById('profileBtn').title = who + ' · ' + currentUser.email;
   renderSettings();
+  // App mounts underneath; the auth screen (z-index 100) stays on top during the whoosh.
+  document.body.classList.remove('locked');
   bootApp();
+  if (authWhooshPending) {
+    authWhooshPending = false;
+    playAuthWhoosh();
+  } else {
+    authScreen.hidden = true;
+  }
 }
 
 async function bootApp() {
@@ -3870,6 +3891,7 @@ authForm.addEventListener('submit', async e => {
       const confirm = document.getElementById('authConfirm').value;
       if (password !== confirm) { authMsg('Passwords do not match.'); return; }
       if (password.length < 6) { authMsg('Password must be at least 6 characters.'); return; }
+      authWhooshPending = true;
       const { data, error } = await sb.auth.signUp({
         email, password,
         options: {
@@ -3877,15 +3899,17 @@ authForm.addEventListener('submit', async e => {
           emailRedirectTo: window.location.origin
         }
       });
-      if (error) { authMsg(error.message); return; }
+      if (error) { authWhooshPending = false; authMsg(error.message); return; }
       if (!data.session) {
+        authWhooshPending = false;
         showAuthSent(email);
         return;
       }
-      // session present → onAuthStateChange shows the app
+      // session present → onAuthStateChange shows the app (with the whoosh)
     } else {
+      authWhooshPending = true;
       const { error } = await sb.auth.signInWithPassword({ email, password });
-      if (error) { authMsg(error.message); return; }
+      if (error) { authWhooshPending = false; authMsg(error.message); return; }
     }
   } finally {
     authSubmit.disabled = false;
