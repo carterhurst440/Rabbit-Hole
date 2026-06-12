@@ -611,7 +611,9 @@ function feedProjHtml(p) {
 function feedCardHtml(p) {
   const mine = currentUser && p.user_id === currentUser.id;
   const comments = p.comments.map(c =>
-    `<div class="feed-comment"><span class="feed-comment-user">@${esc(c.username)}</span> ${esc(c.body)}</div>`).join('');
+    `<div class="feed-comment">${c.user_id
+      ? `<button class="feed-comment-user" data-uid="${esc(c.user_id)}" data-uname="${esc(c.username)}">@${esc(c.username)}</button>`
+      : `<span class="feed-comment-user">@${esc(c.username)}</span>`} ${esc(c.body)}</div>`).join('');
   const accentStyle = ` style="--accent:${esc(p.accent || DEFAULT_ACCENT)}"`;
   return `
   <article class="feed-card"${accentStyle} data-id="${p.id}">
@@ -652,6 +654,8 @@ function wireFeedCard(card, p) {
     viewBtn.addEventListener('click', () => viewHopModal(p));
   }
   card.querySelector('[data-f="user"]')?.addEventListener('click', () => userProfileModal(p.user_id, p.username));
+  card.querySelectorAll('button.feed-comment-user').forEach(b =>
+    b.addEventListener('click', () => userProfileModal(b.dataset.uid, b.dataset.uname)));
   card.querySelector('[data-f="like"]').addEventListener('click', () => toggleLike(p));
   card.querySelector('[data-f="comments"]').addEventListener('click', () => {
     p.commentsOpen = !p.commentsOpen; drawFeed();

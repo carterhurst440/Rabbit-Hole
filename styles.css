@@ -955,6 +955,11 @@ body.locked .ai-overlay { display: none !important; }
 .feed-comments { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--line); padding-top: 12px; }
 .feed-comment { font-size: 13px; color: var(--text); line-height: 1.5; }
 .feed-comment-user { color: var(--accent); font-weight: 600; }
+button.feed-comment-user {
+  background: none; border: none; padding: 0; font: inherit;
+  font-weight: 600; cursor: pointer; letter-spacing: inherit;
+}
+button.feed-comment-user:hover { text-decoration: underline; }
 .feed-comment-add { display: flex; gap: 8px; margin-top: 4px; }
 .feed-comment-input {
   flex: 1; min-width: 0; background: var(--panel-2); border: 1px solid var(--line-2);
