@@ -808,7 +808,10 @@ body.locked .ai-overlay { display: none !important; }
 
   /* hop rows: collapse the inline actions into a right-side kebab menu */
   .chunk-grip { display: none; }
+  .chunk-display { flex-wrap: wrap; column-gap: 10px; row-gap: 6px; }
+  .chunk-disp-title { flex: 1 1 60%; min-width: 0; }
   .chunk-disp-meta { white-space: normal; }
+  .chunk-disp-actions { margin-left: auto; }
   .hop-act { display: none; }
   .hop-kebab { display: block; }
   .add-btn { white-space: nowrap; }
