@@ -741,7 +741,9 @@ async function managePostsModal(chunk) {
           <div class="mp-sample">${esc(snippet) || '<span class="muted">(no content)</span>'}</div>
           <div class="mp-activity">♥ ${lc} · COMMENTS ${cc}</div>
           <div class="mp-actions">
-            ${closed ? '' : '<button class="add-btn" data-f="viewpost">VIEW POST</button>'}
+            ${closed
+              ? '<button class="add-btn" data-f="viewarchived">VIEW POST</button>'
+              : '<button class="add-btn" data-f="viewpost">VIEW POST</button>'}
             ${closed
               ? '<button class="add-btn" data-f="reopen">REACTIVATE</button>'
               : '<button class="add-btn" data-f="archive">ARCHIVE</button>'}
@@ -755,6 +757,7 @@ async function managePostsModal(chunk) {
       row.querySelector('[data-f="viewpost"]')?.addEventListener('click', () => {
         close(); gotoCommunityPost(p.id);
       });
+      row.querySelector('[data-f="viewarchived"]')?.addEventListener('click', () => viewArchivedPostModal(p));
       row.querySelector('[data-f="archive"]')?.addEventListener('click', async () => {
         if (!await confirmModal('Archive this post? It will no longer be viewable to the community, but you keep full access to it here.', { title: 'ARCHIVE POST', okText: 'Archive', danger: false })) return;
         await sb.from('community_posts').update({ status: 'closed' }).eq('id', p.id);
@@ -775,6 +778,46 @@ async function managePostsModal(chunk) {
     });
   }
   load();
+}
+
+// Read-only detail view for an archived post: its hop, entity snapshot, and the
+// full comment thread. Archived posts are hidden from the community feed, so this
+// is the only place their owner can revisit the discussion they generated.
+async function viewArchivedPostModal(p) {
+  const overlay = document.createElement('div');
+  overlay.className = 'ui-modal-overlay';
+  overlay.innerHTML = `
+    <div class="ui-modal"${p.accent ? ` style="--accent:${esc(p.accent)}"` : ''}>
+      <div class="ui-modal-title">${p.hop_title ? esc(p.hop_title) : 'ARCHIVED POST'}</div>
+      <div class="ui-modal-scroll" id="apScroll"><div class="feed-empty">Loading…</div></div>
+      <div class="ui-modal-actions">
+        <button class="ui-modal-btn" data-act="close">Done</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const close = () => overlay.remove();
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  overlay.querySelector('[data-act="close"]').addEventListener('click', close);
+  const scroll = overlay.querySelector('#apScroll');
+
+  const [lr, cr] = await Promise.all([
+    sb.from('community_likes').select('post_id').eq('post_id', p.id),
+    sb.from('community_comments').select('*').eq('post_id', p.id).order('created_at', { ascending: true })
+  ]);
+  const lc = (lr.data || []).length;
+  const comments = cr.data || [];
+  const commentsHtml = comments.length
+    ? comments.map(c => `<div class="feed-comment"><span class="feed-comment-user">@${esc(c.username)}</span> ${esc(c.body)}</div>`).join('')
+    : '<div class="feed-empty">No comments on this post.</div>';
+
+  scroll.innerHTML = `
+    <div class="mp-head"><span class="mp-status closed">ARCHIVED</span><span class="mp-time">${timeAgo(p.created_at)}</span></div>
+    ${feedProjHtml(p)}
+    ${p.context ? `<div class="feed-context">${esc(p.context)}</div>` : ''}
+    <div class="feed-hop-body">${esc(p.hop_body)}</div>
+    ${entitySnapshotHtml(p.entities)}
+    <div class="mp-activity">♥ ${lc} · COMMENTS ${comments.length}</div>
+    <div class="feed-comments">${commentsHtml}</div>`;
 }
 
 // Jump to the community feed and bring a specific post into view, flashing it.
