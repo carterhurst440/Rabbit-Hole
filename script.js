@@ -216,6 +216,7 @@ async function saveUsername() {
 let feedCache = [];
 let hopPostCounts = {};      // chunk_id -> { active, total }
 let myFluffle = new Set();    // user_ids the current user has favorited
+let fluffleNames = new Map(); // user_id -> username for Fluffle members
 let feedScope = 'all';        // 'all' | 'fluffle'
 let feedGenre = '';           // '' = all genres, else a project_genre
 let pendingFeedFocus = null;  // post id to scroll to after the feed draws
@@ -246,13 +247,70 @@ function refreshHopPostBadges() {
   });
 }
 
-// The set of community members the current user has added to their Fluffle.
+// The set of community members the current user has added to their Fluffle,
+// plus a username map (other users' profiles aren't readable under RLS, so the
+// handle is snapshotted onto community_follows when they're added).
 async function loadFluffle() {
   myFluffle = new Set();
-  if (!currentUser) return;
+  fluffleNames = new Map();
+  if (!currentUser) { updateFluffleCount(); return; }
   const { data } = await sb.from('community_follows')
-    .select('friend_id').eq('user_id', currentUser.id);
-  (data || []).forEach(r => myFluffle.add(r.friend_id));
+    .select('friend_id, friend_username').eq('user_id', currentUser.id);
+  (data || []).forEach(r => { myFluffle.add(r.friend_id); fluffleNames.set(r.friend_id, r.friend_username || ''); });
+  updateFluffleCount();
+}
+
+// Reflect the Fluffle size in the account-menu badge.
+function updateFluffleCount() {
+  const el = document.getElementById('fluffleCount');
+  if (el) { el.textContent = myFluffle.size; el.classList.toggle('has', myFluffle.size > 0); }
+}
+
+// Manage everyone in the Fluffle: open a member's profile or remove them.
+function manageFluffleModal() {
+  const overlay = document.createElement('div');
+  overlay.className = 'ui-modal-overlay';
+  overlay.innerHTML = `
+    <div class="ui-modal">
+      <div class="ui-modal-title">MY FLUFFLE</div>
+      <div class="ui-modal-scroll" id="flScroll"></div>
+      <div class="ui-modal-actions">
+        <button class="ui-modal-btn" data-act="close">Done</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const close = () => overlay.remove();
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  overlay.querySelector('[data-act="close"]').addEventListener('click', close);
+  const scroll = overlay.querySelector('#flScroll');
+
+  function render() {
+    const members = [...myFluffle];
+    if (!members.length) {
+      scroll.innerHTML = '<div class="feed-empty">No one in your Fluffle yet. Tap a username in the community to add them.</div>';
+      return;
+    }
+    scroll.innerHTML = members.map(idv => {
+      const name = fluffleNames.get(idv) || 'member';
+      return `<div class="fl-row" data-id="${idv}">
+        <button class="fl-name" data-f="open">@${esc(name)}</button>
+        <button class="add-btn danger" data-f="remove">REMOVE</button>
+      </div>`;
+    }).join('');
+    members.forEach(idv => {
+      const row = scroll.querySelector(`.fl-row[data-id="${idv}"]`);
+      if (!row) return;
+      row.querySelector('[data-f="open"]').addEventListener('click', () =>
+        userProfileModal(idv, fluffleNames.get(idv) || ''));
+      row.querySelector('[data-f="remove"]').addEventListener('click', async () => {
+        myFluffle.delete(idv); fluffleNames.delete(idv);
+        await sb.from('community_follows').delete().eq('user_id', currentUser.id).eq('friend_id', idv);
+        updateFluffleCount(); render();
+        if (currentRoute() === 'community') { renderCommunityFilters(); drawFeed(); }
+      });
+    });
+  }
+  render();
 }
 
 function timeAgo(iso) {
@@ -392,7 +450,7 @@ function renderCommunityFilters() {
   bar.innerHTML = `
     <div class="cf-scope">
       <button class="cf-scope-btn ${feedScope === 'all' ? 'active' : ''}" data-scope="all">ALL</button>
-      <button class="cf-scope-btn ${feedScope === 'fluffle' ? 'active' : ''}" data-scope="fluffle">MY FLUFFLE</button>
+      <button class="cf-scope-btn ${feedScope === 'fluffle' ? 'active' : ''}" data-scope="fluffle">MY FLUFFLE <span class="cf-fluffle-count">${myFluffle.size}</span></button>
     </div>
     <div class="cf-genres">${genreChips}</div>`;
   bar.querySelectorAll('[data-scope]').forEach(b => b.addEventListener('click', () => {
@@ -757,12 +815,13 @@ async function userProfileModal(userId, username) {
       </div>`;
     scroll.querySelector('[data-f="fluffle"]')?.addEventListener('click', async () => {
       if (myFluffle.has(userId)) {
-        myFluffle.delete(userId);
+        myFluffle.delete(userId); fluffleNames.delete(userId);
         await sb.from('community_follows').delete().eq('user_id', currentUser.id).eq('friend_id', userId);
       } else {
-        myFluffle.add(userId);
-        await sb.from('community_follows').insert({ user_id: currentUser.id, friend_id: userId });
+        myFluffle.add(userId); fluffleNames.set(userId, username || '');
+        await sb.from('community_follows').insert({ user_id: currentUser.id, friend_id: userId, friend_username: username || '' });
       }
+      updateFluffleCount();
       render();
       if (currentRoute() === 'community') { renderCommunityFilters(); drawFeed(); }
     });
@@ -1415,6 +1474,29 @@ function wireChunkCard(card) {
     if (expandedChunks.has(id)) expandedChunks.delete(id); else expandedChunks.add(id);
     renderSections();
   });
+
+  const kebab = card.querySelector('.hop-kebab');
+  if (kebab) kebab.addEventListener('toggle', () => { if (kebab.open) positionHopMenu(kebab); });
+}
+
+// The hop menu is position:fixed, so place it under (or above) its summary using
+// viewport coordinates. Flips upward when there isn't room below.
+function positionHopMenu(details) {
+  const summary = details.querySelector('summary');
+  const menu = details.querySelector('.hop-menu');
+  if (!summary || !menu) return;
+  const r = summary.getBoundingClientRect();
+  menu.style.visibility = 'hidden';
+  const mw = menu.offsetWidth, mh = menu.offsetHeight;
+  let left = Math.max(8, r.right - mw);
+  let top = r.bottom + 4;
+  if (top + mh > window.innerHeight - 8) {
+    top = r.top - mh - 4;
+    if (top < 8) top = Math.max(8, window.innerHeight - mh - 8);
+  }
+  menu.style.left = left + 'px';
+  menu.style.top = top + 'px';
+  menu.style.visibility = '';
 }
 
 // Close any open hop kebab menu when tapping outside of it.
@@ -1423,6 +1505,10 @@ document.addEventListener('click', e => {
     if (!d.contains(e.target)) d.removeAttribute('open');
   });
 });
+// A fixed menu would visually detach on scroll — close it instead.
+window.addEventListener('scroll', () => {
+  document.querySelectorAll('.hop-kebab[open]').forEach(d => d.removeAttribute('open'));
+}, true);
 
 // Cast / places search boxes filter their rail list live.
 ['charSearch', 'locSearch'].forEach(id => {
@@ -2729,6 +2815,7 @@ async function bootApp() {
   try {
     await ensureProfile();
     await loadProfile();
+    await loadFluffle();
     await initProjects();
   } catch (e) {
     console.error('boot failed', e);
@@ -3397,6 +3484,7 @@ document.getElementById('signOutBtn').addEventListener('click', async () => {
 
 document.getElementById('communityRefreshBtn').addEventListener('click', renderCommunity);
 document.getElementById('saveUsernameBtn').addEventListener('click', saveUsername);
+document.getElementById('manageFluffleBtn').addEventListener('click', manageFluffleModal);
 document.getElementById('usernameInput').addEventListener('keydown', e => {
   if (e.key === 'Enter') { e.preventDefault(); saveUsername(); }
 });

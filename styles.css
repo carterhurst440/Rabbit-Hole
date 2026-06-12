@@ -346,8 +346,11 @@ button, input, textarea, select { font-family: inherit; }
 }
 .hop-kebab > summary::-webkit-details-marker { display: none; }
 .hop-kebab > summary:hover { color: var(--accent); }
+/* Fixed so the menu escapes every overflow/scroll container and never inflates
+   the page; JS positions it from the summary's rect and flips it up near the
+   viewport bottom. */
 .hop-menu {
-  position: absolute; top: calc(100% + 4px); right: 0; z-index: 20;
+  position: fixed; z-index: 1000;
   display: flex; flex-direction: column; gap: 4px; min-width: 150px; padding: 8px;
   background: var(--panel); border: 1px solid var(--line-2);
   box-shadow: 0 12px 32px rgba(0,0,0,0.5);
@@ -884,6 +887,23 @@ body.locked .ai-overlay { display: none !important; }
 }
 .cf-chip:hover { border-color: var(--accent-mid); color: var(--accent); }
 .cf-chip.active { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+.cf-fluffle-count {
+  display: inline-flex; align-items: center; justify-content: center; min-width: 16px; height: 16px;
+  padding: 0 4px; margin-left: 4px; border-radius: 8px; font-size: 9px; font-weight: 700;
+  background: var(--accent-dim); color: var(--accent);
+}
+.cf-scope-btn.active .cf-fluffle-count { background: #0a0a0a; color: var(--accent); }
+
+/* ---------- manage fluffle modal ---------- */
+.fl-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 10px 0; border-bottom: 1px solid var(--line);
+}
+.fl-name {
+  background: none; border: none; padding: 0; font-family: inherit; cursor: pointer;
+  font-size: 13px; font-weight: 600; color: var(--accent); letter-spacing: 0.04em; text-align: left;
+}
+.fl-name:hover { text-decoration: underline; }
 
 /* ---------- clickable post author + fluffle marker ---------- */
 .feed-user {
