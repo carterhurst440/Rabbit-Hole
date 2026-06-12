@@ -820,7 +820,6 @@ select.ui-modal-input { cursor: pointer; appearance: none; -webkit-appearance: n
 .idea-card .idea-text { font-size: 13px; line-height: 1.5; white-space: pre-wrap; }
 .idea-card .idea-name { font-size: 13px; font-weight: 700; line-height: 1.35; color: var(--text-bright); letter-spacing: 0.02em; }
 .idea-card .idea-body { font-size: 12px; line-height: 1.5; color: var(--muted); white-space: pre-wrap; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.idea-card .idea-edit-name { background: var(--panel-2); border: 1px solid var(--line); color: var(--text-bright); font-family: inherit; font-size: 13px; font-weight: 700; padding: 8px; }
 .idea-card .idea-foot { display: flex; justify-content: space-between; align-items: center; gap: 6px; }
 .idea-tags { display: flex; flex-wrap: wrap; gap: 4px; }
 .tag { font-size: 10px; padding: 2px 6px; border: 1px solid var(--lc, var(--line-2)); color: var(--lc, var(--muted)); letter-spacing: 0.08em; background: transparent; }
@@ -842,11 +841,34 @@ select.ui-modal-input { cursor: pointer; appearance: none; -webkit-appearance: n
 
 /* ---------- editable idea cards + chunk display tags ---------- */
 .idea-actions { display: flex; gap: 4px; align-items: center; }
-.idea-card.editing { gap: 10px; }
-.idea-edit-text {
-  background: var(--panel-2); border: 1px solid var(--line); color: var(--text);
-  padding: 8px; font-size: 13px; line-height: 1.5; resize: vertical; min-height: 64px;
+
+/* ---------- IDEA EDIT MODAL ---------- */
+.idea-edit-modal { width: min(560px, 92vw); text-align: left; gap: 14px; }
+.idea-edit-modal .ie-field { display: flex; flex-direction: column; gap: 6px; }
+.idea-edit-modal .ie-label-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.idea-edit-modal .ie-label { font-size: 10px; letter-spacing: 0.14em; color: var(--muted); }
+.idea-edit-modal .ie-name {
+  background: var(--panel-2); border: 1px solid var(--line); color: var(--text-bright);
+  font-family: inherit; font-size: 14px; font-weight: 700; padding: 9px 10px; letter-spacing: 0.02em;
 }
+.idea-edit-modal .ie-body {
+  background: var(--panel-2); border: 1px solid var(--line); color: var(--text);
+  font-family: inherit; padding: 9px 10px; font-size: 13px; line-height: 1.55; resize: vertical; min-height: 120px;
+}
+.idea-edit-modal .ie-name:focus, .idea-edit-modal .ie-body:focus { outline: none; border-color: var(--accent-mid); }
+.idea-edit-modal .ie-gen {
+  display: inline-flex; align-items: center; gap: 5px; background: transparent;
+  border: 1px solid var(--line-2); color: var(--accent); font-family: inherit;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.12em; padding: 4px 9px; cursor: pointer;
+}
+.idea-edit-modal .ie-gen:hover { border-color: var(--accent); background: rgba(227,168,105,0.08); }
+.idea-edit-modal .ie-gen:disabled { opacity: 0.6; cursor: default; }
+.idea-edit-modal .ie-actions { display: flex; align-items: center; gap: 8px; }
+.idea-edit-modal .ie-spacer { flex: 1; }
+.ui-modal-btn.danger.ghost { background: transparent; border-color: var(--line-2); color: #c0584e; }
+.ui-modal-btn.danger.ghost:hover { border-color: #c0584e; background: rgba(192,88,78,0.1); color: #c0584e; }
+.ai-star.spin { display: inline-block; animation: ai-star-spin 0.9s linear infinite; }
+@keyframes ai-star-spin { to { transform: rotate(360deg); } }
 
 /* ---------- AUTH GATE ---------- */
 /* Line-art card matching the handoff: dark ground, cream "ink" strokes, accent.

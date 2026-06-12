@@ -2868,7 +2868,6 @@ document.getElementById('addTagCatBtn').addEventListener('click', async () => {
    IDEA BACKLOG
    ===================================================================== */
 let ideaFilterLabel = ''; // label id ('' = all)
-const editingIdeas = new Set();
 let draggingIdeaId = null;
 
 const DEFAULT_IDEA_LANES = [
@@ -2958,18 +2957,6 @@ function renderIdeas() {
 }
 
 function renderIdeaCard(i) {
-  if (editingIdeas.has(i.id)) {
-    return `
-      <div class="idea-card editing" data-id="${i.id}">
-        <input class="idea-edit-name" data-f="title" placeholder="Idea name…" maxlength="120" value="${esc(i.title || '')}" />
-        <textarea class="idea-edit-text" data-f="body" rows="3" placeholder="Flesh it out… (optional)">${esc(i.body || '')}</textarea>
-        ${labelEditorHTML(i.labelIds || [])}
-        <div class="idea-foot">
-          <button class="add-btn solid" data-f="save">SAVE</button>
-          <button class="icon-btn" data-f="del" title="Delete">✕</button>
-        </div>
-      </div>`;
-  }
   const tags = (i.labelIds || []).map(id =>
     `<span class="tag" style="--lc:${labelColor(id)}">${esc(labelName(id))}</span>`).join('');
   const name = i.title || '';
@@ -2995,21 +2982,12 @@ function wireIdeaCard(card) {
   if (!idea) return;
   card.querySelector('[data-f="del"]').addEventListener('click', () => {
     db.ideas = db.ideas.filter(x => x.id !== id);
-    editingIdeas.delete(id);
     laneRemoveIdea(id);
     save(); renderIdeas();
   });
   const editBtn = card.querySelector('[data-f="edit"]');
-  if (editBtn) editBtn.addEventListener('click', () => { editingIdeas.add(id); renderIdeas(); });
+  if (editBtn) editBtn.addEventListener('click', () => ideaEditModal(idea));
 
-  const saveBtn = card.querySelector('[data-f="save"]');
-  if (saveBtn) {
-    card.querySelector('[data-f="title"]').addEventListener('input', e => { idea.title = e.target.value; save(); });
-    card.querySelector('[data-f="body"]').addEventListener('input', e => { idea.body = e.target.value; save(); });
-    const le = card.querySelector('.label-editor');
-    if (le) wireLabelEditor(le, idea);
-    saveBtn.addEventListener('click', () => { editingIdeas.delete(id); save(); renderIdeas(); });
-  }
   if (card.getAttribute('draggable') === 'true') {
     card.addEventListener('dragstart', e => {
       draggingIdeaId = id;
@@ -3175,6 +3153,88 @@ function ideaReviewModal(suggestions) {
       close(picked);
     });
   });
+}
+
+// Edit an idea in a focused modal: NAME, GENERATE-from-body, BODY, labels.
+// Works on a copy so CANCEL reverts; SAVE commits back to the live idea.
+function ideaEditModal(idea) {
+  const work = { labelIds: [...(idea.labelIds || [])] };
+  const overlay = document.createElement('div');
+  overlay.className = 'ui-modal-overlay';
+  overlay.innerHTML = `
+    <div class="ui-modal idea-edit-modal" role="dialog" aria-modal="true">
+      <div class="ui-modal-title">EDIT IDEA</div>
+      <div class="ie-field">
+        <div class="ie-label-row">
+          <span class="ie-label">NAME</span>
+          <button class="ie-gen" data-act="gen"><span class="ai-star">✦</span> GENERATE</button>
+        </div>
+        <input class="ie-name" type="text" maxlength="120" placeholder="Idea name…" />
+      </div>
+      <div class="ie-field">
+        <span class="ie-label">BODY</span>
+        <textarea class="ie-body" rows="7" placeholder="Flesh it out…"></textarea>
+      </div>
+      <div class="ie-field">
+        <span class="ie-label">TAGS</span>
+        ${labelEditorHTML(work.labelIds)}
+      </div>
+      <div class="ui-modal-actions ie-actions">
+        <button class="ui-modal-btn danger ghost" data-act="del">Delete</button>
+        <span class="ie-spacer"></span>
+        <button class="ui-modal-btn" data-act="cancel">Cancel</button>
+        <button class="ui-modal-btn solid" data-act="save">Save</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  const nameInput = overlay.querySelector('.ie-name');
+  const bodyInput = overlay.querySelector('.ie-body');
+  const genBtn = overlay.querySelector('[data-act="gen"]');
+  nameInput.value = idea.title || '';
+  bodyInput.value = idea.body || '';
+  wireLabelEditor(overlay.querySelector('.label-editor'), work);
+
+  const close = () => overlay.remove();
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  overlay.querySelector('[data-act="cancel"]').addEventListener('click', close);
+
+  overlay.querySelector('[data-act="save"]').addEventListener('click', () => {
+    idea.title = nameInput.value.trim();
+    idea.body = bodyInput.value;
+    idea.labelIds = work.labelIds;
+    save();
+    close();
+    renderIdeas();
+  });
+
+  overlay.querySelector('[data-act="del"]').addEventListener('click', async () => {
+    if (!await confirmModal('Delete this idea? This cannot be undone.', { title: 'DELETE IDEA', okText: 'Delete', danger: true })) return;
+    db.ideas = db.ideas.filter(x => x.id !== idea.id);
+    laneRemoveIdea(idea.id);
+    save();
+    close();
+    renderIdeas();
+  });
+
+  genBtn.addEventListener('click', async () => {
+    const body = bodyInput.value.trim();
+    if (!body) { alertModal('Write some body text first, then generate a title from it.', { title: 'NOTHING TO TITLE' }); return; }
+    genBtn.disabled = true;
+    const prev = genBtn.innerHTML;
+    genBtn.innerHTML = `<span class="ai-star spin">✦</span> …`;
+    try {
+      const { title } = await aiInvoke({ task: 'idea_title', body });
+      if (title) nameInput.value = title;
+    } catch (err) {
+      alertModal(err.message || 'Could not generate a title.', { title: 'GENERATE FAILED' });
+    } finally {
+      genBtn.disabled = false;
+      genBtn.innerHTML = prev;
+    }
+  });
+
+  setTimeout(() => nameInput.focus(), 0);
 }
 
 /* =====================================================================

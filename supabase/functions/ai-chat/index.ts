@@ -12,6 +12,7 @@
 //   detect_locations  { chunks, existing }             -> { locations: [{ name, aliases }] }
 //   suggest_tags      { chunk, existing }              -> { assign: [string], suggest: [string] }
 //   suggest_ideas     { chunks, type, genre }          -> { ideas: [string] }
+//   idea_title        { body }                          -> { title: string }
 //   suggest_chunks    { chunks, type, genre, chapters, characters, locations }
 //                                                      -> { chunks: [{ title, chapter, description }] }
 //   analyze_chunk     { chunk, context, type, genre, characters, locations }
@@ -48,6 +49,7 @@ Deno.serve(async (req) => {
     if (task === "detect_locations") return await doDetectLocations(apiKey, body);
     if (task === "suggest_tags") return await doSuggestTags(apiKey, body);
     if (task === "suggest_ideas") return await doSuggestIdeas(apiKey, body);
+    if (task === "idea_title") return await doIdeaTitle(apiKey, body);
     if (task === "suggest_chunks") return await doSuggestChunks(apiKey, body);
     if (task === "analyze_chunk") return await doAnalyzeChunk(apiKey, body);
     return json({ error: `Unknown task: ${task}` }, 400);
@@ -308,6 +310,23 @@ async function doSuggestIdeas(apiKey: string, body: { chunks?: Chunk[]; type?: s
   return json({ ideas });
 }
 
+async function doIdeaTitle(apiKey: string, body: { body?: string }) {
+  const text = (body.body || "").trim();
+  if (!text) return json({ error: "No idea text to title." }, 400);
+  const system =
+    "You are a naming assistant inside RABBIT HOLE, a book workbench. The author will give you the " +
+    "body of a single backlog idea. Distill it into ONE short, evocative title of 3 to 10 words that " +
+    "captures the heart of the idea. Title case-ish, no surrounding quotes, no trailing punctuation, " +
+    "no preamble. Respond with ONLY a JSON object of the form " +
+    `{"title":"..."}. No markdown, no commentary.`;
+  const raw = await callClaude(apiKey, { system, messages: [{ role: "user", content: `IDEA:\n${text}` }], max_tokens: 80 });
+  const parsed = parseJsonObject(raw);
+  let title = typeof parsed?.title === "string" ? parsed.title.trim() : "";
+  title = title.replace(/^["'\u201c\u2018]+|["'\u201d\u2019.]+$/g, "").trim();
+  if (!title) return json({ error: "Could not generate a title." }, 502);
+  return json({ title });
+}
+
 async function doSuggestChunks(
   apiKey: string,
   body: { chunks?: Chunk[]; type?: string; genre?: string; chapters?: string[]; characters?: string[]; locations?: string[] },
@@ -426,7 +445,7 @@ function joinChunks(chunks: Chunk[]): string {
     .join("\n\n");
 }
 
-function parseJsonObject(s: string): { characters?: unknown[]; locations?: unknown[]; ideas?: unknown[]; assign?: unknown[]; suggest?: unknown[]; chunks?: unknown[]; strengths?: unknown[]; suggestions?: unknown[]; arc?: unknown[]; principles?: unknown[] } | null {
+function parseJsonObject(s: string): { characters?: unknown[]; locations?: unknown[]; ideas?: unknown[]; assign?: unknown[]; suggest?: unknown[]; chunks?: unknown[]; strengths?: unknown[]; suggestions?: unknown[]; arc?: unknown[]; principles?: unknown[]; title?: unknown } | null {
   try {
     const start = s.indexOf("{");
     const end = s.lastIndexOf("}");
