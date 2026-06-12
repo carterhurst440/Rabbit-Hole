@@ -821,6 +821,13 @@ document.addEventListener('click', e => {
   });
 });
 
+// Cast / places search boxes filter their rail list live.
+['charSearch', 'locSearch'].forEach(id => {
+  const input = document.getElementById(id);
+  if (input) input.addEventListener('input', () =>
+    applyRailSearch(id === 'charSearch' ? ENTITY_KINDS.character : ENTITY_KINDS.location));
+});
+
 // Timelines axis toggle (mobile): chips switch which order column is shown.
 document.querySelectorAll('#tlAxisTabs .tl-axis-tab').forEach(tab => {
   tab.addEventListener('click', () => {
@@ -1124,13 +1131,13 @@ function reorderChunk(orderKey, draggedId, beforeId) {
 const ENTITY_KINDS = {
   character: {
     coll: 'characters', link: 'characterIds', active: 'activeChar', scannedKey: 'detectScannedIds',
-    listId: 'charList', paneId: 'charPane', detectId: 'detectCharsBtn', addId: 'addCharBtn',
+    listId: 'charList', paneId: 'charPane', detectId: 'detectCharsBtn', addId: 'addCharBtn', searchId: 'charSearch',
     detectTask: 'detect_characters', resultKey: 'characters', sumTask: 'char_summary',
     noun: 'character', NOUN: 'CHARACTER', NOUNS: 'CHARACTERS', newName: 'New character'
   },
   location: {
     coll: 'locations', link: 'locationIds', active: 'activeLoc', scannedKey: 'detectScannedLocs',
-    listId: 'locList', paneId: 'locPane', detectId: 'detectLocsBtn', addId: 'addLocBtn',
+    listId: 'locList', paneId: 'locPane', detectId: 'detectLocsBtn', addId: 'addLocBtn', searchId: 'locSearch',
     detectTask: 'detect_locations', resultKey: 'locations', sumTask: 'loc_summary',
     noun: 'location', NOUN: 'LOCATION', NOUNS: 'LOCATIONS', newName: 'New location'
   }
@@ -1157,7 +1164,20 @@ function renderEntityList(K) {
       db.ui[K.active] = el.dataset.id; save(); renderEntityList(K);
     });
   });
+  applyRailSearch(K);
   renderEntityPane(K);
+}
+
+// Filter the cast/places list by the rail search box (mobile). Re-applied
+// after every list render so the active filter survives selection changes.
+function applyRailSearch(K) {
+  const input = K.searchId && document.getElementById(K.searchId);
+  if (!input) return;
+  const q = input.value.trim().toLowerCase();
+  document.querySelectorAll(`#${K.listId} .chapter-item`).forEach(el => {
+    const name = (el.querySelector('.ci-title')?.textContent || '').toLowerCase();
+    el.style.display = (!q || name.includes(q)) ? '' : 'none';
+  });
 }
 
 // Transient (not persisted): chunk ids whose reference body is expanded in the pane.
