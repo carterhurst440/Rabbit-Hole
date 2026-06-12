@@ -123,6 +123,31 @@ const getLabel = (id) => db.labels.find(l => l.id === id);
 const labelName = (id) => getLabel(id)?.name || '';
 const labelColor = (id) => getLabel(id)?.color || 'var(--muted)';
 
+// Tag categories ("THEMES", "LORE", "TONE", …) are a client-side grouping layer
+// kept in the project ui blob, so no extra DB table/column is needed.
+function tagCats() { if (!Array.isArray(db.ui.tagCategories)) db.ui.tagCategories = []; return db.ui.tagCategories; }
+function tagCatMap() { if (!db.ui.tagCat || typeof db.ui.tagCat !== 'object') db.ui.tagCat = {}; return db.ui.tagCat; }
+const tagCatOf = (labelId) => tagCatMap()[labelId] || '';
+const tagCatName = (catId) => tagCats().find(c => c.id === catId)?.name || '';
+function setTagCat(labelId, catId) {
+  const m = tagCatMap();
+  if (catId) m[labelId] = catId; else delete m[labelId];
+  save();
+}
+function addTagCat(name) {
+  const nm = String(name || '').trim().toUpperCase();
+  if (!nm) return null;
+  let c = tagCats().find(x => x.name === nm);
+  if (!c) { c = { id: uid(), name: nm }; tagCats().push(c); save(); }
+  return c;
+}
+function deleteTagCat(catId) {
+  db.ui.tagCategories = tagCats().filter(c => c.id !== catId);
+  const m = tagCatMap();
+  Object.keys(m).forEach(lid => { if (m[lid] === catId) delete m[lid]; });
+  save();
+}
+
 function labelIdsFromString(str) {
   return [...new Set(
     String(str || '').split(',').map(s => s.trim()).filter(Boolean)
@@ -2606,18 +2631,65 @@ function labelUsage(id) {
   return { chunks, ideas, count: chunks.length + ideas.length };
 }
 
+function labelRowHTML(l) {
+  return `<div class="chapter-item ${l.id === db.ui.activeLabel ? 'active' : ''}" data-id="${l.id}">
+    <span class="ci-dot" style="background:${l.color}"></span>
+    <span class="ci-title">${esc(l.name)}</span>
+    <span class="ci-count">${labelUsage(l.id).count}</span>
+  </div>`;
+}
+
 function renderLabels() {
   const list = document.getElementById('labelList');
-  list.innerHTML = db.labels.length
-    ? db.labels.map(l => `
-        <div class="chapter-item ${l.id === db.ui.activeLabel ? 'active' : ''}" data-id="${l.id}">
-          <span class="ci-dot" style="background:${l.color}"></span>
-          <span class="ci-title">${esc(l.name)}</span>
-          <span class="ci-count">${labelUsage(l.id).count}</span>
-        </div>`).join('')
-    : `<div class="pane-empty" style="border:none">No labels yet. Add labels to chunks and ideas, or create one here.</div>`;
+  if (!db.labels.length) {
+    list.innerHTML = `<div class="pane-empty" style="border:none">No tags yet. Add tags to hops and ideas, or create one here.</div>`;
+    renderLabelPane();
+    return;
+  }
+  const cats = tagCats();
+  if (!cats.length) {
+    list.innerHTML = db.labels.map(labelRowHTML).join('');
+    list.querySelectorAll('.chapter-item').forEach(el =>
+      el.addEventListener('click', () => { db.ui.activeLabel = el.dataset.id; save(); renderLabels(); }));
+    renderLabelPane();
+    return;
+  }
+  const groups = cats.map(c => ({
+    id: c.id, name: c.name,
+    labels: db.labels.filter(l => tagCatOf(l.id) === c.id)
+  }));
+  const uncategorized = db.labels.filter(l => !tagCatName(tagCatOf(l.id)));
+  groups.push({ id: '', name: 'UNCATEGORIZED', labels: uncategorized });
+  list.innerHTML = groups
+    .filter(g => g.id || g.labels.length)
+    .map(g => `
+      <div class="tag-cat-group" data-cat="${g.id}">
+        <div class="tag-cat-head">
+          <span class="tcc-name">${esc(g.name)}</span>
+          ${g.id ? `<span class="tcc-actions">
+            <button class="tcc-btn" data-cat-rename="${g.id}" title="Rename category">✎</button>
+            <button class="tcc-btn" data-cat-del="${g.id}" title="Delete category">✕</button>
+          </span>` : ''}
+        </div>
+        ${g.labels.map(labelRowHTML).join('') || '<div class="tag-cat-empty">No tags</div>'}
+      </div>`).join('');
   list.querySelectorAll('.chapter-item').forEach(el =>
     el.addEventListener('click', () => { db.ui.activeLabel = el.dataset.id; save(); renderLabels(); }));
+  list.querySelectorAll('[data-cat-rename]').forEach(btn =>
+    btn.addEventListener('click', async e => {
+      e.stopPropagation();
+      const cat = tagCats().find(c => c.id === btn.dataset.catRename);
+      if (!cat) return;
+      const next = await promptModal('Category name:', cat.name, { title: 'RENAME CATEGORY', okText: 'Save' });
+      if (next && next.trim()) { cat.name = next.trim().toUpperCase(); save(); renderLabels(); }
+    }));
+  list.querySelectorAll('[data-cat-del]').forEach(btn =>
+    btn.addEventListener('click', async e => {
+      e.stopPropagation();
+      if (!await confirmModal('Delete this category? Tags inside move to Uncategorized.')) return;
+      deleteTagCat(btn.dataset.catDel);
+      renderLabels();
+    }));
   renderLabelPane();
 }
 
@@ -2627,11 +2699,18 @@ function renderLabelPane() {
   if (!l) { pane.innerHTML = `<div class="pane-empty">Select or add a label.</div>`; return; }
 
   const { chunks, ideas } = labelUsage(l.id);
+  const curCat = tagCatOf(l.id);
+  const catOpts = `<option value="">Uncategorized</option>`
+    + tagCats().map(c => `<option value="${c.id}" ${c.id === curCat ? 'selected' : ''}>${esc(c.name)}</option>`).join('')
+    + `<option value="__new">＋ New category…</option>`;
   pane.innerHTML = `
     <div class="chunk-card-head">
       <input type="color" class="chap-color" id="labelColor" value="${l.color}" title="Label color" />
       <input class="chunk-title-input" id="labelName" value="${esc(l.name)}" />
       <button class="icon-btn" id="delLabelBtn" title="Delete label">✕</button>
+    </div>
+    <div class="meta-field" style="margin:0 0 14px">CATEGORY
+      <select id="tagCatSel">${catOpts}</select>
     </div>
     <div class="char-block">
       <h3>SUMMARY <span style="color:var(--muted);font-weight:400">(AI — themes across tagged chunks)</span></h3>
@@ -2679,10 +2758,21 @@ function renderLabelPane() {
     const d = document.querySelector(`#labelList .chapter-item[data-id="${l.id}"] .ci-dot`);
     if (d) d.style.background = l.color;
   });
+  document.getElementById('tagCatSel').addEventListener('change', async e => {
+    if (e.target.value === '__new') {
+      const name = await promptModal('New category name:', '', { title: 'NEW CATEGORY', okText: 'Create' });
+      const cat = name && name.trim() ? addTagCat(name) : null;
+      setTagCat(l.id, cat ? cat.id : '');
+    } else {
+      setTagCat(l.id, e.target.value);
+    }
+    renderLabels();
+  });
   document.getElementById('delLabelBtn').addEventListener('click', async () => {
     if (!await confirmModal('Delete this label? It will be removed from all hops and ideas.')) return;
     db.chunks.forEach(c => { if (c.labelIds) c.labelIds = c.labelIds.filter(id => id !== l.id); });
     db.ideas.forEach(i => { if (i.labelIds) i.labelIds = i.labelIds.filter(id => id !== l.id); });
+    delete tagCatMap()[l.id];
     db.labels = db.labels.filter(x => x.id !== l.id);
     db.ui.activeLabel = db.labels[0]?.id || null;
     save(); renderLabels();
@@ -2719,6 +2809,11 @@ document.getElementById('addLabelBtn').addEventListener('click', () => {
   db.labels.push(lab);
   db.ui.activeLabel = lab.id;
   save(); renderLabels();
+});
+
+document.getElementById('addTagCatBtn').addEventListener('click', async () => {
+  const name = await promptModal('Category name (e.g. THEMES, LORE, TONE):', '', { title: 'NEW CATEGORY', okText: 'Create' });
+  if (name && name.trim()) { addTagCat(name); renderLabels(); }
 });
 
 /* =====================================================================

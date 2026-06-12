@@ -319,6 +319,22 @@ button, input, textarea, select { font-family: inherit; }
 .chapter-item .ci-title { flex: 1; font-size: 13px; color: var(--text-bright); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chapter-item .ci-count { font-size: 10px; color: var(--muted); }
 .chapter-item .ci-dot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; box-shadow: 0 0 6px rgba(0,0,0,0.4); }
+.rail-head-actions { display: flex; gap: 6px; }
+.tag-cat-group { border-bottom: 1px solid var(--line); }
+.tag-cat-group:last-child { border-bottom: none; }
+.tag-cat-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 9px 14px 5px; font-size: 10px; letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--muted); background: var(--panel-2);
+}
+.tag-cat-head .tcc-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tag-cat-head .tcc-actions { display: flex; gap: 4px; opacity: 0; transition: opacity 0.1s; flex: 0 0 auto; }
+.tag-cat-group:hover .tcc-actions { opacity: 1; }
+.tcc-btn { background: none; border: none; color: var(--muted-2); cursor: pointer; font-size: 11px; padding: 0 2px; }
+.tcc-btn:hover { color: var(--accent); }
+.tcc-btn[data-cat-del]:hover { color: var(--danger); }
+.tag-cat-empty { padding: 8px 14px; font-size: 11px; color: var(--muted-2); }
+.tag-cat-group .chapter-item { padding-left: 18px; }
 .chap-color {
   width: 30px; height: 30px; padding: 0; border: 1px solid var(--line-2);
   background: var(--panel-2); cursor: pointer; flex: 0 0 auto;
