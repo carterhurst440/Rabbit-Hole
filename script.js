@@ -2061,7 +2061,7 @@ function renderEntityPane(K) {
   const refRow = (r, off) => {
     const open = expandedRefs.has(r.id);
     return `
-      <div class="ref-row ${open ? 'is-open' : ''} ${off ? 'ref-off' : ''}" data-ref="${r.id}">
+      <div class="ref-row ${open ? 'is-open' : ''} ${off ? 'ref-off' : ''}" data-ref="${r.id}" style="border-left:3px solid ${chapterColor(r.chapterId)}">
         <div class="ref-head">
           <button class="ref-expand" data-ref-toggle title="Show this reference">${open ? '▾' : '▸'}</button>
           <div class="ref-meta">
