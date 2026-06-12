@@ -6,6 +6,7 @@
 //   chat              { messages, context }            -> { reply }
 //   tag_summary       { tagName, chunks }              -> { reply }
 //   char_summary      { name, aliases, chunks }        -> { reply }
+//   char_arc          { name, aliases, chunks }         -> { arc: [{ stage, summary }] }
 //   loc_summary       { name, aliases, chunks }        -> { reply }
 //   detect_characters { chunks, existing }             -> { characters: [{ name, aliases }] }
 //   detect_locations  { chunks, existing }             -> { locations: [{ name, aliases }] }
@@ -41,6 +42,7 @@ Deno.serve(async (req) => {
     if (task === "chat") return await doChat(apiKey, body);
     if (task === "tag_summary") return await doTagSummary(apiKey, body);
     if (task === "char_summary") return await doCharSummary(apiKey, body);
+    if (task === "char_arc") return await doCharArc(apiKey, body);
     if (task === "loc_summary") return await doLocSummary(apiKey, body);
     if (task === "detect_characters") return await doDetect(apiKey, body);
     if (task === "detect_locations") return await doDetectLocations(apiKey, body);
@@ -91,6 +93,39 @@ async function doCharSummary(apiKey: string, body: { name?: string; aliases?: st
     `\n\nEXCERPTS:\n\n${joinChunks(chunks)}`;
   const reply = await callClaude(apiKey, { system, messages: [{ role: "user", content: user }], max_tokens: 700 });
   return json({ reply });
+}
+
+async function doCharArc(apiKey: string, body: { name?: string; aliases?: string[]; chunks?: Chunk[] }) {
+  const chunks = body.chunks || [];
+  if (!chunks.length) return json({ error: "No reference chunks for this character." }, 400);
+  const aliases = (body.aliases || []).filter(Boolean);
+  const system =
+    "You are a story-bible analyst inside RABBIT HOLE. Given a character and every excerpt that " +
+    "references them — presented in narrative order — trace the character's arc across the story: " +
+    "how they grow, change, are tested, and shift over time. Identify the distinct stages along their " +
+    "arc, in order (use 4-8 stages depending on how much the material supports). For each stage give a " +
+    "short stage label (a turning point, phase, or beat — e.g. 'Reluctant call', 'First betrayal', " +
+    "'Hardened resolve') and a 1-2 sentence summary of where the character is emotionally and how they " +
+    "have changed by that point. Track genuine internal growth, not just plot events. Use only what the " +
+    "excerpts support. Respond with ONLY a JSON object of the form " +
+    `{"arc":[{"stage":"...","summary":"..."}]}. No markdown, no commentary.`;
+  const user =
+    `CHARACTER: ${body.name || "(unnamed)"}` +
+    (aliases.length ? `\nALSO KNOWN AS: ${aliases.join(", ")}` : "") +
+    `\n\nEXCERPTS (in narrative order):\n\n${joinChunks(chunks)}`;
+  const raw = await callClaude(apiKey, { system, messages: [{ role: "user", content: user }], max_tokens: 1400 });
+  const parsed = parseJsonObject(raw);
+  const arc = Array.isArray(parsed?.arc)
+    ? (parsed.arc as unknown[])
+        .filter((s): s is { stage?: unknown; summary?: unknown } => !!s && typeof s === "object")
+        .map((s) => ({
+          stage: typeof s.stage === "string" ? s.stage.trim() : "",
+          summary: typeof s.summary === "string" ? s.summary.trim() : "",
+        }))
+        .filter((s) => s.stage || s.summary)
+        .slice(0, 8)
+    : [];
+  return json({ arc });
 }
 
 async function doLocSummary(apiKey: string, body: { name?: string; aliases?: string[]; chunks?: Chunk[] }) {
@@ -341,7 +376,7 @@ function joinChunks(chunks: Chunk[]): string {
     .join("\n\n");
 }
 
-function parseJsonObject(s: string): { characters?: unknown[]; locations?: unknown[]; ideas?: unknown[]; assign?: unknown[]; suggest?: unknown[]; chunks?: unknown[]; strengths?: unknown[]; suggestions?: unknown[] } | null {
+function parseJsonObject(s: string): { characters?: unknown[]; locations?: unknown[]; ideas?: unknown[]; assign?: unknown[]; suggest?: unknown[]; chunks?: unknown[]; strengths?: unknown[]; suggestions?: unknown[]; arc?: unknown[] } | null {
   try {
     const start = s.indexOf("{");
     const end = s.lastIndexOf("}");
