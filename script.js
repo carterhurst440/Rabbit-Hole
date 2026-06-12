@@ -213,7 +213,7 @@ function route() {
   });
   closeDrawer();
   updateArchiveToggles();
-  if (r === 'home') renderHome();
+  if (r === 'home') { renderHome(); playHomeReveal(); }
   if (r === 'sections') renderSections();
   if (r === 'timelines') renderTimelines();
   if (r === 'characters') renderCharacters();
@@ -3590,6 +3590,16 @@ function renderHeatmap() {
 }
 
 /* ---- HOME: project cards ---- */
+// Replay the staggered "style into place" reveal of the home blocks. Restarting
+// the CSS animation needs the class removed, a forced reflow, then re-added.
+function playHomeReveal() {
+  const v = document.getElementById('view-home');
+  if (!v) return;
+  v.classList.remove('home-animate');
+  void v.offsetWidth;
+  v.classList.add('home-animate');
+}
+
 function renderHome() {
   renderStreakBar();
   renderHeatmap();

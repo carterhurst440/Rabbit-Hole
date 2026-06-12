@@ -14,6 +14,7 @@
   --muted-2: #45433a;
   --danger: #c0563f;
   --font: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  --header-h: 52px;
 }
 
 * { box-sizing: border-box; }
@@ -33,10 +34,10 @@ button, input, textarea, select { font-family: inherit; }
 
 /* ---------- HEADER ---------- */
 .app-header {
-  position: sticky; top: 0; z-index: 30;
-  height: 44px;
+  position: sticky; top: 0; z-index: 60;
+  height: var(--header-h);
   display: flex; align-items: center; gap: 14px;
-  padding: 0 16px;
+  padding: 0 18px;
   background: var(--bg);
   border-bottom: 1px solid var(--line);
 }
@@ -45,7 +46,13 @@ button, input, textarea, select { font-family: inherit; }
   font-size: 20px; cursor: pointer; line-height: 1; padding: 4px;
 }
 .drawer-toggle:hover { color: var(--accent); }
-.brand { font-weight: 800; letter-spacing: 0.18em; color: var(--accent); }
+.brand { display: inline-flex; align-items: center; gap: 9px; flex: none; }
+.brand-logo { flex: none; display: block; }
+.brand-logo ellipse, .brand-logo path {
+  fill: none; stroke: var(--text-bright); stroke-width: 1.9;
+  stroke-linecap: round; stroke-linejoin: round;
+}
+.brand-word { font-weight: 800; letter-spacing: 0.18em; color: var(--accent); font-size: 15px; white-space: nowrap; }
 .header-spacer { flex: 1; }
 .header-add-hop { margin-right: 14px; }
 .header-meta { color: var(--muted); font-size: 11px; letter-spacing: 0.1em; }
@@ -83,7 +90,7 @@ button, input, textarea, select { font-family: inherit; }
 /* ---------- SIDE NAV (narrow icon rail, persistent on desktop) ---------- */
 :root { --rail-w: 76px; }
 .drawer {
-  position: fixed; top: 0; left: 0; bottom: 0; z-index: 50;
+  position: fixed; top: var(--header-h); left: 0; bottom: 0; z-index: 50;
   width: var(--rail-w);
   background: var(--panel);
   border-right: 1px solid var(--line);
@@ -92,8 +99,7 @@ button, input, textarea, select { font-family: inherit; }
   overflow-y: auto;
 }
 .drawer.open { transform: translateX(0); }
-/* persistent rail pushes header + content to the right */
-.app-header { margin-left: var(--rail-w); }
+/* header spans full width; only the content is pushed past the rail */
 .drawer-toggle { display: none; }
 .nav-icon {
   border: none; background: none; cursor: pointer; font-family: inherit;
@@ -122,6 +128,26 @@ button, input, textarea, select { font-family: inherit; }
   font-family: inherit; font-size: 12px; letter-spacing: 0.06em; max-width: 220px;
 }
 .header-project select:focus { outline: none; border-color: var(--accent-mid); }
+
+/* ---------- HOME: "style into place" reveal ---------- */
+@keyframes home-rise {
+  from { opacity: 0; clip-path: inset(0 100% 0 0); transform: translateY(6px); }
+  to   { opacity: 1; clip-path: inset(0 0 0 0);   transform: translateY(0); }
+}
+#view-home.home-animate > * {
+  opacity: 0; clip-path: inset(0 100% 0 0);
+  animation: home-rise 0.52s cubic-bezier(0.3, 0.7, 0.3, 1) forwards;
+}
+#view-home.home-animate > *:nth-child(1) { animation-delay: 0.04s; }
+#view-home.home-animate > *:nth-child(2) { animation-delay: 0.13s; }
+#view-home.home-animate > *:nth-child(3) { animation-delay: 0.22s; }
+#view-home.home-animate > *:nth-child(4) { animation-delay: 0.31s; }
+#view-home.home-animate > *:nth-child(5) { animation-delay: 0.40s; }
+@media (prefers-reduced-motion: reduce) {
+  #view-home.home-animate > * {
+    animation: none; opacity: 1; clip-path: none; transform: none;
+  }
+}
 
 /* ---------- HOME: writing streak ---------- */
 .streak-bar {
