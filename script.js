@@ -4545,10 +4545,134 @@ async function bootApp() {
     await applyPendingUsername();
     await loadFluffle();
     await initProjects();
+    maybeShowWelcome();
   } catch (e) {
     console.error('boot failed', e);
     document.getElementById('headerMeta').textContent = 'load error';
   }
+}
+
+// First-run welcome: shown once per account (profiles.welcomed). Waits for the
+// sign-in whoosh to hand off so it lands on the app, then flips the flag.
+async function maybeShowWelcome() {
+  if (!currentUser || !currentProfile || currentProfile.welcomed) return;
+  await new Promise(resolve => {
+    if (authScreen.hidden) return resolve();
+    let waited = 0;
+    const t = setInterval(() => {
+      waited += 120;
+      if (authScreen.hidden || waited >= 4000) { clearInterval(t); resolve(); }
+    }, 120);
+  });
+  currentProfile.welcomed = true;
+  showWelcomeModal();
+  sb.from('profiles').update({ welcomed: true }).eq('id', currentUser.id)
+    .then(({ error }) => { if (error) console.warn('welcome flag update failed', error); });
+}
+
+// Minimal line-art icons (stroke = currentColor) for the welcome modal.
+const WEL_SVG = {
+  open: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">',
+  hop: '<rect x="3" y="4.5" width="18" height="15" rx="2"/><line x1="12" y1="9" x2="12" y2="15"/><line x1="9" y1="12" x2="15" y2="12"/>',
+  ai: '<path d="M12 3l1.7 5.3L19 10l-5.3 1.7L12 17l-1.7-5.3L5 10l5.3-1.7L12 3Z"/><path d="M19 15l.7 2 .7-2 2-.7-2-.7-.7-2-.7 2-2 .7 2 .7Z"/>',
+  chars: '<circle cx="12" cy="8" r="3.2"/><path d="M5.5 20c0-3.4 3-6 6.5-6s6.5 2.6 6.5 6"/>',
+  rel: '<circle cx="6" cy="7" r="2.3"/><circle cx="18" cy="7" r="2.3"/><circle cx="12" cy="18" r="2.3"/><line x1="8" y1="7.6" x2="11" y2="16"/><line x1="16" y1="7.6" x2="13" y2="16"/>',
+  idea: '<path d="M9.5 18.5h5"/><path d="M10.5 21h3"/><path d="M12 3a6 6 0 0 0-3.4 10.9c.6.4 1 1.1 1.1 1.9h4.6c.1-.8.5-1.5 1.1-1.9A6 6 0 0 0 12 3Z"/>',
+  analyze: '<path d="M4 5v14h16"/><path d="M7.5 14.5l3-3.5 3 2.5 4-5.5"/>',
+  search: '<circle cx="11" cy="11" r="6"/><line x1="20" y1="20" x2="15.6" y2="15.6"/>',
+  comm: '<circle cx="9" cy="8.5" r="3"/><path d="M3.5 19c0-3 2.5-5 5.5-5s5.5 2 5.5 5"/><path d="M16 6.4a3 3 0 0 1 0 5.2"/><path d="M20.5 19c0-2.3-1.5-4-3.7-4.6"/>',
+};
+const welIcon = name => WEL_SVG.open + WEL_SVG[name] + '</svg>';
+
+function showWelcomeModal() {
+  const overlay = document.createElement('div');
+  overlay.className = 'ui-modal-overlay welcome-overlay';
+  const hole = `
+    <svg class="wel-hole" viewBox="0 0 124 78" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+      <ellipse cx="62" cy="58" rx="46" ry="15" stroke-width="1.5"/>
+      <ellipse cx="62" cy="58" rx="31" ry="10" stroke-width="1.3" opacity="0.55"/>
+      <ellipse cx="62" cy="58" rx="16" ry="5.5" stroke-width="1.1" opacity="0.3"/>
+      <path d="M16 50 C 28 6, 80 4, 96 38" stroke-width="1.3" stroke-dasharray="3 5" opacity="0.5"/>
+      <g transform="translate(92 30)" stroke-width="1.5">
+        <ellipse cx="0" cy="7" rx="6.2" ry="7.2"/>
+        <circle cx="0" cy="-2" r="3.4"/>
+        <path d="M-2 -4.5 C -4 -14, -1.2 -16, 0 -5.5"/>
+        <path d="M2 -4.5 C 4 -13.5, 6 -15.5, 1.6 -5.5"/>
+      </g>
+    </svg>`;
+  overlay.innerHTML = `
+    <div class="welcome-modal">
+      <button class="ui-modal-x" data-act="close" title="Close">✕</button>
+      <div class="wel-hero">
+        ${hole}
+        <div class="wel-hero-text">
+          <div class="wel-h1">You&rsquo;ve fallen down the Rabbit Hole</div>
+          <div class="wel-h2">Our goal is simply to keep you <b>HOPPING</b></div>
+          <div class="wel-h3">Welcome to your <b>WARREN</b></div>
+        </div>
+      </div>
+      <div class="wel-scroll">
+        <section class="wel-feat wel-primary">
+          <div class="wel-feat-head">${welIcon('hop')}<span>ADD HOPS</span><em>start here</em></div>
+          <div class="wel-feat-row">
+            <div class="wel-wire wel-wire-hop">
+              <div class="ww-card">
+                <div class="ww-line ww-title"></div>
+                <div class="ww-line"></div>
+                <div class="ww-line short"></div>
+              </div>
+              <div class="ww-add">+ ADD HOP</div>
+            </div>
+            <p>Hops are your approachable content chunks. Add a hop for anything, in any project &mdash; the goal is to get you writing, no matter how big or small. Every bit counts. <b>So start hopping.</b></p>
+          </div>
+        </section>
+
+        <section class="wel-feat">
+          <div class="wel-feat-head">${welIcon('ai')}<span>AI TOOLS</span></div>
+          <p>Once you&rsquo;ve added content, let AI help you:</p>
+          <ul class="wel-ai-grid">
+            <li>${welIcon('chars')}<span>Detect characters &amp; key locations</span></li>
+            <li>${welIcon('rel')}<span>Map relationships</span></li>
+            <li>${welIcon('idea')}<span>Generate new ideas</span></li>
+            <li>${welIcon('analyze')}<span>Analyze your writing</span></li>
+            <li>${welIcon('search')}<span>Search across everything</span></li>
+          </ul>
+          <p class="wel-soft">We&rsquo;ll do everything we can to make it easy to keep hopping.</p>
+        </section>
+
+        <section class="wel-feat">
+          <div class="wel-feat-head">${welIcon('comm')}<span>COMMUNITY</span></div>
+          <div class="wel-feat-row">
+            <div class="wel-wire wel-wire-comm">
+              <div class="ww-post">
+                <div class="ww-post-head"><span class="ww-at">@hopper</span><span class="ww-star">&#9733;</span></div>
+                <div class="ww-line"></div>
+                <div class="ww-line short"></div>
+              </div>
+              <div class="ww-post ghost">
+                <div class="ww-post-head"><span class="ww-at">@warren</span></div>
+                <div class="ww-line short"></div>
+              </div>
+            </div>
+            <p>Post to the community to connect with other <b>HOPPERS</b> and add them to your <b>FLUFFLE</b> &mdash; build strength through collaboration.</p>
+          </div>
+        </section>
+      </div>
+      <div class="wel-actions">
+        <button class="ui-modal-btn solid" data-act="close">START HOPPING &rarr;</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const close = () => {
+    overlay.classList.remove('show');
+    document.removeEventListener('keydown', onKey);
+    setTimeout(() => overlay.remove(), 220);
+  };
+  const onKey = e => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKey);
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  overlay.querySelectorAll('[data-act="close"]').forEach(b => b.addEventListener('click', close));
+  requestAnimationFrame(() => overlay.classList.add('show'));
 }
 
 // Backstop for the handle_new_user trigger: guarantee a profile row exists for
