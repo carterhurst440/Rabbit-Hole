@@ -242,6 +242,8 @@ function renderSettings() {
     cur.textContent = handle || 'not set';
     cur.classList.toggle('unset', !handle);
   }
+  const adminSection = document.getElementById('adminSection');
+  if (adminSection) adminSection.hidden = !isAdmin();
 }
 
 // Reveal the username editor (called only after the user confirms the warning).
@@ -4371,6 +4373,8 @@ const USERNAME_RE = /^[a-zA-Z0-9_]{3,24}$/;
 let authMode = 'signin';
 let currentUser = null;
 let currentProfile = null;
+const ADMIN_EMAIL = 'carterwarrenhurst@gmail.com';
+function isAdmin() { return !!currentUser && (currentUser.email || '').toLowerCase() === ADMIN_EMAIL; }
 let booted = false;
 let authWhooshPending = false;       // a dive is in flight → showApp must leave the card up
 let authBusy = false;
@@ -5768,6 +5772,7 @@ document.getElementById('editUsernameBtn').addEventListener('click', async () =>
   if (ok) openUsernameEditor();
 });
 document.getElementById('manageFluffleBtn').addEventListener('click', manageFluffleModal);
+document.getElementById('replayWelcomeBtn')?.addEventListener('click', () => { closeAccount(); showWelcomeModal(); });
 document.getElementById('usernameInput').addEventListener('keydown', e => {
   if (e.key === 'Enter') { e.preventDefault(); saveUsername(); }
   else if (e.key === 'Escape') { e.preventDefault(); closeUsernameEditor(); }
@@ -5857,6 +5862,7 @@ aiToggle.addEventListener('click', toggleAI);
 const profileBtn = document.getElementById('profileBtn');
 const accountMenu = document.getElementById('accountMenu');
 function openAccount() {
+  closeUsernameEditor();
   accountMenu.hidden = false;
   profileBtn.classList.add('active');
   profileBtn.setAttribute('aria-expanded', 'true');
