@@ -2421,10 +2421,15 @@ function showAddTagPicker(sr) {
       </div>
       <input class="hl-pop-search" type="text" placeholder="Filter ${K.noun}s…" />
       <div class="hl-pop-list"></div>`;
-    pop.querySelectorAll('.hl-pop-toggle button').forEach(b => b.addEventListener('click', () => {
-      addTagKind = b.dataset.k === 'location' ? ENTITY_KINDS.location : ENTITY_KINDS.character;
-      draw();
-    }));
+    pop.querySelectorAll('.hl-pop-toggle button').forEach(b => {
+      // Keep the editor focused/selected so switching kind doesn't trigger the
+      // blur-close (draw() rebuilds these buttons, dropping activeElement).
+      b.addEventListener('mousedown', e => e.preventDefault());
+      b.addEventListener('click', () => {
+        addTagKind = b.dataset.k === 'location' ? ENTITY_KINDS.location : ENTITY_KINDS.character;
+        draw();
+      });
+    });
     const search = pop.querySelector('.hl-pop-search');
     const list = pop.querySelector('.hl-pop-list');
     const fill = () => {
