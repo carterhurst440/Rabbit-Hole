@@ -2718,30 +2718,262 @@ function renderRelationships(c) {
   </div>`;
 }
 
-// AI relationship analysis — sends every hop referencing this character plus the
-// roster of all other tracked characters, and maps which ones they are tied to.
-async function generateCharRelationships(K, c, btn) {
+// Core relationship analysis — sends every hop referencing this character plus
+// the roster of all other tracked characters, stores the result on c. Returns
+// the relationships array. No UI; shared by the per-character button and the
+// project-wide relationship tree.
+async function analyzeOneRelationship(K, c) {
   const refs = refsFor(K, c).slice().sort((a, b) => (a.narrativeOrder ?? 0) - (b.narrativeOrder ?? 0));
-  if (!refs.length) { alertModal('No chunks reference this character yet.', { title: 'RELATIONSHIPS' }); return; }
   const others = db[K.coll].filter(x => x.id !== c.id);
-  if (!others.length) { alertModal('Add more characters first — there is no one to relate this character to.', { title: 'RELATIONSHIPS' }); return; }
+  if (!refs.length || !others.length) return [];
+  const { relationships } = await aiInvoke({
+    task: 'char_relationships',
+    name: c.name,
+    aliases: c.aliases || [],
+    others: others.map(x => ({ name: x.name, aliases: x.aliases || [] })),
+    chunks: refs.map(r => ({ title: r.title, body: r.body, section: chapterTitle(r.chapterId) }))
+  });
+  c.relationships = Array.isArray(relationships) ? relationships : [];
+  save();
+  return c.relationships;
+}
+
+async function generateCharRelationships(K, c, btn) {
+  if (!refsFor(K, c).length) { alertModal('No chunks reference this character yet.', { title: 'RELATIONSHIPS' }); return; }
+  if (!db[K.coll].some(x => x.id !== c.id)) { alertModal('Add more characters first — there is no one to relate this character to.', { title: 'RELATIONSHIPS' }); return; }
   const original = btn ? btn.innerHTML : '';
   if (btn) { btn.disabled = true; btn.innerHTML = AI_STAR + ' ANALYZING…'; }
   try {
-    const { relationships } = await aiInvoke({
-      task: 'char_relationships',
-      name: c.name,
-      aliases: c.aliases || [],
-      others: others.map(x => ({ name: x.name, aliases: x.aliases || [] })),
-      chunks: refs.map(r => ({ title: r.title, body: r.body, section: chapterTitle(r.chapterId) }))
-    });
-    c.relationships = Array.isArray(relationships) ? relationships : [];
-    save(); renderEntityPane(K);
+    await analyzeOneRelationship(K, c);
+    renderEntityPane(K);
     if (!c.relationships.length) alertModal('No relationships found among the other tracked characters.', { title: 'RELATIONSHIPS' });
   } catch (err) {
     if (btn) { btn.disabled = false; btn.innerHTML = original; }
     alertModal('Could not analyze relationships.\n\n' + (err.message || ''), { title: 'RELATIONSHIPS' });
   }
+}
+
+/* =====================================================================
+   RELATIONSHIP TREE — a project-wide web of how the cast is tied together
+   ===================================================================== */
+// Fold every character's stored relationships into an undirected graph. A pair
+// is one edge no matter which direction the analysis named it; the edge carries
+// the union of cited references and summaries. Node weight = total cited
+// interactions touching that character, which drives node size.
+function buildRelationshipGraph() {
+  const chars = db.characters || [];
+  const byName = new Map();
+  chars.forEach(c => {
+    const add = n => { const k = (n || '').trim().toLowerCase(); if (k && !byName.has(k)) byName.set(k, c); };
+    add(c.name); (c.aliases || []).forEach(add);
+  });
+  const edgeMap = new Map();
+  chars.forEach(c => {
+    (c.relationships || []).forEach(rel => {
+      const other = byName.get((rel.character || '').trim().toLowerCase());
+      if (!other || other.id === c.id) return;
+      const ids = [c.id, other.id].sort();
+      const key = ids.join('|');
+      let e = edgeMap.get(key);
+      if (!e) { e = { ids, refs: [], summaries: [] }; edgeMap.set(key, e); }
+      const refs = Array.isArray(rel.refs) ? rel.refs.filter(x => x && (x.hop || x.section || x.note)) : [];
+      refs.forEach(x => e.refs.push({ hop: x.hop, section: x.section, note: x.note }));
+      if (rel.summary) e.summaries.push(rel.summary);
+    });
+  });
+  const edges = [...edgeMap.values()];
+  const weight = new Map();
+  edges.forEach(e => {
+    const w = e.refs.length || 1;
+    e.ids.forEach(id => weight.set(id, (weight.get(id) || 0) + w));
+  });
+  const nodeIds = new Set();
+  edges.forEach(e => e.ids.forEach(id => nodeIds.add(id)));
+  const nodes = [...nodeIds].map(id => {
+    const c = chars.find(x => x.id === id);
+    return { id, name: c.name, color: c.color || 'var(--accent)', weight: weight.get(id) || 0 };
+  }).sort((a, b) => b.weight - a.weight);
+  return { nodes, edges };
+}
+
+// Even radial layout. Biggest-weight nodes are spread opposite each other (even
+// indices clockwise from top, odd indices filled in after) so hubs do not bunch.
+function layoutGraph(graph) {
+  const W = 1000, H = 700, cx = W / 2, cy = H / 2;
+  const n = graph.nodes.length;
+  const R = Math.min(cx, cy) - 96;
+  const maxW = Math.max(1, ...graph.nodes.map(d => d.weight));
+  graph.nodes.forEach((d, i) => {
+    const ang = (i / Math.max(1, n)) * Math.PI * 2 - Math.PI / 2;
+    d.x = cx + R * Math.cos(ang);
+    d.y = cy + R * Math.sin(ang);
+    d.r = 13 + 33 * Math.sqrt(d.weight / maxW);
+  });
+  if (n === 1) { graph.nodes[0].x = cx; graph.nodes[0].y = cy; }
+  graph.nodeById = {}; graph.nodes.forEach(d => graph.nodeById[d.id] = d);
+  graph.edgeById = {}; graph.edges.forEach(e => graph.edgeById[e.ids.join('|')] = e);
+  return { W, H };
+}
+
+function renderTreeSvg(graph, sel) {
+  const { W, H } = layoutGraph(graph);
+  const selId = sel && sel.type === 'node' ? sel.id : null;
+  const selKey = sel && sel.type === 'edge' ? sel.key : null;
+  const adj = new Set();
+  if (selId) graph.edges.forEach(e => { if (e.ids.includes(selId)) e.ids.forEach(id => adj.add(id)); });
+  const maxRef = Math.max(1, ...graph.edges.map(e => e.refs.length));
+  const edgesSvg = graph.edges.map(e => {
+    const key = e.ids.join('|');
+    const a = graph.nodeById[e.ids[0]], b = graph.nodeById[e.ids[1]];
+    const active = selId ? e.ids.includes(selId) : selKey ? key === selKey : false;
+    const dim = (selId || selKey) && !active;
+    const w = 1 + (e.refs.length / maxRef) * 5;
+    return `<line class="tree-edge${active ? ' is-active' : ''}${dim ? ' is-dim' : ''}" data-edge="${key}" x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}" x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}" stroke-width="${w.toFixed(1)}" />`;
+  }).join('');
+  const nodesSvg = graph.nodes.map(n => {
+    const active = selId ? (n.id === selId || adj.has(n.id)) : selKey ? graph.edgeById[selKey]?.ids.includes(n.id) : false;
+    const dim = (selId || selKey) && !active;
+    const isSel = n.id === selId;
+    return `<g class="tree-node${isSel ? ' is-sel' : ''}${dim ? ' is-dim' : ''}" data-node="${n.id}" transform="translate(${n.x.toFixed(1)},${n.y.toFixed(1)})">
+        <circle class="tree-node-dot" r="${n.r.toFixed(1)}" style="fill:${esc(n.color)}" />
+        <text class="tree-node-label" y="${(n.r + 15).toFixed(1)}">${esc(n.name)}</text>
+      </g>`;
+  }).join('');
+  return `<svg class="tree-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">
+      <g class="tree-edges">${edgesSvg}</g>
+      <g class="tree-nodes">${nodesSvg}</g>
+    </svg>`;
+}
+
+function treeRefList(refs) {
+  if (!refs.length) return '<div class="pr-note" style="opacity:.6">No supporting references cited.</div>';
+  return refs.map(x => `
+      <div class="rel-ref">
+        <div class="pr-where">${x.hop ? `<span class="pr-hop">${esc(x.hop)}</span>` : ''}${x.hop && x.section ? '<span class="pr-dot">·</span>' : ''}${x.section ? `<span class="pr-section">${esc(x.section)}</span>` : ''}</div>
+        ${x.note ? `<div class="pr-note">${esc(x.note)}</div>` : ''}
+      </div>`).join('');
+}
+
+function renderTreeCitations(graph, sel) {
+  if (!graph.nodes.length) return '';
+  const nameOf = id => graph.nodeById[id]?.name || '';
+  if (!sel) {
+    return '<div class="tree-side-empty">Click a character to see who they are tied to. Bigger nodes interact more. Click a strand to read the citations behind that bond.</div>';
+  }
+  if (sel.type === 'node') {
+    const me = graph.nodeById[sel.id];
+    if (!me) return '';
+    const inc = graph.edges.filter(e => e.ids.includes(sel.id)).sort((a, b) => b.refs.length - a.refs.length);
+    return `<div class="tree-cite-head"><span class="tree-cite-dot" style="background:${esc(me.color)}"></span>${esc(me.name)}<span class="rel-count">${inc.length}</span></div>
+      ${inc.length ? inc.map(e => {
+        const other = nameOf(e.ids.find(id => id !== sel.id));
+        return `<details class="rel tree-cite">
+          <summary class="rel-row"><span class="rel-caret">▸</span><span class="rel-name">${esc(other)}</span><span class="rel-count">${e.refs.length}</span></summary>
+          ${e.summaries[0] ? `<div class="rel-summary">${esc(e.summaries[0])}</div>` : ''}
+          <div class="rel-refs">${treeRefList(e.refs)}</div>
+        </details>`;
+      }).join('') : '<div class="tree-side-empty">No connections traced for this character yet.</div>'}`;
+  }
+  const e = graph.edgeById[sel.key];
+  if (!e) return '';
+  return `<div class="tree-cite-head">${esc(nameOf(e.ids[0]))} <span class="tree-cite-amp">&harr;</span> ${esc(nameOf(e.ids[1]))}<span class="rel-count">${e.refs.length}</span></div>
+    <div class="tree-cite-flat">
+      ${e.summaries[0] ? `<div class="rel-summary">${esc(e.summaries[0])}</div>` : ''}
+      <div class="rel-refs">${treeRefList(e.refs)}</div>
+    </div>`;
+}
+
+function openRelationshipTree() {
+  const chars = db.characters || [];
+  if (chars.length < 2) { alertModal('Add at least two characters first, then analyze their relationships.', { title: 'RELATIONSHIP TREE' }); return; }
+  relationshipTreeModal();
+}
+
+function relationshipTreeModal() {
+  const Kc = ENTITY_KINDS.character;
+  const overlay = document.createElement('div');
+  overlay.className = 'tree-overlay';
+  document.body.appendChild(overlay);
+  let sel = null, busy = false;
+
+  const close = () => { document.removeEventListener('keydown', onKey); overlay.remove(); };
+  function onKey(e) { if (e.key === 'Escape' && !busy) { e.preventDefault(); close(); } }
+  document.addEventListener('keydown', onKey);
+  overlay.addEventListener('mousedown', e => { if (e.target === overlay && !busy) close(); });
+
+  async function runAnalyze(all) {
+    if (busy) return;
+    const targets = (db.characters || []).filter(c =>
+      refsFor(Kc, c).length && db.characters.some(x => x.id !== c.id) && (all || !(c.relationships || []).length));
+    if (!targets.length) { paint(); return; }
+    busy = true;
+    const prog = overlay.querySelector('[data-progress]');
+    if (prog) prog.hidden = false;
+    let failed = 0;
+    for (let i = 0; i < targets.length; i++) {
+      const c = targets[i];
+      if (prog) prog.textContent = `${AI_STAR} Analyzing ${c.name}…  (${i + 1}/${targets.length})`;
+      try { await analyzeOneRelationship(Kc, c); } catch (_) { failed++; }
+    }
+    busy = false; sel = null; paint();
+    // Keep the per-character pane in sync if one is open.
+    renderEntityPane(Kc);
+    if (failed) alertModal(`${failed} character(s) could not be analyzed. The rest of the web is up to date.`, { title: 'RELATIONSHIP TREE' });
+  }
+
+  function bind(graph) {
+    overlay.querySelector('[data-act="close"]')?.addEventListener('click', close);
+    overlay.querySelector('[data-act="analyze"]')?.addEventListener('click', () => runAnalyze(false));
+    overlay.querySelector('[data-act="reanalyze"]')?.addEventListener('click', () => runAnalyze(true));
+    overlay.querySelectorAll('[data-node]').forEach(g => g.addEventListener('click', e => {
+      e.stopPropagation();
+      const id = g.dataset.node;
+      sel = (sel && sel.type === 'node' && sel.id === id) ? null : { type: 'node', id };
+      paint();
+    }));
+    overlay.querySelectorAll('[data-edge]').forEach(l => l.addEventListener('click', e => {
+      e.stopPropagation();
+      const key = l.dataset.edge;
+      sel = (sel && sel.type === 'edge' && sel.key === key) ? null : { type: 'edge', key };
+      paint();
+    }));
+    overlay.querySelector('.tree-svg')?.addEventListener('click', () => { if (sel) { sel = null; paint(); } });
+  }
+
+  function paint() {
+    const graph = buildRelationshipGraph();
+    layoutGraph(graph); // populate nodeById/edgeById so the citations panel is order-independent
+    const chars = db.characters || [];
+    const analyzable = chars.filter(c => refsFor(Kc, c).length && chars.some(x => x.id !== c.id));
+    const analyzed = analyzable.filter(c => (c.relationships || []).length);
+    const missing = analyzable.filter(c => !(c.relationships || []).length);
+    const actionBtn = missing.length
+      ? `<button class="add-btn" data-act="analyze">${AI_STAR} ANALYZE ${missing.length} MISSING</button>`
+      : `<button class="add-btn" data-act="reanalyze">${AI_STAR} RE-ANALYZE ALL</button>`;
+    overlay.innerHTML = `
+      <div class="tree-modal" role="dialog" aria-modal="true">
+        <div class="tree-head">
+          <div class="tree-title">RELATIONSHIP TREE</div>
+          <div class="tree-head-meta">${analyzed.length}/${analyzable.length || chars.length} analyzed${graph.edges.length ? ` · ${graph.edges.length} bond${graph.edges.length === 1 ? '' : 's'}` : ''}</div>
+          <div class="tree-head-actions">
+            ${actionBtn}
+            <button class="icon-btn" data-act="close" title="Close">✕</button>
+          </div>
+        </div>
+        <div class="tree-body">
+          <div class="tree-graph-wrap">
+            ${graph.nodes.length
+              ? renderTreeSvg(graph, sel)
+              : `<div class="tree-empty">No relationships mapped yet.<br/>Run <b>ANALYZE</b> to trace how the cast connects.</div>`}
+          </div>
+          <aside class="tree-side">${renderTreeCitations(graph, sel)}</aside>
+        </div>
+        <div class="tree-progress" data-progress hidden></div>
+      </div>`;
+    bind(graph);
+  }
+
+  paint();
 }
 
 // Rename an entity and propagate the change into prose, with a confirmation that
@@ -2782,6 +3014,7 @@ function wireEntityRail(K) {
 }
 wireEntityRail(ENTITY_KINDS.character);
 wireEntityRail(ENTITY_KINDS.location);
+document.getElementById('relTreeBtn')?.addEventListener('click', openRelationshipTree);
 
 // Scan chunk text, ask the model for named entities of this kind, then let the
 // author pick which new ones to add via a review modal.
