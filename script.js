@@ -2773,6 +2773,7 @@ function renderEntityPane(K) {
         ${(c.relationships || []).length ? '<button class="add-btn" data-f="clearrel">CLEAR</button>' : ''}
       </div>
     </div>` : ''}
+    ${entitySearchBlockHTML(K.noun + ':' + c.id, K.noun)}
     <div class="char-block">
       <h3>REFERENCES (${refs.length})</h3>
       <div style="color:var(--muted);font-size:11px;margin-bottom:8px">Expand a reference, then click a highlighted mention to dismiss it (click again to restore).</div>
@@ -2868,6 +2869,7 @@ function renderEntityPane(K) {
       c.notes = c.notes.filter(n => n.id !== nid); save(); renderEntityPane(K);
     });
   });
+  wireEntitySearch(pane, K.noun + ':' + c.id, refs);
 }
 
 // Merge `secondary` into `primary`: primary keeps `primaryName`, every other name
@@ -3236,6 +3238,133 @@ async function runSearch(query) {
   renderSearch();
 }
 
+// --- Scoped AI search: same model task as global SEARCH, but the hop set is
+// limited to one entity's references (character / location / tag). State lives
+// in a single module object keyed by entity so results survive pane re-renders.
+let entitySearch = { key: '', query: '', running: false, canceled: false, scanned: 0, total: 0, results: [], done: false, error: '' };
+
+function entitySearchProgressHTML() {
+  const s = entitySearch;
+  if (!s.running && !s.done) return '';
+  const pct = s.total ? Math.round((s.scanned / s.total) * 100) : 0;
+  const n = s.results.length;
+  return `
+    <div class="sp-row">
+      <span class="sp-label">${s.running ? AI_STAR + ' SCANNING HOPS' : (s.canceled ? 'SCAN STOPPED' : 'SCAN COMPLETE')}</span>
+      <span class="sp-count">${s.scanned} / ${s.total} hops · ${n} match${n === 1 ? '' : 'es'}</span>
+      ${s.running ? '<button class="add-btn es-stop">STOP</button>' : ''}
+    </div>
+    <div class="sp-bar"><div class="sp-fill" style="width:${pct}%"></div></div>`;
+}
+
+function entitySearchResultsHTML() {
+  const s = entitySearch;
+  if (s.error) return `<div class="pane-empty">${esc(s.error)}</div>`;
+  if (!s.query) return '';
+  const r = s.results;
+  if (!r.length) {
+    return s.running ? '<div class="search-hint">Reading references…</div>'
+      : `<div class="pane-empty">No references matched <b>${esc(s.query)}</b>.</div>`;
+  }
+  return `<div class="sr-count">${r.length} result${r.length === 1 ? '' : 's'} for <b>${esc(s.query)}</b></div>` +
+    r.map(res => `
+      <div class="search-result" data-es-open="${res.id}" style="border-left:3px solid ${chapterColor(res.chapterId)}">
+        <div class="sr-head">
+          <span class="sr-title">${esc(res.title || 'Untitled')}</span>
+          <span class="sr-score">${res.score}</span>
+        </div>
+        <div class="sr-where">${esc(chapterTitle(res.chapterId))}</div>
+        ${res.reason ? `<div class="sr-reason">${esc(res.reason)}</div>` : ''}
+        ${res.quote ? `<div class="sr-quote">&ldquo;${esc(res.quote)}&rdquo;</div>` : ''}
+      </div>`).join('');
+}
+
+// The search bar + progress + results, ready to drop into an entity pane. `noun`
+// only flavors the placeholder copy.
+function entitySearchBlockHTML(key, noun) {
+  const mine = entitySearch.key === key;
+  return `
+    <div class="char-block es-block" data-es="${key}">
+      <h3>SEARCH <span style="color:var(--muted);font-weight:400">(AI — reads only this ${esc(noun)}'s references)</span></h3>
+      <div class="es-bar">
+        <input class="chunk-title-input es-input" placeholder="Ask about this ${esc(noun)}…" value="${mine ? esc(entitySearch.query) : ''}" />
+        <button class="add-btn es-run">${AI_STAR} SEARCH</button>
+      </div>
+      <div class="es-progress">${mine ? entitySearchProgressHTML() : ''}</div>
+      <div class="es-results">${mine ? entitySearchResultsHTML() : ''}</div>
+    </div>`;
+}
+
+// Repaint just the progress + results sub-containers (keeps the input focused
+// and avoids a heavy full-pane re-render on every batch).
+function paintEntitySearch(key) {
+  const block = document.querySelector(`.es-block[data-es="${key}"]`);
+  if (!block) return;
+  const mine = entitySearch.key === key;
+  block.querySelector('.es-progress').innerHTML = mine ? entitySearchProgressHTML() : '';
+  block.querySelector('.es-results').innerHTML = mine ? entitySearchResultsHTML() : '';
+  block.querySelector('.es-stop')?.addEventListener('click', () => { entitySearch.canceled = true; });
+  block.querySelectorAll('[data-es-open]').forEach(card =>
+    card.addEventListener('click', () => openChunkModal(card.dataset.esOpen)));
+}
+
+// Wire a freshly rendered search block. `hops` is the entity's reference set,
+// snapshotted at render time.
+function wireEntitySearch(pane, key, hops) {
+  const block = pane.querySelector(`.es-block[data-es="${key}"]`);
+  if (!block) return;
+  const input = block.querySelector('.es-input');
+  const run = () => runScopedSearch(key, input.value, hops);
+  block.querySelector('.es-run').addEventListener('click', run);
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); run(); } });
+  block.querySelector('.es-stop')?.addEventListener('click', () => { entitySearch.canceled = true; });
+  block.querySelectorAll('[data-es-open]').forEach(card =>
+    card.addEventListener('click', () => openChunkModal(card.dataset.esOpen)));
+}
+
+async function runScopedSearch(key, query, hops) {
+  query = (query || '').trim();
+  if (!query || entitySearch.running) return;
+  const usable = (hops || []).filter(c => (c.body || '').trim() || (c.title || '').trim());
+  if (!usable.length) {
+    entitySearch = { key, query, running: false, canceled: false, scanned: 0, total: 0, results: [], done: true, error: 'No references with text to search yet.' };
+    paintEntitySearch(key);
+    return;
+  }
+  entitySearch = { key, query, running: true, canceled: false, scanned: 0, total: usable.length, results: [], done: false, error: '' };
+  paintEntitySearch(key);
+  try {
+    for (let i = 0; i < usable.length; i += SEARCH_BATCH) {
+      if (entitySearch.canceled) break;
+      const batch = usable.slice(i, i + SEARCH_BATCH);
+      try {
+        const res = await aiInvoke({
+          task: 'search_hops',
+          query,
+          hops: batch.map(h => ({ title: h.title, section: chapterTitle(h.chapterId), body: h.body }))
+        });
+        (Array.isArray(res.matches) ? res.matches : []).forEach(m => {
+          const hop = batch[(parseInt(m.index, 10) || 0) - 1];
+          if (!hop) return;
+          entitySearch.results.push({
+            id: hop.id, chapterId: hop.chapterId, title: hop.title,
+            score: Math.max(0, Math.min(100, Math.round(Number(m.score) || 0))),
+            reason: typeof m.reason === 'string' ? m.reason : '',
+            quote: typeof m.quote === 'string' ? m.quote : ''
+          });
+        });
+      } catch (_) { /* skip this batch, keep scanning */ }
+      entitySearch.scanned = Math.min(usable.length, i + SEARCH_BATCH);
+      entitySearch.results.sort((a, b) => b.score - a.score);
+      paintEntitySearch(key);
+    }
+  } catch (err) {
+    entitySearch.error = 'Search failed. ' + (err.message || '');
+  }
+  entitySearch.running = false; entitySearch.done = true;
+  paintEntitySearch(key);
+}
+
 // Rename an entity and propagate the change into prose, with a confirmation that
 // shows how many occurrences will be rewritten. Cancel reverts (no change at all).
 async function renameEntityEverywhere(K, c, oldName, newName) {
@@ -3471,6 +3600,7 @@ function renderLabelPane() {
         <button class="add-btn" id="editTagSummaryBtn">EDIT MANUALLY</button>
       </div>
     </div>
+    ${entitySearchBlockHTML('tag:' + l.id, 'tag')}
     <div class="char-block">
       <h3>CHUNKS (${chunks.length})</h3>
       <div class="char-refs">
@@ -3535,6 +3665,7 @@ function renderLabelPane() {
   });
   pane.querySelectorAll('[data-chunk-edit]').forEach(btn =>
     btn.addEventListener('click', () => openChunkModal(btn.dataset.chunkEdit)));
+  wireEntitySearch(pane, 'tag:' + l.id, chunks);
 }
 
 async function generateTagSummary(l, btn) {
