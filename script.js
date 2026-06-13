@@ -4354,12 +4354,10 @@ async function maybeShowWelcome() {
 const WEL_SVG = {
   open: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">',
   hop: '<rect x="3" y="4.5" width="18" height="15" rx="2"/><line x1="12" y1="9" x2="12" y2="15"/><line x1="9" y1="12" x2="15" y2="12"/>',
-  ai: '<path d="M12 3l1.7 5.3L19 10l-5.3 1.7L12 17l-1.7-5.3L5 10l5.3-1.7L12 3Z"/><path d="M19 15l.7 2 .7-2 2-.7-2-.7-.7-2-.7 2-2 .7 2 .7Z"/>',
-  chars: '<circle cx="12" cy="8" r="3.2"/><path d="M5.5 20c0-3.4 3-6 6.5-6s6.5 2.6 6.5 6"/>',
-  rel: '<circle cx="6" cy="7" r="2.3"/><circle cx="18" cy="7" r="2.3"/><circle cx="12" cy="18" r="2.3"/><line x1="8" y1="7.6" x2="11" y2="16"/><line x1="16" y1="7.6" x2="13" y2="16"/>',
-  idea: '<path d="M9.5 18.5h5"/><path d="M10.5 21h3"/><path d="M12 3a6 6 0 0 0-3.4 10.9c.6.4 1 1.1 1.1 1.9h4.6c.1-.8.5-1.5 1.1-1.9A6 6 0 0 0 12 3Z"/>',
+  detect: '<path d="M4 8V5.5a1.5 1.5 0 0 1 1.5-1.5H8"/><path d="M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8"/><path d="M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16"/><path d="M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16"/><circle cx="12" cy="12" r="2.6"/>',
   analyze: '<path d="M4 5v14h16"/><path d="M7.5 14.5l3-3.5 3 2.5 4-5.5"/>',
-  search: '<circle cx="11" cy="11" r="6"/><line x1="20" y1="20" x2="15.6" y2="15.6"/>',
+  generate: '<path d="M12 3l1.7 5.3L19 10l-5.3 1.7L12 17l-1.7-5.3L5 10l5.3-1.7L12 3Z"/><path d="M18.5 15l.6 1.9 1.9.6-1.9.6-.6 1.9-.6-1.9-1.9-.6 1.9-.6Z"/>',
+  generate: '<path d="M12 3l1.7 5.3L19 10l-5.3 1.7L12 17l-1.7-5.3L5 10l5.3-1.7L12 3Z"/><path d="M18.5 15l.6 1.9 1.9.6-1.9.6-.6 1.9-.6-1.9-1.9-.6 1.9-.6Z"/>',
   comm: '<circle cx="9" cy="8.5" r="3"/><path d="M3.5 19c0-3 2.5-5 5.5-5s5.5 2 5.5 5"/><path d="M16 6.4a3 3 0 0 1 0 5.2"/><path d="M20.5 19c0-2.3-1.5-4-3.7-4.6"/>',
 };
 const welIcon = name => WEL_SVG.open + WEL_SVG[name] + '</svg>';
@@ -4393,7 +4391,7 @@ function showWelcomeModal() {
       </div>
       <div class="wel-scroll">
         <section class="wel-feat wel-primary">
-          <div class="wel-feat-head">${welIcon('hop')}<span>ADD HOPS</span><em>start here</em></div>
+          <div class="wel-feat-head"><span class="wel-step-n">1</span>${welIcon('hop')}<span>START HOPPING</span></div>
           <div class="wel-feat-row">
             <div class="wel-wire wel-wire-hop">
               <div class="ww-card">
@@ -4403,25 +4401,34 @@ function showWelcomeModal() {
               </div>
               <div class="ww-add">+ ADD HOP</div>
             </div>
-            <p>Hops are your approachable content chunks. Add a hop for anything, in any project &mdash; the goal is to get you writing, no matter how big or small. Every bit counts. <b>So start hopping.</b></p>
+            <p>Hops are the most approachable chunks of content. It doesn&rsquo;t have to be a complete section &mdash; just anything you can add. Every bit counts, so <b>start hopping.</b></p>
           </div>
         </section>
 
         <section class="wel-feat">
-          <div class="wel-feat-head">${welIcon('ai')}<span>AI TOOLS</span></div>
-          <p>Once you&rsquo;ve added content, let AI help you:</p>
-          <ul class="wel-ai-grid">
-            <li>${welIcon('chars')}<span>Detect characters &amp; key locations</span></li>
-            <li>${welIcon('rel')}<span>Map relationships</span></li>
-            <li>${welIcon('idea')}<span>Generate new ideas</span></li>
-            <li>${welIcon('analyze')}<span>Analyze your writing</span></li>
-            <li>${welIcon('search')}<span>Search across everything</span></li>
-          </ul>
-          <p class="wel-soft">We&rsquo;ll do everything we can to make it easy to keep hopping.</p>
+          <div class="wel-feat-head"><span class="wel-step-n">2</span><span>PUT YOUR HOPS TO WORK</span></div>
+          <p>Once you have some hops, let AI go further:</p>
+          <div class="wel-cap-grid">
+            <div class="wel-cap">
+              <div class="wel-cap-ic">${welIcon('detect')}</div>
+              <div class="wel-cap-name">DETECT</div>
+              <div class="wel-cap-desc">characters, locations, tags</div>
+            </div>
+            <div class="wel-cap">
+              <div class="wel-cap-ic">${welIcon('analyze')}</div>
+              <div class="wel-cap-name">ANALYZE</div>
+              <div class="wel-cap-desc">feedback, suggestions, character relationships</div>
+            </div>
+            <div class="wel-cap">
+              <div class="wel-cap-ic">${welIcon('generate')}</div>
+              <div class="wel-cap-name">GENERATE</div>
+              <div class="wel-cap-desc">character arcs, summaries, new hops, new ideas</div>
+            </div>
+          </div>
         </section>
 
         <section class="wel-feat">
-          <div class="wel-feat-head">${welIcon('comm')}<span>COMMUNITY</span></div>
+          <div class="wel-feat-head"><span class="wel-step-n">3</span>${welIcon('comm')}<span>JOIN THE COMMUNITY</span></div>
           <div class="wel-feat-row">
             <div class="wel-wire wel-wire-comm">
               <div class="ww-post">

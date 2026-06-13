@@ -1586,7 +1586,7 @@ button.feed-comment-user:hover { text-decoration: underline; }
 .wel-hero {
   display: flex; flex-direction: column; align-items: center; text-align: center;
   gap: 14px; padding: 32px 28px 22px; border-bottom: 1px solid var(--line);
-  background: radial-gradient(125% 95% at 50% 0%, var(--accent-dim), transparent 70%);
+  background: var(--panel-2);
 }
 .wel-hole { width: 130px; height: auto; color: var(--accent); }
 .wel-hero-text { display: flex; flex-direction: column; gap: 7px; }
@@ -1606,9 +1606,10 @@ button.feed-comment-user:hover { text-decoration: underline; }
   color: var(--text-bright); font-weight: 700;
 }
 .wel-feat-head svg { width: 18px; height: 18px; color: var(--accent); flex: none; }
-.wel-feat-head em {
-  font-style: normal; font-size: 8px; letter-spacing: 0.12em; color: var(--accent);
-  border: 1px solid var(--accent-mid); border-radius: 999px; padding: 2px 7px; margin-left: 2px;
+.wel-step-n {
+  flex: none; width: 18px; height: 18px; display: flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: 700; color: var(--accent);
+  border: 1px solid var(--accent-mid); border-radius: 50%;
 }
 .wel-primary {
   border: 1px solid var(--accent-mid); background: var(--accent-dim);
@@ -1644,12 +1645,20 @@ button.feed-comment-user:hover { text-decoration: underline; }
 .ww-at { font-size: 9px; color: var(--accent); letter-spacing: 0.04em; }
 .ww-star { color: var(--accent); font-size: 9px; }
 
-.wel-ai-grid {
-  list-style: none; margin: 2px 0 0; padding: 0;
-  display: grid; grid-template-columns: 1fr 1fr; gap: 9px 14px;
+.wel-cap-grid {
+  margin: 4px 0 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
 }
-.wel-ai-grid li { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--text); }
-.wel-ai-grid svg { width: 15px; height: 15px; color: var(--accent); flex: none; }
+.wel-cap {
+  border: 1px solid var(--line-2); background: var(--panel-2);
+  padding: 14px 12px; display: flex; flex-direction: column; align-items: center;
+  text-align: center; gap: 7px;
+}
+.wel-cap-ic { color: var(--accent); }
+.wel-cap-ic svg { width: 22px; height: 22px; color: var(--accent); }
+.wel-cap-name {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.14em; color: var(--text-bright);
+}
+.wel-cap-desc { font-size: 10.5px; line-height: 1.45; color: var(--muted); }
 
 .wel-actions {
   padding: 16px 28px; border-top: 1px solid var(--line);
@@ -1660,5 +1669,6 @@ button.feed-comment-user:hover { text-decoration: underline; }
 @media (max-width: 560px) {
   .wel-feat-row { flex-direction: column; align-items: stretch; }
   .wel-wire-hop, .wel-wire-comm { width: 100%; }
-  .wel-ai-grid { grid-template-columns: 1fr; }
+  .wel-cap-grid { grid-template-columns: 1fr; }
+  .wel-cap { flex-direction: row; text-align: left; justify-content: flex-start; }
 }
