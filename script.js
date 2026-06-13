@@ -4365,29 +4365,19 @@ const welIcon = name => WEL_SVG.open + WEL_SVG[name] + '</svg>';
 function showWelcomeModal() {
   const overlay = document.createElement('div');
   overlay.className = 'ui-modal-overlay welcome-overlay';
-  const hole = `
-    <svg class="wel-hole" viewBox="0 0 124 78" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
-      <ellipse cx="62" cy="58" rx="46" ry="15" stroke-width="1.5"/>
-      <ellipse cx="62" cy="58" rx="31" ry="10" stroke-width="1.3" opacity="0.55"/>
-      <ellipse cx="62" cy="58" rx="16" ry="5.5" stroke-width="1.1" opacity="0.3"/>
-      <path d="M16 50 C 28 6, 80 4, 96 38" stroke-width="1.3" stroke-dasharray="3 5" opacity="0.5"/>
-      <g transform="translate(92 30)" stroke-width="1.5">
-        <ellipse cx="0" cy="7" rx="6.2" ry="7.2"/>
-        <circle cx="0" cy="-2" r="3.4"/>
-        <path d="M-2 -4.5 C -4 -14, -1.2 -16, 0 -5.5"/>
-        <path d="M2 -4.5 C 4 -13.5, 6 -15.5, 1.6 -5.5"/>
-      </g>
-    </svg>`;
   overlay.innerHTML = `
     <div class="welcome-modal">
       <button class="ui-modal-x" data-act="close" title="Close">✕</button>
       <div class="wel-hero">
-        ${hole}
-        <div class="wel-hero-text">
-          <div class="wel-h1">You&rsquo;ve fallen down the Rabbit Hole</div>
-          <div class="wel-h2">Our goal is simply to keep you <b>HOPPING</b></div>
-          <div class="wel-h3">Welcome to your <b>WARREN</b></div>
+        <div class="brand wel-brand">
+          <svg class="brand-logo" width="36" height="32" viewBox="0 0 30 27" aria-label="Rabbit Hole">
+            <ellipse cx="15" cy="21" rx="13" ry="3.6"/>
+            <path class="brand-ear brand-earB" d="M11,20 C8.5,12 9.5,3 13.5,2 C16.5,3.6 15,13 14.5,20"/>
+            <path class="brand-ear brand-earF" d="M16,20 C16.5,11.5 20,3.5 24,4.5 C26,8 20.5,16 18.5,20"/>
+          </svg>
+          <span class="brand-word">RABBIT HOLE</span>
         </div>
+        <div class="wel-h1">Congratulations &mdash; you&rsquo;ve fallen down the rabbit hole!</div>
       </div>
       <div class="wel-scroll">
         <section class="wel-feat wel-primary">
