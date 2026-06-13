@@ -161,6 +161,10 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/></svg>
       <span>HOME</span>
     </a>
+    <a href="#search" class="nav-icon" data-route="search" title="Search">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+      <span>SEARCH</span>
+    </a>
     <a href="#sections" class="nav-icon" data-route="sections" title="Sections">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
       <span>SECTIONS</span>
@@ -213,6 +217,20 @@
         </div>
         <div class="suggest-grid" id="suggestGrid"></div>
       </div>
+    </section>
+
+    <!-- ============ SEARCH ============ -->
+    <section class="view" id="view-search" hidden>
+      <div class="view-head">
+        <h1>SEARCH</h1>
+        <p class="sub">Ask a question or describe what you are looking for. AI reads every hop in full — not summaries — to find it.</p>
+      </div>
+      <div class="search-bar">
+        <input type="text" id="searchInput" class="search-input" placeholder="e.g. where does the locket first appear? — or — scenes about quiet betrayal" />
+        <button class="add-btn search-run" id="searchRunBtn"><span class="ai-star">✦</span> SEARCH</button>
+      </div>
+      <div id="searchProgress" class="search-progress" hidden></div>
+      <div id="searchResults" class="search-results"></div>
     </section>
 
     <!-- ============ SECTIONS ============ -->

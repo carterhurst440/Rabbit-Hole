@@ -19,6 +19,8 @@
 //                                                      -> { chunks: [{ title, chapter, description }] }
 //   analyze_chunk     { chunk, context, type, genre, characters, locations }
 //                                                      -> { strengths: [string], suggestions: [string] }
+//   search_hops       { query, hops:[{title,section,body}] }
+//                                                      -> { matches: [{ index, score, reason, quote }] }
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
 const CORS = {
@@ -56,6 +58,7 @@ Deno.serve(async (req) => {
     if (task === "generate_body") return await doGenerateBody(apiKey, body);
     if (task === "suggest_chunks") return await doSuggestChunks(apiKey, body);
     if (task === "analyze_chunk") return await doAnalyzeChunk(apiKey, body);
+    if (task === "search_hops") return await doSearchHops(apiKey, body);
     return json({ error: `Unknown task: ${task}` }, 400);
   } catch (e) {
     console.error("ai-chat error:", (e as Error)?.message || e);
@@ -538,6 +541,49 @@ async function doAnalyzeChunk(
   return json({ strengths: clean(parsed?.strengths).slice(0, 3), suggestions: clean(parsed?.suggestions).slice(0, 4) });
 }
 
+async function doSearchHops(
+  apiKey: string,
+  body: { query?: string; hops?: { title?: string; section?: string; body?: string }[] },
+) {
+  const query = (body.query || "").trim();
+  if (!query) return json({ error: "No search query." }, 400);
+  const hops = (body.hops || []).filter((h) => h && (h.body || h.title));
+  if (!hops.length) return json({ matches: [] });
+  const hopsBlock = hops
+    .map((h, i) =>
+      `### HOP ${i + 1}${h.section ? ` — SECTION: ${h.section}` : ""}\n` +
+      `TITLE: ${h.title || "Untitled"}\n` +
+      `${(h.body || "").replace(/\s+/g, " ").trim() || "(empty)"}`)
+    .join("\n\n");
+  const system =
+    "You are a precise search engine inside RABBIT HOLE, a book workbench. The author gives you a " +
+    "QUERY (a question or a description of what they are trying to find) and a numbered batch of HOPS " +
+    "(manuscript excerpts). Read each hop in full and decide whether it is genuinely relevant to the " +
+    "query — it answers the question, contains the thing described, or is clearly about it. Judge on " +
+    "meaning and story content, not mere keyword overlap. Return ONLY the hops that are actually " +
+    "relevant. For each relevant hop give: `index` (its number from the list), `score` (0-100 " +
+    "relevance, higher = stronger match), `reason` (one sentence, <=20 words, on why it matches), and " +
+    "`quote` (the single most relevant phrase copied verbatim from that hop, <=25 words). Omit hops " +
+    "that are not relevant; if none match, return an empty list. Respond with ONLY a JSON object of the " +
+    `form {"matches":[{"index":1,"score":87,"reason":"...","quote":"..."}]}. No markdown, no commentary.`;
+  const user = `QUERY: ${query}\n\nHOPS:\n\n${hopsBlock}`;
+  const raw = await callClaude(apiKey, { system, messages: [{ role: "user", content: user }], max_tokens: 1200 });
+  const parsed = parseJsonObject(raw);
+  const matches = Array.isArray(parsed?.matches)
+    ? (parsed.matches as unknown[])
+        .filter((m): m is { index?: unknown; score?: unknown; reason?: unknown; quote?: unknown } => !!m && typeof m === "object")
+        .map((m) => ({
+          index: typeof m.index === "number" ? m.index : parseInt(String(m.index), 10) || 0,
+          score: typeof m.score === "number" ? Math.max(0, Math.min(100, Math.round(m.score))) : 0,
+          reason: typeof m.reason === "string" ? m.reason.trim() : "",
+          quote: typeof m.quote === "string" ? m.quote.trim() : "",
+        }))
+        .filter((m) => m.index >= 1 && m.index <= hops.length)
+        .slice(0, hops.length)
+    : [];
+  return json({ matches });
+}
+
 /* ---------------- helpers ---------------- */
 type Ctx = { project?: string | null; type?: string; genre?: string; chapters?: string[]; characters?: { name: string; summary?: string }[] };
 
@@ -569,7 +615,7 @@ function joinChunks(chunks: Chunk[]): string {
     .join("\n\n");
 }
 
-function parseJsonObject(s: string): { characters?: unknown[]; locations?: unknown[]; ideas?: unknown[]; assign?: unknown[]; suggest?: unknown[]; chunks?: unknown[]; strengths?: unknown[]; suggestions?: unknown[]; arc?: unknown[]; principles?: unknown[]; relationships?: unknown[]; title?: unknown; body?: unknown } | null {
+function parseJsonObject(s: string): { characters?: unknown[]; locations?: unknown[]; ideas?: unknown[]; assign?: unknown[]; suggest?: unknown[]; chunks?: unknown[]; strengths?: unknown[]; suggestions?: unknown[]; arc?: unknown[]; principles?: unknown[]; relationships?: unknown[]; matches?: unknown[]; title?: unknown; body?: unknown } | null {
   try {
     const start = s.indexOf("{");
     const end = s.lastIndexOf("}");

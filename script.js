@@ -197,7 +197,7 @@ function wireLabelEditor(container, target) {
 }
 
 /* ---------------- ROUTING ---------------- */
-const ROUTES = ['home', 'sections', 'timelines', 'characters', 'locations', 'labels', 'ideas', 'community'];
+const ROUTES = ['home', 'search', 'sections', 'timelines', 'characters', 'locations', 'labels', 'ideas', 'community'];
 
 function currentRoute() {
   const h = location.hash.replace('#', '');
@@ -215,6 +215,7 @@ function route() {
   closeDrawer();
   updateArchiveToggles();
   if (r === 'home') { renderHome(); playHomeReveal(); }
+  if (r === 'search') renderSearch();
   if (r === 'sections') renderSections();
   if (r === 'timelines') renderTimelines();
   if (r === 'characters') renderCharacters();
@@ -2974,6 +2975,120 @@ function relationshipTreeModal() {
   }
 
   paint();
+}
+
+/* =====================================================================
+   SEARCH — AI reads every hop in full, batch by batch, to find content
+   that matches a free-form question or description.
+   ===================================================================== */
+// Module state survives navigation away and back, so results stay on the page.
+let searchState = { query: '', running: false, canceled: false, scanned: 0, total: 0, results: [], done: false, error: '' };
+const SEARCH_BATCH = 5;
+
+(function wireSearch() {
+  const input = document.getElementById('searchInput');
+  const btn = document.getElementById('searchRunBtn');
+  if (!input || !btn) return;
+  btn.addEventListener('click', () => runSearch(input.value));
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); runSearch(input.value); } });
+})();
+
+function renderSearch() {
+  const input = document.getElementById('searchInput');
+  if (input && document.activeElement !== input) input.value = searchState.query;
+  renderSearchProgress();
+  renderSearchResults();
+}
+
+function renderSearchProgress() {
+  const el = document.getElementById('searchProgress');
+  if (!el) return;
+  if (!searchState.running && !searchState.done) { el.hidden = true; el.innerHTML = ''; return; }
+  el.hidden = false;
+  const pct = searchState.total ? Math.round((searchState.scanned / searchState.total) * 100) : 0;
+  const n = searchState.results.length;
+  el.innerHTML = `
+    <div class="sp-row">
+      <span class="sp-label">${searchState.running ? AI_STAR + ' SCANNING HOPS' : (searchState.canceled ? 'SCAN STOPPED' : 'SCAN COMPLETE')}</span>
+      <span class="sp-count">${searchState.scanned} / ${searchState.total} hops · ${n} match${n === 1 ? '' : 'es'}</span>
+      ${searchState.running ? '<button class="add-btn sp-stop" data-stop>STOP</button>' : ''}
+    </div>
+    <div class="sp-bar"><div class="sp-fill" style="width:${pct}%"></div></div>`;
+  el.querySelector('[data-stop]')?.addEventListener('click', () => { searchState.canceled = true; });
+}
+
+function renderSearchResults() {
+  const el = document.getElementById('searchResults');
+  if (!el) return;
+  if (searchState.error) { el.innerHTML = `<div class="pane-empty">${esc(searchState.error)}</div>`; return; }
+  if (!searchState.query) {
+    el.innerHTML = '<div class="search-hint">Type a question or describe a moment, then hit SEARCH. Every hop is read in full — this can take a minute on a long manuscript, and progress shows above.</div>';
+    return;
+  }
+  const r = searchState.results;
+  if (!r.length) {
+    el.innerHTML = searchState.running
+      ? '<div class="search-hint">Reading hops…</div>'
+      : `<div class="pane-empty">No hops matched <b>${esc(searchState.query)}</b>.</div>`;
+    return;
+  }
+  el.innerHTML = `<div class="sr-count">${r.length} result${r.length === 1 ? '' : 's'} for <b>${esc(searchState.query)}</b></div>` +
+    r.map(res => `
+      <div class="search-result" data-open="${res.id}" style="border-left:3px solid ${chapterColor(res.chapterId)}">
+        <div class="sr-head">
+          <span class="sr-title">${esc(res.title || 'Untitled')}</span>
+          <span class="sr-score">${res.score}</span>
+        </div>
+        <div class="sr-where">${esc(chapterTitle(res.chapterId))}</div>
+        ${res.reason ? `<div class="sr-reason">${esc(res.reason)}</div>` : ''}
+        ${res.quote ? `<div class="sr-quote">&ldquo;${esc(res.quote)}&rdquo;</div>` : ''}
+      </div>`).join('');
+  el.querySelectorAll('[data-open]').forEach(card =>
+    card.addEventListener('click', () => openChunkModal(card.dataset.open)));
+}
+
+async function runSearch(query) {
+  query = (query || '').trim();
+  if (!query || searchState.running) return;
+  const hops = db.chunks.filter(isVisibleChunk).filter(c => (c.body || '').trim() || (c.title || '').trim());
+  if (!hops.length) {
+    searchState = { query, running: false, canceled: false, scanned: 0, total: 0, results: [], done: true, error: '' };
+    renderSearch();
+    alertModal('There are no hops with text to search yet.', { title: 'SEARCH' });
+    return;
+  }
+  searchState = { query, running: true, canceled: false, scanned: 0, total: hops.length, results: [], done: false, error: '' };
+  renderSearch();
+  try {
+    for (let i = 0; i < hops.length; i += SEARCH_BATCH) {
+      if (searchState.canceled) break;
+      const batch = hops.slice(i, i + SEARCH_BATCH);
+      try {
+        const res = await aiInvoke({
+          task: 'search_hops',
+          query,
+          hops: batch.map(h => ({ title: h.title, section: chapterTitle(h.chapterId), body: h.body }))
+        });
+        (Array.isArray(res.matches) ? res.matches : []).forEach(m => {
+          const hop = batch[(parseInt(m.index, 10) || 0) - 1];
+          if (!hop) return;
+          searchState.results.push({
+            id: hop.id, chapterId: hop.chapterId, title: hop.title,
+            score: Math.max(0, Math.min(100, Math.round(Number(m.score) || 0))),
+            reason: typeof m.reason === 'string' ? m.reason : '',
+            quote: typeof m.quote === 'string' ? m.quote : ''
+          });
+        });
+      } catch (_) { /* skip this batch, keep scanning the rest */ }
+      searchState.scanned = Math.min(hops.length, i + SEARCH_BATCH);
+      searchState.results.sort((a, b) => b.score - a.score);
+      renderSearch();
+    }
+  } catch (err) {
+    searchState.error = 'Search failed. ' + (err.message || '');
+  }
+  searchState.running = false; searchState.done = true;
+  renderSearch();
 }
 
 // Rename an entity and propagate the change into prose, with a confirmation that
