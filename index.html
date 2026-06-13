@@ -124,6 +124,19 @@
         </div>
       </div>
       <div class="account-section">
+        <div class="account-label">USERNAME</div>
+        <div class="username-view" id="usernameView">
+          <span class="username-current" id="usernameCurrent">—</span>
+          <button class="username-edit" id="editUsernameBtn">edit</button>
+        </div>
+        <div class="username-row" id="usernameEdit" hidden>
+          <input type="text" id="usernameInput" placeholder="username" maxlength="24" autocomplete="off" />
+          <button class="username-edit save" id="saveUsernameBtn">save</button>
+          <button class="username-edit" id="cancelUsernameBtn">cancel</button>
+        </div>
+        <div class="username-msg" id="usernameMsg"></div>
+      </div>
+      <div class="account-section">
         <div class="account-label">FLUFFLE</div>
         <button class="add-btn" id="manageFluffleBtn">★ MY FLUFFLE <span class="pc-badge" id="fluffleCount">0</span></button>
       </div>
