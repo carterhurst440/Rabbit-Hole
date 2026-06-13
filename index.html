@@ -407,7 +407,11 @@
       </div>
       <div class="modal-scroll">
       <input class="chunk-title-input" id="chunkModalTitle" placeholder="Hop title" />
-      <textarea class="chunk-body" id="chunkModalBody" placeholder="Write…" rows="18"></textarea>
+      <div class="chunk-body-wrap" id="chunkBodyWrap">
+        <div class="chunk-body-mirror" id="chunkBodyMirror" aria-hidden="true"></div>
+        <textarea class="chunk-body" id="chunkModalBody" placeholder="Write…" rows="18"></textarea>
+        <div class="hl-pop" id="chunkHlPop" hidden></div>
+      </div>
       <div class="modal-tools">
         <button class="add-btn" id="chunkModalGenBody" title="AI: draft body text from the title"><span class="ai-star">✦</span> GENERATE BODY</button>
         <button class="add-btn" id="chunkDetectChars" title="AI: detect characters in this hop"><span class="ai-star">✦</span> DETECT CHARACTERS</button>

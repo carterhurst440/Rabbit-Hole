@@ -1269,6 +1269,7 @@ function renderEntityListInto(container, K, chunk) {
       if (i >= 0) arr.splice(i, 1);
       save(); markChunkDirty();
       renderEntityListInto(container, K, chunk);
+      if (typeof renderChunkMirror === 'function') renderChunkMirror();
     });
   });
   const addBtn = container.querySelector('[data-ent-addmore]');
@@ -1282,6 +1283,7 @@ function renderEntityListInto(container, K, chunk) {
       if (!chunk[K.link].includes(id)) chunk[K.link].push(id);
       save(); markChunkDirty();
       renderEntityListInto(container, K, chunk);
+      if (typeof renderChunkMirror === 'function') renderChunkMirror();
     });
   }
 }
@@ -1352,7 +1354,7 @@ async function generateChunkBody(chunk, btn) {
     if (!text) { alertModal('No body text came back. Try again.', { title: 'GENERATE BODY' }); return; }
     if (bodyEl) bodyEl.value = text;
     chunk.body = text;
-    save(); markChunkDirty();
+    save(); markChunkDirty(); renderChunkMirror();
   } catch (err) {
     btn.disabled = false; btn.innerHTML = original;
     alertModal('Body generation failed.\n\n' + (err.message || ''), { title: 'GENERATE BODY' });
@@ -2096,6 +2098,8 @@ function openChunkModal(chunkId) {
     };
   }
 
+  hideChunkPop();
+  renderChunkMirror();
   setChunkSaveState('pristine');
   document.getElementById('chunkModalOverlay').hidden = false;
 }
@@ -2107,11 +2111,13 @@ function refreshModalEntityChips(K, c) {
   const wrap = document.getElementById(id);
   if (!wrap) return;
   renderEntityListInto(wrap, K, c);
+  renderChunkMirror();
 }
 
 function closeChunkModal() {
   // Closing via X / overlay / Escape discards an uncommitted new hop.
   if (draftChunk && modalChunkId === draftChunk.id) draftChunk = null;
+  hideChunkPop();
   document.getElementById('chunkModalOverlay').hidden = true;
   modalChunkId = null;
   rerenderActiveView();
@@ -2133,7 +2139,7 @@ function rerenderActiveView() {
 (function wireChunkModal() {
   const cur = () => resolveChunk(modalChunkId);
   document.getElementById('chunkModalTitle').addEventListener('input', e => { const c = cur(); if (c) { c.title = e.target.value; save(); markChunkDirty(); } });
-  document.getElementById('chunkModalBody').addEventListener('input', e => { const c = cur(); if (c) { c.body = e.target.value; save(); markChunkDirty(); } });
+  document.getElementById('chunkModalBody').addEventListener('input', e => { const c = cur(); if (c) { c.body = e.target.value; save(); markChunkDirty(); renderChunkMirror(); hideChunkPop(); } });
   document.getElementById('chunkModalChrono').addEventListener('input', e => { const c = cur(); if (c) { c.chronoLabel = e.target.value; save(); markChunkDirty(); } });
   document.getElementById('chunkModalChapterSel').addEventListener('change', e => {
     const c = cur(); if (!c) return;
@@ -2176,14 +2182,228 @@ function rerenderActiveView() {
   const labelsWrap = document.getElementById('chunkModalLabels');
   labelsWrap.addEventListener('click', e => { if (e.target.closest('.lbl-chip')) markChunkDirty(); });
   labelsWrap.addEventListener('input', () => markChunkDirty());
+  const bodyEl = document.getElementById('chunkModalBody');
+  const mirrorEl = document.getElementById('chunkBodyMirror');
+  bodyEl.addEventListener('scroll', () => { mirrorEl.scrollTop = bodyEl.scrollTop; mirrorEl.scrollLeft = bodyEl.scrollLeft; if (!document.getElementById('chunkHlPop').hidden) hideChunkPop(); });
+  bodyEl.addEventListener('mouseup', () => setTimeout(onChunkBodySelect, 0));
+  bodyEl.addEventListener('blur', () => setTimeout(() => { const pop = document.getElementById('chunkHlPop'); if (pop && !pop.contains(document.activeElement)) hideChunkPop(); }, 120));
+  document.addEventListener('mousedown', e => {
+    const pop = document.getElementById('chunkHlPop');
+    if (pop && !pop.hidden && !pop.contains(e.target) && e.target !== bodyEl) hideChunkPop();
+  });
   document.getElementById('chunkModalClose').addEventListener('click', closeChunkModal);
   document.getElementById('chunkModalOverlay').addEventListener('click', e => {
     if (e.target.id === 'chunkModalOverlay') closeChunkModal();
   });
   document.addEventListener('keydown', e => {
-    if (e.key === 'Escape' && !document.getElementById('chunkModalOverlay').hidden) closeChunkModal();
+    if (e.key !== 'Escape') return;
+    if (document.getElementById('chunkModalOverlay').hidden) return;
+    const pop = document.getElementById('chunkHlPop');
+    if (pop && !pop.hidden) { hideChunkPop(); return; }
+    closeChunkModal();
   });
 })();
+
+/* ---- inline character/location highlighting in the hop body ----
+   A mirror div behind the (transparent-text) textarea paints every live
+   character/location mention in its entity color. Clicking a mention offers to
+   remove it from the hop; selecting any span offers to tag it as an existing or
+   new character/location. The mirror also serves as the geometry oracle for
+   positioning those popovers. */
+
+// Live, non-dismissed character + location mentions in this chunk's body, sorted
+// and de-overlapped (first match wins), each carrying its entity + ordinal so a
+// click can dismiss exactly that mention.
+function chunkHighlightSpans(chunk) {
+  const ranges = [];
+  [ENTITY_KINDS.character, ENTITY_KINDS.location].forEach(K => {
+    (db[K.coll] || []).forEach(ent => {
+      occurrencesOf(ent, chunk).forEach(o => {
+        if (o.dismissed) return;
+        ranges.push({ start: o.index, end: o.index + o.text.length, ord: o.ord, ent, kind: K, color: ent.color || '' });
+      });
+    });
+  });
+  ranges.sort((a, b) => a.start - b.start || b.end - a.end);
+  const kept = []; let lastEnd = -1;
+  ranges.forEach(r => { if (r.start >= lastEnd) { kept.push(r); lastEnd = r.end; } });
+  return kept;
+}
+
+function renderChunkMirror() {
+  const mirror = document.getElementById('chunkBodyMirror');
+  const ta = document.getElementById('chunkModalBody');
+  const chunk = resolveChunk(modalChunkId);
+  if (!mirror || !ta || !chunk) return;
+  const raw = String(ta.value);
+  const spans = chunkHighlightSpans({ ...chunk, body: raw });
+  let html = '', last = 0;
+  spans.forEach(r => {
+    html += esc(raw.slice(last, r.start));
+    const col = r.color ? ` style="color:${r.color}"` : '';
+    html += `<mark class="hl-occ" data-ent="${r.ent.id}" data-kind="${r.kind.noun}" data-ord="${r.ord}" data-s="${r.start}" data-e="${r.end}"${col}>${esc(raw.slice(r.start, r.end))}</mark>`;
+    last = r.end;
+  });
+  html += esc(raw.slice(last)) + '\n';
+  mirror.innerHTML = html;
+  mirror.scrollTop = ta.scrollTop; mirror.scrollLeft = ta.scrollLeft;
+}
+
+// Map a character offset within the mirror's text to a {node, off} DOM position.
+function mirrorOffsetToNode(root, offset) {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let n, acc = 0;
+  while ((n = walker.nextNode())) {
+    const len = n.nodeValue.length;
+    if (offset <= acc + len) return { node: n, off: offset - acc };
+    acc += len;
+  }
+  return { node: root, off: 0 };
+}
+
+// Bounding rect (viewport coords) of the body text between two char offsets,
+// read off the scroll-synced mirror so it tracks wrapping + scrolling exactly.
+function mirrorRectForRange(s, e) {
+  const mirror = document.getElementById('chunkBodyMirror');
+  const a = mirrorOffsetToNode(mirror, s), b = mirrorOffsetToNode(mirror, e);
+  const range = document.createRange();
+  try { range.setStart(a.node, a.off); range.setEnd(b.node, b.off); } catch { return null; }
+  const r = range.getBoundingClientRect();
+  return (r.width || r.height) ? r : range.getClientRects()[0] || r;
+}
+
+function placeChunkPop(pop, s, e) {
+  const wrap = document.getElementById('chunkBodyWrap');
+  const r = mirrorRectForRange(s, e);
+  if (!r) { hideChunkPop(); return; }
+  const wr = wrap.getBoundingClientRect();
+  pop.hidden = false;
+  let left = r.left - wr.left;
+  left = Math.max(4, Math.min(left, wrap.clientWidth - pop.offsetWidth - 4));
+  let top = r.bottom - wr.top + 4;
+  if (top + pop.offsetHeight > wrap.clientHeight) top = Math.max(4, r.top - wr.top - pop.offsetHeight - 4);
+  pop.style.left = left + 'px';
+  pop.style.top = top + 'px';
+}
+
+function hideChunkPop() {
+  const pop = document.getElementById('chunkHlPop');
+  if (pop) { pop.hidden = true; pop.innerHTML = ''; }
+}
+
+// Decide which popover to show from the current textarea selection: a real
+// selection -> tag it; a bare caret landing inside a mention -> remove it.
+function onChunkBodySelect() {
+  const ta = document.getElementById('chunkModalBody');
+  const chunk = resolveChunk(modalChunkId);
+  if (!ta || !chunk || document.getElementById('chunkModalOverlay').hidden) return;
+  const s = ta.selectionStart, e = ta.selectionEnd;
+  if (e > s) {
+    const text = ta.value.slice(s, e);
+    if (text.trim()) return showAddTagPop(s, e, text);
+    return hideChunkPop();
+  }
+  const hit = chunkHighlightSpans({ ...chunk, body: ta.value }).find(r => s >= r.start && s <= r.end);
+  if (hit) return showRemoveTagPop(hit);
+  hideChunkPop();
+}
+
+function showRemoveTagPop(hit) {
+  const pop = document.getElementById('chunkHlPop');
+  pop.innerHTML = `
+    <div class="hl-pop-title">${hit.kind.NOUN}</div>
+    <button class="hl-pop-rm" type="button">✕ Remove ${esc(hit.ent.name)} from this hop</button>`;
+  pop.querySelector('.hl-pop-rm').addEventListener('click', () => removeMentionTag(hit));
+  placeChunkPop(pop, hit.start, hit.end);
+}
+
+function removeMentionTag(hit) {
+  const chunk = resolveChunk(modalChunkId);
+  if (!chunk) return;
+  const K = hit.kind, ent = hit.ent;
+  ent.dismissedRefs = ent.dismissedRefs || [];
+  const key = chunk.id + ':' + hit.ord;
+  if (!ent.dismissedRefs.includes(key)) ent.dismissedRefs.push(key);
+  const stillLive = occurrencesOf(ent, chunk).some(o => !o.dismissed);
+  if (!stillLive && Array.isArray(chunk[K.link])) chunk[K.link] = chunk[K.link].filter(id => id !== ent.id);
+  save(); markChunkDirty();
+  refreshModalEntityChips(K, chunk);
+  renderChunkMirror();
+  hideChunkPop();
+}
+
+// Tag the current selection. Choose CHARACTER/LOCATION, then either link an
+// existing entity (adding the selected phrase as an alias so it highlights) or
+// create a new one named after the selection.
+let addTagKind = null;
+function showAddTagPop(s, e, text) {
+  const pop = document.getElementById('chunkHlPop');
+  const sel = text.trim();
+  if (!addTagKind) addTagKind = ENTITY_KINDS.character;
+  const draw = () => {
+    const K = addTagKind;
+    const coll = (db[K.coll] || []);
+    pop.innerHTML = `
+      <div class="hl-pop-title">Tag selection</div>
+      <div class="hl-pop-toggle">
+        <button type="button" data-k="character" class="${K === ENTITY_KINDS.character ? 'on' : ''}">CHARACTER</button>
+        <button type="button" data-k="location" class="${K === ENTITY_KINDS.location ? 'on' : ''}">LOCATION</button>
+      </div>
+      <input class="hl-pop-search" type="text" placeholder="Filter ${K.noun}s…" />
+      <div class="hl-pop-list"></div>`;
+    pop.querySelectorAll('.hl-pop-toggle button').forEach(b => b.addEventListener('click', () => {
+      addTagKind = b.dataset.k === 'location' ? ENTITY_KINDS.location : ENTITY_KINDS.character;
+      draw();
+    }));
+    const search = pop.querySelector('.hl-pop-search');
+    const list = pop.querySelector('.hl-pop-list');
+    const fill = () => {
+      const q = search.value.trim().toLowerCase();
+      const matches = coll.filter(en => !q || en.name.toLowerCase().includes(q));
+      list.innerHTML =
+        matches.map(en => `<button class="hl-pop-row" type="button" data-id="${en.id}"><span class="hl-pop-dot" style="--cc:${en.color || 'var(--accent)'}"></span>${esc(en.name)}</button>`).join('')
+        + `<button class="hl-pop-row create" type="button" data-create="1">+ Create “${esc(sel)}” as new ${K.noun}</button>`;
+      list.querySelectorAll('[data-id]').forEach(row => row.addEventListener('click', () => {
+        tagSelectionExisting(K, coll.find(en => en.id === row.dataset.id), sel);
+      }));
+      list.querySelector('[data-create]').addEventListener('click', () => tagSelectionNew(K, sel));
+    };
+    search.addEventListener('input', fill);
+    fill();
+  };
+  draw();
+  placeChunkPop(pop, s, e);
+}
+
+function tagSelectionExisting(K, ent, text) {
+  if (!ent) return;
+  const chunk = resolveChunk(modalChunkId);
+  if (!chunk) return;
+  const t = text.trim();
+  const known = [ent.name, ...(ent.aliases || [])].map(x => (x || '').toLowerCase());
+  if (t && !known.includes(t.toLowerCase())) { ent.aliases = ent.aliases || []; ent.aliases.push(t); }
+  chunk[K.link] = chunk[K.link] || [];
+  if (!chunk[K.link].includes(ent.id)) chunk[K.link].push(ent.id);
+  save(); markChunkDirty();
+  refreshModalEntityChips(K, chunk);
+  renderChunkMirror();
+  hideChunkPop();
+}
+
+function tagSelectionNew(K, text) {
+  const t = text.trim();
+  if (!t) return;
+  const chunk = resolveChunk(modalChunkId);
+  if (!chunk) return;
+  const ent = { id: uid(), name: t, aliases: [], summary: '', notes: [], color: CHAPTER_PALETTE[db[K.coll].length % CHAPTER_PALETTE.length], dismissedRefs: [] };
+  db[K.coll].push(ent);
+  chunk[K.link] = chunk[K.link] || [];
+  chunk[K.link].push(ent.id);
+  save(); markChunkDirty();
+  refreshModalEntityChips(K, chunk);
+  renderChunkMirror();
+  hideChunkPop();
+}
 
 // Move dragged chunk to sit before `beforeId` (or to the end if null), then renumber.
 function reorderChunk(orderKey, draggedId, beforeId) {
