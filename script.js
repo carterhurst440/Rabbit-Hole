@@ -236,59 +236,8 @@ function renderSettings() {
   set('settingsAvatar', initials);
   set('settingsName', who);
   set('settingsEmail', currentUser.email);
-  const handle = displayUsername();
-  const cur = document.getElementById('usernameCurrent');
-  if (cur) {
-    cur.textContent = handle || 'not set';
-    cur.classList.toggle('unset', !handle);
-  }
   const adminSection = document.getElementById('adminSection');
   if (adminSection) adminSection.hidden = !isAdmin();
-}
-
-// Reveal the username editor (called only after the user confirms the warning).
-function openUsernameEditor() {
-  const view = document.getElementById('usernameView');
-  const edit = document.getElementById('usernameEdit');
-  const input = document.getElementById('usernameInput');
-  const msg = document.getElementById('usernameMsg');
-  if (!view || !edit || !input) return;
-  view.hidden = true; edit.hidden = false;
-  if (msg) { msg.textContent = ''; msg.classList.remove('ok'); }
-  input.value = displayUsername();
-  input.focus(); input.select();
-}
-
-// Collapse the editor back to the read-only view.
-function closeUsernameEditor() {
-  const view = document.getElementById('usernameView');
-  const edit = document.getElementById('usernameEdit');
-  const msg = document.getElementById('usernameMsg');
-  if (!view || !edit) return;
-  edit.hidden = true; view.hidden = false;
-  if (msg) { msg.textContent = ''; msg.classList.remove('ok'); }
-}
-
-// Save / change the community handle. Enforces a simple format and surfaces the
-// unique-constraint error if the handle is already taken.
-async function saveUsername() {
-  const input = document.getElementById('usernameInput');
-  const msg = document.getElementById('usernameMsg');
-  if (!input || !currentUser) return;
-  const setMsg = (t, ok) => { if (msg) { msg.textContent = t || ''; msg.classList.toggle('ok', !!ok); } };
-  const name = input.value.trim();
-  if (!/^[a-zA-Z0-9_]{3,24}$/.test(name)) {
-    setMsg('3–24 chars: letters, numbers, underscore.'); return;
-  }
-  setMsg('Saving…');
-  const { error } = await sb.from('profiles').update({ username: name }).eq('id', currentUser.id);
-  if (error) {
-    setMsg(error.code === '23505' ? 'That username is taken.' : 'Could not save.');
-    return;
-  }
-  if (currentProfile) currentProfile.username = name; else currentProfile = { username: name };
-  renderSettings();
-  closeUsernameEditor();
 }
 
 /* =====================================================================
@@ -5763,20 +5712,8 @@ document.getElementById('signOutBtn').addEventListener('click', async () => {
 });
 
 document.getElementById('communityRefreshBtn').addEventListener('click', renderCommunity);
-document.getElementById('saveUsernameBtn').addEventListener('click', saveUsername);
-document.getElementById('cancelUsernameBtn').addEventListener('click', closeUsernameEditor);
-document.getElementById('editUsernameBtn').addEventListener('click', async () => {
-  const ok = await confirmModal(
-    'Changing your username will NOT update it on hops, comments, or posts you have already shared - those keep your current handle. New activity will use the new name. Continue?',
-    { title: 'CHANGE USERNAME', okText: 'Change it', danger: false });
-  if (ok) openUsernameEditor();
-});
 document.getElementById('manageFluffleBtn').addEventListener('click', manageFluffleModal);
 document.getElementById('replayWelcomeBtn')?.addEventListener('click', () => { closeAccount(); showWelcomeModal(); });
-document.getElementById('usernameInput').addEventListener('keydown', e => {
-  if (e.key === 'Enter') { e.preventDefault(); saveUsername(); }
-  else if (e.key === 'Escape') { e.preventDefault(); closeUsernameEditor(); }
-});
 
 async function initAuth() {
   const { data: { session } } = await sb.auth.getSession();
@@ -5862,7 +5799,6 @@ aiToggle.addEventListener('click', toggleAI);
 const profileBtn = document.getElementById('profileBtn');
 const accountMenu = document.getElementById('accountMenu');
 function openAccount() {
-  closeUsernameEditor();
   accountMenu.hidden = false;
   profileBtn.classList.add('active');
   profileBtn.setAttribute('aria-expanded', 'true');
