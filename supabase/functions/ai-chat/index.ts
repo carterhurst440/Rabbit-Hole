@@ -7,6 +7,7 @@
 //   tag_summary       { tagName, chunks }              -> { reply }
 //   char_summary      { name, aliases, chunks }        -> { reply }
 //   char_arc          { name, aliases, chunks:[{title,body,section}] } -> { arc: [{ stage, summary }] (one beat per section), principles: [{ principle, start, end, changed, refs:[{hop,section,note}] }] }
+//   char_relationships { name, aliases, others:[{name,aliases}], chunks:[{title,body,section}] } -> { relationships: [{ character, summary, refs:[{hop,section,note}] }] }
 //   loc_summary       { name, aliases, chunks }        -> { reply }
 //   detect_characters { chunks, existing }             -> { characters: [{ name, aliases }] }
 //   detect_locations  { chunks, existing }             -> { locations: [{ name, aliases }] }
@@ -45,6 +46,7 @@ Deno.serve(async (req) => {
     if (task === "tag_summary") return await doTagSummary(apiKey, body);
     if (task === "char_summary") return await doCharSummary(apiKey, body);
     if (task === "char_arc") return await doCharArc(apiKey, body);
+    if (task === "char_relationships") return await doCharRelationships(apiKey, body);
     if (task === "loc_summary") return await doLocSummary(apiKey, body);
     if (task === "detect_characters") return await doDetect(apiKey, body);
     if (task === "detect_locations") return await doDetectLocations(apiKey, body);
@@ -351,6 +353,83 @@ async function doGenerateBody(
   return json({ body: text });
 }
 
+async function doCharRelationships(
+  apiKey: string,
+  body: { name?: string; aliases?: string[]; others?: { name?: string; aliases?: string[] }[]; chunks?: Chunk[] },
+) {
+  const chunks = body.chunks || [];
+  if (!chunks.length) return json({ error: "No reference hops for this character." }, 400);
+  const aliases = (body.aliases || []).filter(Boolean);
+  const others = (body.others || [])
+    .filter((o) => o && typeof o.name === "string" && o.name.trim())
+    .map((o) => ({
+      name: (o.name as string).trim(),
+      aliases: Array.isArray(o.aliases) ? o.aliases.filter((a) => typeof a === "string" && a.trim()).map((a) => (a as string).trim()) : [],
+    }));
+  const sectionOrder: string[] = [];
+  const bySection = new Map<string, Chunk[]>();
+  for (const c of chunks) {
+    const sec = (c.section || "Unsectioned").trim() || "Unsectioned";
+    if (!bySection.has(sec)) { bySection.set(sec, []); sectionOrder.push(sec); }
+    bySection.get(sec)!.push(c);
+  }
+  const sectionsBlock = sectionOrder
+    .map((sec) => {
+      const hops = bySection.get(sec)!
+        .map((c) => `  • HOP "${c.title || "Untitled"}": ${(c.body || "").replace(/\s+/g, " ").trim()}`)
+        .join("\n");
+      return `### SECTION: ${sec}\n${hops}`;
+    })
+    .join("\n\n");
+  const othersBlock = others.length
+    ? others.map((o) => `- ${o.name}${o.aliases.length ? ` (aka ${o.aliases.join(", ")})` : ""}`).join("\n")
+    : "(no other characters are tracked yet)";
+  const system =
+    "You are a story-bible analyst inside RABBIT HOLE. You are given a FOCUS character, a roster of " +
+    "OTHER tracked characters, and every hop (excerpt) that references the focus character, grouped by " +
+    "section. Identify which of the OTHER tracked characters the focus character has a relationship with " +
+    "— meaning they interact, share a scene, are emotionally connected, or are otherwise tied together " +
+    "in the excerpts. Only include characters from the OTHER roster; match aliases to the canonical " +
+    "roster name and always report the canonical name. For each related character give: their canonical " +
+    "name; a 1-2 sentence summary of the relationship and how it stands; and a `refs` array of 1-5 " +
+    "supporting references, each naming the exact HOP title and its SECTION where the two are tied " +
+    "together, plus a brief note (<=14 words) on what happens between them there. Cite hop titles and " +
+    "section names exactly as given. Skip characters with no real connection in the excerpts. Order by " +
+    "strength of relationship, strongest first. Use only what the excerpts support. Respond with ONLY a " +
+    "JSON object of the form " +
+    `{"relationships":[{"character":"...","summary":"...","refs":[{"hop":"...","section":"...","note":"..."}]}]}. ` +
+    "No markdown, no commentary.";
+  const user =
+    `FOCUS CHARACTER: ${body.name || "(unnamed)"}` +
+    (aliases.length ? `\nALSO KNOWN AS: ${aliases.join(", ")}` : "") +
+    `\n\nOTHER TRACKED CHARACTERS:\n${othersBlock}` +
+    `\n\nHOPS REFERENCING THE FOCUS CHARACTER (in narrative order):\n\n${sectionsBlock}`;
+  const raw = await callClaude(apiKey, { system, messages: [{ role: "user", content: user }], max_tokens: 2600 });
+  const parsed = parseJsonObject(raw);
+  const relationships = Array.isArray(parsed?.relationships)
+    ? (parsed.relationships as unknown[])
+        .filter((r): r is { character?: unknown; summary?: unknown; refs?: unknown } => !!r && typeof r === "object")
+        .map((r) => ({
+          character: typeof r.character === "string" ? r.character.trim() : "",
+          summary: typeof r.summary === "string" ? r.summary.trim() : "",
+          refs: Array.isArray(r.refs)
+            ? (r.refs as unknown[])
+                .filter((x): x is { hop?: unknown; section?: unknown; note?: unknown } => !!x && typeof x === "object")
+                .map((x) => ({
+                  hop: typeof x.hop === "string" ? x.hop.trim() : "",
+                  section: typeof x.section === "string" ? x.section.trim() : "",
+                  note: typeof x.note === "string" ? x.note.trim() : "",
+                }))
+                .filter((x) => x.hop || x.section || x.note)
+                .slice(0, 5)
+            : [],
+        }))
+        .filter((r) => r.character)
+        .slice(0, 30)
+    : [];
+  return json({ relationships });
+}
+
 async function doSuggestChunks(
   apiKey: string,
   body: { chunks?: Chunk[]; type?: string; genre?: string; chapters?: string[]; characters?: string[]; locations?: string[] },
@@ -469,7 +548,7 @@ function joinChunks(chunks: Chunk[]): string {
     .join("\n\n");
 }
 
-function parseJsonObject(s: string): { characters?: unknown[]; locations?: unknown[]; ideas?: unknown[]; assign?: unknown[]; suggest?: unknown[]; chunks?: unknown[]; strengths?: unknown[]; suggestions?: unknown[]; arc?: unknown[]; principles?: unknown[]; title?: unknown; body?: unknown } | null {
+function parseJsonObject(s: string): { characters?: unknown[]; locations?: unknown[]; ideas?: unknown[]; assign?: unknown[]; suggest?: unknown[]; chunks?: unknown[]; strengths?: unknown[]; suggestions?: unknown[]; arc?: unknown[]; principles?: unknown[]; relationships?: unknown[]; title?: unknown; body?: unknown } | null {
   try {
     const start = s.indexOf("{");
     const end = s.lastIndexOf("}");

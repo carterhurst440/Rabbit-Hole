@@ -2352,6 +2352,14 @@ function renderEntityPane(K) {
         <button class="add-btn" data-f="genarc" title="AI: trace this character's growth and core principles across every reference, in story order">${AI_STAR} ${((c.arc || []).length || (c.principles || []).length) ? 'REGENERATE ARC' : 'GENERATE ARC'}</button>
         ${((c.arc || []).length || (c.principles || []).length) ? '<button class="add-btn" data-f="cleararc">CLEAR</button>' : ''}
       </div>
+    </div>
+    <div class="char-block">
+      <h3>RELATIONSHIPS</h3>
+      ${renderRelationships(c)}
+      <div style="margin-top:10px;display:flex;gap:8px">
+        <button class="add-btn" data-f="genrel" title="AI: find every other character this one is tied to, with references">${AI_STAR} ${(c.relationships || []).length ? 'REGENERATE' : 'ANALYZE RELATIONSHIPS'}</button>
+        ${(c.relationships || []).length ? '<button class="add-btn" data-f="clearrel">CLEAR</button>' : ''}
+      </div>
     </div>` : ''}
     <div class="char-block">
       <h3>REFERENCES (${refs.length})</h3>
@@ -2426,6 +2434,11 @@ function renderEntityPane(K) {
   q('[data-f="cleararc"]')?.addEventListener('click', async () => {
     if (!await confirmModal('Clear this character arc?', { title: 'CHARACTER ARC', okText: 'Clear', danger: false })) return;
     c.arc = []; c.principles = []; save(); renderEntityPane(K);
+  });
+  q('[data-f="genrel"]')?.addEventListener('click', e => generateCharRelationships(K, c, e.currentTarget));
+  q('[data-f="clearrel"]')?.addEventListener('click', async () => {
+    if (!await confirmModal('Clear this relationship analysis?', { title: 'RELATIONSHIPS', okText: 'Clear', danger: false })) return;
+    c.relationships = []; save(); renderEntityPane(K);
   });
   q('[data-f="editsum"]').addEventListener('click', async () => {
     const next = await promptModal(`${K.NOUN[0] + K.noun.slice(1)} summary:`, c.summary || '', { okText: 'Save' });
@@ -2631,6 +2644,64 @@ async function generateCharArc(K, c, btn) {
   } catch (err) {
     if (btn) { btn.disabled = false; btn.innerHTML = original; }
     alertModal('Could not generate arc.\n\n' + (err.message || ''), { title: 'CHARACTER ARC' });
+  }
+}
+
+// RELATIONSHIPS — each other character this one is tied to, with a summary and
+// the hops (and their sections) where they intersect. Expandable rows, same
+// <details> pattern as principles so no JS wiring is needed for the expand.
+function renderRelationships(c) {
+  const rels = c.relationships || [];
+  if (!rels.length) {
+    return '<div class="char-summary"><span style="color:var(--muted)">No relationships analyzed yet. Run it to map who this character is tied to across the story.</span></div>';
+  }
+  const col = c.color || 'var(--accent)';
+  return `<div class="char-rels" style="--arc:${esc(col)}">
+    ${rels.map(r => {
+      const refs = Array.isArray(r.refs) ? r.refs.filter(x => x && (x.hop || x.section || x.note)) : [];
+      return `
+    <details class="rel">
+      <summary class="rel-row">
+        <span class="rel-caret">▸</span>
+        <span class="rel-name">${esc(r.character || '')}</span>
+        <span class="rel-count">${refs.length}</span>
+      </summary>
+      ${r.summary ? `<div class="rel-summary">${esc(r.summary)}</div>` : ''}
+      <div class="rel-refs">
+        ${refs.length ? refs.map(x => `
+        <div class="rel-ref">
+          <div class="pr-where">${x.hop ? `<span class="pr-hop">${esc(x.hop)}</span>` : ''}${x.hop && x.section ? '<span class="pr-dot">·</span>' : ''}${x.section ? `<span class="pr-section">${esc(x.section)}</span>` : ''}</div>
+          ${x.note ? `<div class="pr-note">${esc(x.note)}</div>` : ''}
+        </div>`).join('') : '<div class="pr-note" style="opacity:.6">No supporting references cited.</div>'}
+      </div>
+    </details>`;
+    }).join('')}
+  </div>`;
+}
+
+// AI relationship analysis — sends every hop referencing this character plus the
+// roster of all other tracked characters, and maps which ones they are tied to.
+async function generateCharRelationships(K, c, btn) {
+  const refs = refsFor(K, c).slice().sort((a, b) => (a.narrativeOrder ?? 0) - (b.narrativeOrder ?? 0));
+  if (!refs.length) { alertModal('No chunks reference this character yet.', { title: 'RELATIONSHIPS' }); return; }
+  const others = db[K.coll].filter(x => x.id !== c.id);
+  if (!others.length) { alertModal('Add more characters first — there is no one to relate this character to.', { title: 'RELATIONSHIPS' }); return; }
+  const original = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.innerHTML = AI_STAR + ' ANALYZING…'; }
+  try {
+    const { relationships } = await aiInvoke({
+      task: 'char_relationships',
+      name: c.name,
+      aliases: c.aliases || [],
+      others: others.map(x => ({ name: x.name, aliases: x.aliases || [] })),
+      chunks: refs.map(r => ({ title: r.title, body: r.body, section: chapterTitle(r.chapterId) }))
+    });
+    c.relationships = Array.isArray(relationships) ? relationships : [];
+    save(); renderEntityPane(K);
+    if (!c.relationships.length) alertModal('No relationships found among the other tracked characters.', { title: 'RELATIONSHIPS' });
+  } catch (err) {
+    if (btn) { btn.disabled = false; btn.innerHTML = original; }
+    alertModal('Could not analyze relationships.\n\n' + (err.message || ''), { title: 'RELATIONSHIPS' });
   }
 }
 
