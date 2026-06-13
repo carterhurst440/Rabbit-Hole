@@ -1321,6 +1321,20 @@ async function generateChunkTags(chunk, btn) {
 
 // Draft body prose for a hop from its title. Reads the live editor fields so an
 // unsaved title counts; warns before overwriting existing body text.
+// Snapshot of the whole project sent alongside a GENERATE BODY request so the
+// AI grounds new prose in the existing manuscript, cast, places, and sections
+// rather than writing from the title in a vacuum.
+function projectGenContext(excludeId) {
+  return {
+    context: db.chunks
+      .filter(c => c.id !== excludeId && (c.body || '').trim())
+      .map(c => ({ title: c.title, body: c.body, section: chapterTitle(c.chapterId) })),
+    characters: db.characters.map(c => c.name).filter(Boolean),
+    locations: (db.locations || []).map(l => l.name).filter(Boolean),
+    chapters: [...db.chapters].sort((a, b) => a.order - b.order).map(ch => ch.title).filter(Boolean)
+  };
+}
+
 async function generateChunkBody(chunk, btn) {
   const titleEl = document.getElementById('chunkModalTitle');
   const bodyEl = document.getElementById('chunkModalBody');
@@ -1332,7 +1346,7 @@ async function generateChunkBody(chunk, btn) {
   btn.disabled = true; btn.innerHTML = AI_STAR + ' THINKING…';
   try {
     const proj = projectsCache.find(p => p.id === activeProjectId);
-    const { body: text } = await aiInvoke({ task: 'generate_body', kind: 'hop', title, type: proj?.type || '', genre: proj?.genre || '' });
+    const { body: text } = await aiInvoke({ task: 'generate_body', kind: 'hop', title, type: proj?.type || '', genre: proj?.genre || '', section: chapterTitle(chunk.chapterId), ...projectGenContext(chunk.id) });
     btn.disabled = false; btn.innerHTML = original;
     if (!text) { alertModal('No body text came back. Try again.', { title: 'GENERATE BODY' }); return; }
     if (bodyEl) bodyEl.value = text;
@@ -3445,7 +3459,7 @@ function ideaEditModal(idea) {
     genBodyBtn.innerHTML = `<span class="ai-star spin">✦</span> …`;
     try {
       const proj = projectsCache.find(p => p.id === activeProjectId);
-      const { body: text } = await aiInvoke({ task: 'generate_body', kind: 'idea', title, type: proj?.type || '', genre: proj?.genre || '' });
+      const { body: text } = await aiInvoke({ task: 'generate_body', kind: 'idea', title, type: proj?.type || '', genre: proj?.genre || '', ...projectGenContext(null) });
       if (text) bodyInput.value = text;
     } catch (err) {
       alertModal(err.message || 'Could not generate body text.', { title: 'GENERATE FAILED' });

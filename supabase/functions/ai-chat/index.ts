@@ -14,7 +14,7 @@
 //   suggest_tags      { chunk, existing }              -> { assign: [string], suggest: [string] }
 //   suggest_ideas     { chunks, type, genre }          -> { ideas: [string] }
 //   idea_title        { body }                          -> { title: string }
-//   generate_body     { title, kind, type, genre }      -> { body: string }
+//   generate_body     { title, kind, type, genre, section, chapters, characters, locations, context:[{title,body,section}] } -> { body: string }
 //   suggest_chunks    { chunks, type, genre, chapters, characters, locations }
 //                                                      -> { chunks: [{ title, chapter, description }] }
 //   analyze_chunk     { chunk, context, type, genre, characters, locations }
@@ -333,20 +333,41 @@ async function doIdeaTitle(apiKey: string, body: { body?: string }) {
 
 async function doGenerateBody(
   apiKey: string,
-  body: { title?: string; kind?: string; type?: string; genre?: string },
+  body: {
+    title?: string; kind?: string; type?: string; genre?: string; section?: string;
+    chapters?: string[]; characters?: string[]; locations?: string[]; context?: Chunk[];
+  },
 ) {
   const title = (body.title || "").trim();
   if (!title) return json({ error: "Add a title first — the body is generated from it." }, 400);
   const kind = body.kind === "hop" ? "hop" : "idea";
   const flavor = [body.type, body.genre].filter(Boolean).join(" / ");
+  const chapters = (body.chapters || []).filter(Boolean);
+  const characters = (body.characters || []).filter(Boolean);
+  const locations = (body.locations || []).filter(Boolean);
+  const context = (body.context || []).filter((c) => c && (c.body || c.title));
+  const grounding =
+    "Ground the writing in the story so far: stay consistent with the established characters, places, " +
+    "events, tone, and narrative voice, and keep continuity with what is already written. Reference the " +
+    "story's actual characters and places where natural. Do not contradict or restate the existing text — " +
+    "write the new material the title calls for as it would fit into this manuscript. ";
   const system = kind === "hop"
-    ? "You are a drafting partner inside RABBIT HOLE, a book workbench. The author gives you the TITLE of a single hop (a scene or beat). Draft a short opening passage of prose for that hop — 2 to 4 paragraphs that bring the moment to life and give the author something to react to and revise. Write in immersive prose, not an outline or bullet points. No preamble, no title line, no commentary. " +
+    ? "You are a drafting partner inside RABBIT HOLE, a book workbench. The author gives you the TITLE of a single hop (a scene or beat) plus the surrounding manuscript for context. Draft a short passage of prose for that hop — 2 to 4 paragraphs that bring the moment to life and give the author something to react to and revise. Write in immersive prose, not an outline or bullet points. No preamble, no title line, no commentary. " +
       (flavor ? `The book is ${flavor}. ` : "") +
+      grounding +
       `Respond with ONLY a JSON object of the form {"body":"..."}. Use \\n for line breaks. No markdown, no commentary.`
-    : "You are a brainstorming partner inside RABBIT HOLE, a book workbench. The author gives you the TITLE of a single backlog idea. Flesh it out into a vivid 2 to 4 sentence description that expands on what the idea is, why it matters, and where it could go. Concrete and evocative, not generic. No preamble, no title line, no commentary. " +
+    : "You are a brainstorming partner inside RABBIT HOLE, a book workbench. The author gives you the TITLE of a single backlog idea plus the work so far for context. Flesh it out into a vivid 2 to 4 sentence description that expands on what the idea is, why it matters, and where it could go in THIS story. Concrete and evocative, not generic. No preamble, no title line, no commentary. " +
       (flavor ? `The book is ${flavor}. ` : "") +
+      grounding +
       `Respond with ONLY a JSON object of the form {"body":"..."}. Use \\n for line breaks. No markdown, no commentary.`;
-  const raw = await callClaude(apiKey, { system, messages: [{ role: "user", content: `TITLE:\n${title}` }], max_tokens: kind === "hop" ? 900 : 320 });
+  const user =
+    (chapters.length ? `SECTIONS: ${chapters.join(", ")}\n` : "") +
+    (characters.length ? `CHARACTERS: ${characters.join(", ")}\n` : "") +
+    (locations.length ? `LOCATIONS: ${locations.join(", ")}\n` : "") +
+    (body.section ? `THIS HOP BELONGS TO SECTION: ${body.section}\n` : "") +
+    (context.length ? `\n${kind === "hop" ? "SURROUNDING MANUSCRIPT" : "WORK SO FAR"} (for context only):\n\n${joinChunks(context)}\n` : "") +
+    `\nTITLE:\n${title}`;
+  const raw = await callClaude(apiKey, { system, messages: [{ role: "user", content: user }], max_tokens: kind === "hop" ? 900 : 320 });
   const parsed = parseJsonObject(raw);
   let text = typeof parsed?.body === "string" ? parsed.body.trim() : "";
   if (!text) return json({ error: "Could not generate body text." }, 502);
