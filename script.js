@@ -4885,12 +4885,269 @@ async function openProject(id) {
   go('sections');
 }
 
+/* =====================================================================
+   IMPORT — turn an uploaded PDF / TXT / MD into Sections + Hops on a
+   brand-new project. Offered at project creation: the file's full text is
+   read (not summarized), sliced, and outlined by the AI slice by slice.
+   ===================================================================== */
+const IMPORT_ACCEPT = '.pdf,.txt,.md,.markdown,.text';
+const IMPORT_SUPPORTED = /\.(pdf|txt|md|markdown|text)$/i;
+const IMPORT_SLICE = 9000;   // characters of source text per outline slice
+// pdf.js is only needed for PDFs, so it's pulled from a CDN on first use.
+const PDFJS_VERSION = '4.7.76';
+let pdfjsLibPromise = null;
+
+function fmtBytes(n) {
+  if (!n && n !== 0) return '';
+  if (n < 1024) return n + ' B';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(0) + ' KB';
+  return (n / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+function loadPdfjs() {
+  if (!pdfjsLibPromise) {
+    const base = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VERSION}/build/`;
+    pdfjsLibPromise = import(/* @vite-ignore */ base + 'pdf.min.mjs').then(mod => {
+      mod.GlobalWorkerOptions.workerSrc = base + 'pdf.worker.min.mjs';
+      return mod;
+    }).catch(err => { pdfjsLibPromise = null; throw err; });
+  }
+  return pdfjsLibPromise;
+}
+
+// Pull plain text out of a file. PDFs go through pdf.js page by page; txt/md
+// (and anything else) are read directly. `onPage` reports PDF progress.
+async function extractText(file, onPage) {
+  const name = (file.name || '').toLowerCase();
+  if (name.endsWith('.pdf')) {
+    const lib = await loadPdfjs();
+    const buf = await file.arrayBuffer();
+    const pdf = await lib.getDocument({ data: buf }).promise;
+    const pages = [];
+    for (let p = 1; p <= pdf.numPages; p++) {
+      const page = await pdf.getPage(p);
+      const content = await page.getTextContent();
+      let line = '';
+      const lines = [];
+      content.items.forEach(it => {
+        if (typeof it.str !== 'string') return;
+        line += it.str;
+        if (it.hasEOL) { lines.push(line); line = ''; }
+      });
+      if (line) lines.push(line);
+      pages.push(lines.join('\n'));
+      if (onPage) onPage(p, pdf.numPages);
+    }
+    return pages.join('\n\n');
+  }
+  return await file.text();
+}
+
+// Split text into slices near a natural boundary so a unit (entry/scene) is
+// less likely to be cut in half across slices.
+function sliceText(text, size) {
+  const out = [];
+  let i = 0;
+  while (i < text.length) {
+    let end = Math.min(text.length, i + size);
+    if (end < text.length) {
+      const w = text.slice(i, end);
+      const para = w.lastIndexOf('\n\n');
+      const nl = w.lastIndexOf('\n');
+      const sp = w.lastIndexOf(' ');
+      const min = size * 0.5;
+      const cut = para > min ? para : (nl > min ? nl : (sp > min ? sp : -1));
+      if (cut > 0) end = i + cut;
+    }
+    const piece = text.slice(i, end).trim();
+    if (piece) out.push(piece);
+    i = end;
+  }
+  return out;
+}
+
+// Drive the AI outline slice by slice, accumulating Sections + Hops, then
+// fold the result into the `db`-shaped object seedProjectContent expects.
+async function runImportOutline(text, instructions, meta, ctl, onProgress) {
+  const slices = sliceText(text, IMPORT_SLICE);
+  if (!slices.length) return null;
+  const sectionId = new Map();   // title -> id
+  const sections = [];           // { id, title } in first-seen order
+  const hops = [];               // { sectionId, title, body }
+  const ensureSection = title => {
+    const t = (title || '').trim() || 'Imported';
+    if (!sectionId.has(t)) {
+      const id = uid();
+      sectionId.set(t, id);
+      sections.push({ id, title: t });
+    }
+    return sectionId.get(t);
+  };
+  for (let i = 0; i < slices.length; i++) {
+    if (ctl.canceled) break;
+    try {
+      const res = await aiInvoke({
+        task: 'import_outline',
+        text: slices[i],
+        instructions,
+        type: meta.type, genre: meta.genre,
+        sectionsSoFar: sections.slice(-60).map(s => s.title)
+      });
+      (Array.isArray(res.sections) ? res.sections : []).forEach(s => ensureSection(s && s.title));
+      (Array.isArray(res.hops) ? res.hops : []).forEach(h => {
+        const body = (h && h.body || '').trim();
+        const title = (h && h.title || '').trim();
+        if (!body && !title) return;
+        hops.push({ sectionId: ensureSection(h.section), title: title || 'Untitled', body });
+      });
+    } catch (_) { /* skip this slice, keep importing the rest */ }
+    onProgress(i + 1, slices.length, sections.length, hops.length);
+  }
+  if (!sections.length || !hops.length) return null;
+  const perSection = new Map();
+  const chunks = hops.map((h, i) => {
+    const n = perSection.get(h.sectionId) || 0;
+    perSection.set(h.sectionId, n + 1);
+    return {
+      id: uid(), chapterId: h.sectionId, title: h.title, body: h.body,
+      narrativeOrder: i, chronoOrder: i, orderInChapter: n,
+      archived: false, labelIds: [], characterIds: [], locationIds: []
+    };
+  });
+  const chapters = sections.map((s, i) => ({ id: s.id, title: s.title, order: i, color: CHAPTER_PALETTE[i % CHAPTER_PALETTE.length] }));
+  return {
+    chapters, chunks, characters: [], locations: [], labels: [], ideas: [],
+    ui: { activeChapter: chapters[0]?.id || null, activeChar: null, activeLoc: null, activeLabel: null }
+  };
+}
+
+// The project-creation upload step. Resolves with a `db`-shaped data object to
+// seed the new project, or null to start blank (skip / cancel / failure).
+function importContentModal(meta) {
+  return new Promise(resolve => {
+    const ctl = { canceled: false };
+    const overlay = document.createElement('div');
+    overlay.className = 'ui-modal-overlay';
+    overlay.innerHTML = `
+      <div class="ui-modal import-modal" role="dialog" aria-modal="true">
+        <div class="ui-modal-title">IMPORT CONTENT</div>
+        <div class="im-body" id="imBody"></div>
+      </div>`;
+    document.body.appendChild(overlay);
+    const bodyEl = overlay.querySelector('#imBody');
+    let chosenFile = null;
+    const finish = val => { overlay.remove(); resolve(val); };
+
+    function renderPick() {
+      ctl.canceled = false;
+      bodyEl.innerHTML = `
+        <p class="im-sub">Optional. Drop a PDF, TXT, or Markdown file and AI will read every word and build your Sections and Hops from it. Or skip and start blank.</p>
+        <label class="im-drop" id="imDrop">
+          <input type="file" id="imFile" accept="${IMPORT_ACCEPT}" hidden />
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><path d="M5 20h14"/></svg>
+          <span class="im-drop-tx">Drag &amp; drop a file here, or <b>browse</b></span>
+          <span class="im-drop-file" id="imFileName"></span>
+        </label>
+        <label class="im-field"><span class="im-label">ANY RECOMMENDATIONS AROUND GROUPING SECTIONS OR HOPS?</span>
+          <textarea class="ui-modal-input im-instr" id="imInstr" rows="3" placeholder="e.g. It's a journal — make every daily entry a HOP with the date as the title, and make Sections the month titled MM/YY."></textarea>
+        </label>
+        <div class="ui-modal-actions">
+          <button class="ui-modal-btn" data-act="skip">Skip</button>
+          <button class="ui-modal-btn solid" data-act="build" disabled>Build</button>
+        </div>`;
+      const fileInput = bodyEl.querySelector('#imFile');
+      const drop = bodyEl.querySelector('#imDrop');
+      const nameEl = bodyEl.querySelector('#imFileName');
+      const buildBtn = bodyEl.querySelector('[data-act="build"]');
+      const setFile = f => {
+        if (!f) return;
+        if (!IMPORT_SUPPORTED.test(f.name || '')) {
+          nameEl.textContent = 'Unsupported file — use PDF, TXT, or MD.';
+          nameEl.classList.add('bad'); chosenFile = null; buildBtn.disabled = true; return;
+        }
+        chosenFile = f; nameEl.classList.remove('bad');
+        nameEl.textContent = f.name + ' · ' + fmtBytes(f.size);
+        buildBtn.disabled = false;
+      };
+      fileInput.addEventListener('change', () => setFile(fileInput.files[0]));
+      ['dragenter', 'dragover'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
+      ['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
+      drop.addEventListener('drop', e => { if (e.dataTransfer.files[0]) setFile(e.dataTransfer.files[0]); });
+      bodyEl.querySelector('[data-act="skip"]').addEventListener('click', () => finish(null));
+      buildBtn.addEventListener('click', () => { if (chosenFile) runBuild(chosenFile, bodyEl.querySelector('#imInstr').value.trim()); });
+    }
+
+    function renderProgress() {
+      bodyEl.innerHTML = `
+        <div class="im-prog">
+          <div class="im-spin"></div>
+          <div class="im-stage" id="imStage">Reading file…</div>
+          <div class="im-bar"><div class="im-fill" id="imFill" style="width:0%"></div></div>
+          <div class="im-counts" id="imCounts"></div>
+          <button class="ui-modal-btn im-cancel" data-act="cancel">Cancel</button>
+        </div>`;
+      bodyEl.querySelector('[data-act="cancel"]').addEventListener('click', () => { ctl.canceled = true; });
+    }
+    const setStage = t => { const e = bodyEl.querySelector('#imStage'); if (e) e.textContent = t; };
+    const setBar = pct => { const e = bodyEl.querySelector('#imFill'); if (e) e.style.width = Math.max(0, Math.min(100, pct)) + '%'; };
+    const setCounts = t => { const e = bodyEl.querySelector('#imCounts'); if (e) e.textContent = t; };
+
+    async function runBuild(file, instructions) {
+      renderProgress();
+      try {
+        setStage('Reading file…');
+        const text = await extractText(file, (p, n) => { setStage('Reading PDF — page ' + p + ' / ' + n); setBar((p / n) * 15); });
+        if (ctl.canceled) return finish(null);
+        if (!text || !text.trim()) {
+          return renderError('No readable text found in that file. If it is a scanned PDF, it has no text layer to import.');
+        }
+        setStage('Building Sections and Hops…');
+        const data = await runImportOutline(text, instructions, meta, ctl, (done, total, secs, hops) => {
+          setBar(15 + (done / total) * 85);
+          setCounts(secs + ' section' + (secs === 1 ? '' : 's') + ' · ' + hops + ' hop' + (hops === 1 ? '' : 's') + '  ·  slice ' + done + ' / ' + total);
+        });
+        if (ctl.canceled) return finish(null);
+        if (!data) return renderError('Could not build any sections or hops from that file. You can start blank and add content manually.');
+        renderDone(data);
+      } catch (err) {
+        renderError('Import failed. ' + (err && err.message ? err.message : ''));
+      }
+    }
+
+    function renderDone(data) {
+      const secs = data.chapters.length, hops = data.chunks.length;
+      bodyEl.innerHTML = `
+        <div class="im-done">
+          <div class="im-check">✓</div>
+          <div class="im-done-tx">Created <b>${secs}</b> section${secs === 1 ? '' : 's'} and <b>${hops}</b> hop${hops === 1 ? '' : 's'} from your file.</div>
+          <div class="ui-modal-actions"><button class="ui-modal-btn solid" data-act="done">Open project</button></div>
+        </div>`;
+      bodyEl.querySelector('[data-act="done"]').addEventListener('click', () => finish(data));
+    }
+    function renderError(msg) {
+      bodyEl.innerHTML = `
+        <div class="im-err">
+          <div class="im-err-tx">${esc(msg)}</div>
+          <div class="ui-modal-actions">
+            <button class="ui-modal-btn" data-act="retry">Try another file</button>
+            <button class="ui-modal-btn solid" data-act="blank">Start blank</button>
+          </div>
+        </div>`;
+      bodyEl.querySelector('[data-act="retry"]').addEventListener('click', renderPick);
+      bodyEl.querySelector('[data-act="blank"]').addEventListener('click', () => finish(null));
+    }
+
+    renderPick();
+  });
+}
+
 async function createProjectFlow() {
   const res = await projectSettingsModal({ title: 'NEW PROJECT', name: 'Untitled', type: 'Book', okText: 'Create' });
   if (!res) return;
+  const seedData = await importContentModal({ type: res.type, genre: res.genre });
   await flushPersist();
   const proj = await createProjectRow(res.name, res.type, res.genre, res.accent);
-  await seedProjectContent(proj.id, null);
+  await seedProjectContent(proj.id, seedData);
   const projects = await fetchProjects();
   renderProjectSelector(projects, proj.id);
   await loadProject(proj.id);

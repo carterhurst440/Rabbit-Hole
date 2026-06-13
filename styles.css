@@ -919,6 +919,50 @@ select.ui-modal-input { cursor: pointer; appearance: none; -webkit-appearance: n
   .search-run { padding: 11px; }
 }
 
+/* ---- IMPORT modal (project-creation upload) ---- */
+.import-modal { width: min(560px, 94vw); max-width: 560px; text-align: left; }
+.im-body { display: flex; flex-direction: column; gap: 14px; }
+.im-sub { font-size: 12px; color: var(--muted); line-height: 1.6; margin: 0; }
+.im-drop {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  padding: 26px 18px; border: 1.5px dashed var(--line-2); border-radius: 8px;
+  background: var(--panel-2); cursor: pointer; text-align: center;
+  transition: border-color 0.15s, background 0.15s;
+}
+.im-drop:hover { border-color: var(--accent-mid); }
+.im-drop.over { border-color: var(--accent); background: var(--panel); }
+.im-drop svg { width: 30px; height: 30px; color: var(--accent); opacity: 0.9; }
+.im-drop-tx { font-size: 12px; color: var(--text); }
+.im-drop-tx b { color: var(--accent); }
+.im-drop-file { font-size: 11px; color: var(--muted); min-height: 14px; }
+.im-drop-file.bad { color: #e07a5f; }
+.im-field { display: flex; flex-direction: column; gap: 6px; }
+.im-label { font-size: 10px; letter-spacing: 0.1em; color: var(--accent); }
+.im-instr { resize: vertical; min-height: 56px; line-height: 1.5; font-family: inherit; }
+/* progress phase */
+.im-prog { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 18px 0 6px; }
+.im-spin {
+  width: 30px; height: 30px; border-radius: 50%;
+  border: 3px solid var(--line-2); border-top-color: var(--accent);
+  animation: im-spin 0.8s linear infinite;
+}
+@keyframes im-spin { to { transform: rotate(360deg); } }
+.im-stage { font-size: 13px; color: var(--text-bright); letter-spacing: 0.04em; text-align: center; }
+.im-bar { width: 100%; height: 6px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+.im-fill { height: 100%; background: var(--accent); transition: width 0.3s ease; }
+.im-counts { font-size: 11px; color: var(--muted); letter-spacing: 0.04em; text-align: center; min-height: 14px; }
+.im-cancel { margin-top: 2px; }
+/* done / error phases */
+.im-done, .im-err { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 12px 0 4px; text-align: center; }
+.im-check {
+  width: 42px; height: 42px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  background: var(--panel-2); border: 1.5px solid var(--accent); color: var(--accent); font-size: 22px;
+}
+.im-done-tx { font-size: 13px; color: var(--text); line-height: 1.6; }
+.im-done-tx b, .im-err-tx b { color: var(--accent); }
+.im-err-tx { font-size: 12px; color: var(--text); line-height: 1.6; }
+.im-done .ui-modal-actions, .im-err .ui-modal-actions { justify-content: center; }
+
 .ref-row { font-size: 12px; background: var(--panel-2); border: 1px solid var(--line); }
 .ref-row.is-open { border-color: var(--accent-mid); }
 .ref-head { display: flex; align-items: center; gap: 8px; padding: 6px 8px; }

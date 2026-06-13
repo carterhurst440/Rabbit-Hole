@@ -21,6 +21,8 @@
 //                                                      -> { strengths: [string], suggestions: [string] }
 //   search_hops       { query, hops:[{title,section,body}] }
 //                                                      -> { matches: [{ index, score, reason, quote }] }
+//   import_outline    { text, instructions, type, genre, sectionsSoFar:[string] }
+//                                                      -> { sections: [{ title }], hops: [{ section, title, body }] }
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
 const CORS = {
@@ -59,6 +61,7 @@ Deno.serve(async (req) => {
     if (task === "suggest_chunks") return await doSuggestChunks(apiKey, body);
     if (task === "analyze_chunk") return await doAnalyzeChunk(apiKey, body);
     if (task === "search_hops") return await doSearchHops(apiKey, body);
+    if (task === "import_outline") return await doImportOutline(apiKey, body);
     return json({ error: `Unknown task: ${task}` }, 400);
   } catch (e) {
     console.error("ai-chat error:", (e as Error)?.message || e);
@@ -584,6 +587,68 @@ async function doSearchHops(
   return json({ matches });
 }
 
+async function doImportOutline(
+  apiKey: string,
+  body: { text?: string; instructions?: string; type?: string; genre?: string; sectionsSoFar?: string[] },
+) {
+  const text = (body.text || "").trim();
+  if (!text) return json({ sections: [], hops: [] });
+  const instructions = (body.instructions || "").trim();
+  const flavor = [body.type, body.genre].filter(Boolean).join(" / ");
+  const sectionsSoFar = (body.sectionsSoFar || [])
+    .filter((s) => typeof s === "string" && s.trim())
+    .map((s) => s.trim())
+    .slice(0, 200);
+  const system =
+    "You are an import engine inside RABBIT HOLE, a book workbench. You convert a raw document into a " +
+    "structured outline of SECTIONS and HOPS. A HOP is a single self-contained unit of content (a scene, " +
+    "a beat, a chapter, a journal entry); a SECTION is a named group of hops. You are given ONE SLICE of " +
+    "a longer document (slices arrive in order), the list of SECTIONS already created from earlier slices, " +
+    "and optional grouping recommendations from the author. Split THIS slice into hops in the order they " +
+    "appear, and assign each hop to a section.\n\n" +
+    "Rules:\n" +
+    "- Preserve the author's actual words. A hop's `body` is the real text of that unit, copied verbatim " +
+    "from the slice, only fixing obvious line-break/whitespace artifacts from extraction. Do NOT summarize, " +
+    "rewrite, or invent content.\n" +
+    "- Give each hop a short, specific `title` drawn from its content.\n" +
+    "- Reuse an existing section title from ALREADY-CREATED SECTIONS verbatim when this content continues " +
+    "that group; only create a NEW section when the content clearly starts a new group.\n" +
+    "- If the slice appears to begin mid-unit (continuing a hop split across the slice boundary), still " +
+    "emit it as a hop with the text you have.\n" +
+    (instructions
+      ? `- FOLLOW THE AUTHOR'S GROUPING RECOMMENDATIONS EXACTLY: ${instructions}\n`
+      : "- Use natural structure (existing chapter/entry/scene breaks, headings, or clear topic shifts) to decide hop and section boundaries.\n") +
+    (flavor ? `- The document is a ${flavor}.\n` : "") +
+    "\nRespond with ONLY a JSON object of the form " +
+    `{"sections":[{"title":"..."}],"hops":[{"section":"...","title":"...","body":"..."}]}. No markdown, no commentary.`;
+  const user =
+    (sectionsSoFar.length
+      ? `ALREADY-CREATED SECTIONS (reuse these titles when the content continues them):\n${sectionsSoFar.map((s) => `- ${s}`).join("\n")}\n\n`
+      : "ALREADY-CREATED SECTIONS: (none yet — this is the first slice)\n\n") +
+    `DOCUMENT SLICE:\n\n${text}`;
+  const raw = await callClaude(apiKey, { system, messages: [{ role: "user", content: user }], max_tokens: 8000 });
+  const parsed = parseJsonObject(raw);
+  const sections = Array.isArray(parsed?.sections)
+    ? (parsed.sections as unknown[])
+        .map((s) => (s && typeof s === "object" ? (s as { title?: unknown }).title : s))
+        .map((t) => (typeof t === "string" ? t.trim() : ""))
+        .filter(Boolean)
+        .map((title) => ({ title }))
+    : [];
+  const hops = Array.isArray(parsed?.hops)
+    ? (parsed.hops as unknown[])
+        .filter((h): h is { section?: unknown; title?: unknown; body?: unknown } => !!h && typeof h === "object")
+        .map((h) => ({
+          section: typeof h.section === "string" ? h.section.trim() : "",
+          title: typeof h.title === "string" ? h.title.trim() : "",
+          body: typeof h.body === "string" ? h.body.trim() : "",
+        }))
+        .filter((h) => h.body || h.title)
+        .slice(0, 200)
+    : [];
+  return json({ sections, hops });
+}
+
 /* ---------------- helpers ---------------- */
 type Ctx = { project?: string | null; type?: string; genre?: string; chapters?: string[]; characters?: { name: string; summary?: string }[] };
 
@@ -615,7 +680,7 @@ function joinChunks(chunks: Chunk[]): string {
     .join("\n\n");
 }
 
-function parseJsonObject(s: string): { characters?: unknown[]; locations?: unknown[]; ideas?: unknown[]; assign?: unknown[]; suggest?: unknown[]; chunks?: unknown[]; strengths?: unknown[]; suggestions?: unknown[]; arc?: unknown[]; principles?: unknown[]; relationships?: unknown[]; matches?: unknown[]; title?: unknown; body?: unknown } | null {
+function parseJsonObject(s: string): { characters?: unknown[]; locations?: unknown[]; ideas?: unknown[]; assign?: unknown[]; suggest?: unknown[]; chunks?: unknown[]; strengths?: unknown[]; suggestions?: unknown[]; arc?: unknown[]; principles?: unknown[]; relationships?: unknown[]; matches?: unknown[]; sections?: unknown[]; hops?: unknown[]; title?: unknown; body?: unknown } | null {
   try {
     const start = s.indexOf("{");
     const end = s.lastIndexOf("}");
