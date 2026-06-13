@@ -35,6 +35,32 @@ function applyProjectAccent(color) {
 // The AI marker. A plain dingbat (not the ✨ emoji) so it inherits the
 // project accent via CSS instead of rendering as a fixed-color emoji.
 const AI_STAR = '<span class="ai-star">✦</span>';
+
+// Inline icons for the three primary AI functions. The shared `aifn-ic` class
+// lets the working-state CSS animate whichever icon a button carries.
+const _aifn = inner => '<svg class="aifn-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">' + inner + '</svg>';
+const IC_DETECT = _aifn('<path d="M4 8V5.5a1.5 1.5 0 0 1 1.5-1.5H8"/><path d="M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8"/><path d="M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16"/><path d="M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16"/><circle cx="12" cy="12" r="2.6"/>');
+const IC_ANALYZE = _aifn('<path d="M4 5v14h16"/><path d="M7.5 14.5l3-3.5 3 2.5 4-5.5"/>');
+const IC_GENERATE = _aifn('<path d="M12 3l1.7 5.3L19 10l-5.3 1.7L12 17l-1.7-5.3L5 10l5.3-1.7L12 3Z"/><path d="M18.5 15l.6 1.9 1.9.6-1.9.6-.6 1.9-.6-1.9-1.9-.6 1.9-.6Z"/>');
+
+// Drive an AI button's working state: swap in its function icon + verb and add
+// the animated `ai-working` class. Returns the prior HTML so callers can restore
+// it (omit the html arg to aiBtnDone when the surrounding pane re-renders).
+function aiBtnStart(btn, icon, verb) {
+  if (!btn) return '';
+  const original = btn.innerHTML;
+  btn.disabled = true;
+  btn.classList.add('ai-working');
+  btn.innerHTML = (icon || AI_STAR) + ' ' + verb;
+  return original;
+}
+function aiBtnDone(btn, html) {
+  if (!btn) return;
+  btn.disabled = false;
+  btn.classList.remove('ai-working');
+  if (html != null) btn.innerHTML = html;
+}
+
 const GENRES = [
   'Literary Fiction', 'Fantasy', 'Science Fiction', 'Mystery', 'Thriller',
   'Horror', 'Romance', 'Historical Fiction', 'Adventure', 'Young Adult',
@@ -1345,15 +1371,14 @@ function renderEntityListInto(container, K, chunk) {
 // then let the author confirm before applying.
 async function generateChunkTags(chunk, btn) {
   if (!(chunk.body || '').trim()) { alertModal('Write some content first.', { title: 'DETECT TAGS' }); return; }
-  const original = btn.innerHTML;
-  btn.disabled = true; btn.innerHTML = AI_STAR + ' THINKING…';
+  const original = aiBtnStart(btn, IC_DETECT, 'SCANNING…');
   try {
     const result = await aiInvoke({
       task: 'suggest_tags',
       chunk: { title: chunk.title, body: chunk.body },
       existing: db.labels.map(l => l.name)
     });
-    btn.disabled = false; btn.innerHTML = original;
+    aiBtnDone(btn, original);
     const assign = (result.assign || []).filter(Boolean);
     const suggest = (result.suggest || []).filter(Boolean);
     if (!assign.length && !suggest.length) { alertModal('No tags suggested for this scene.', { title: 'DETECT TAGS' }); return; }
@@ -1370,7 +1395,7 @@ async function generateChunkTags(chunk, btn) {
       if (lw) { lw.innerHTML = labelEditorHTML(chunk.labelIds || []); const le = lw.querySelector('.label-editor'); if (le) wireLabelEditor(le, chunk); }
     }
   } catch (err) {
-    btn.disabled = false; btn.innerHTML = original;
+    aiBtnDone(btn, original);
     alertModal('Tag generation failed.\n\n' + (err.message || ''), { title: 'DETECT TAGS' });
   }
 }
@@ -1397,18 +1422,17 @@ async function generateChunkBody(chunk, btn) {
   if (!title) { alertModal('Give the hop a title first — the body is generated from it.', { title: 'TITLE IT FIRST' }); return; }
   if ((typeof getEditorText === 'function' ? getEditorText() : chunk.body || '').trim() &&
       !await confirmModal('This will replace the existing body text. Is that okay?', { title: 'REPLACE BODY', okText: 'Replace', danger: false })) return;
-  const original = btn.innerHTML;
-  btn.disabled = true; btn.innerHTML = AI_STAR + ' THINKING…';
+  const original = aiBtnStart(btn, IC_GENERATE, 'WRITING…');
   try {
     const proj = projectsCache.find(p => p.id === activeProjectId);
     const { body: text } = await aiInvoke({ task: 'generate_body', kind: 'hop', title, type: proj?.type || '', genre: proj?.genre || '', section: chapterTitle(chunk.chapterId), ...projectGenContext(chunk.id) });
-    btn.disabled = false; btn.innerHTML = original;
+    aiBtnDone(btn, original);
     if (!text) { alertModal('No body text came back. Try again.', { title: 'GENERATE BODY' }); return; }
     chunk.body = text;
     if (typeof setEditorContent === 'function') setEditorContent(text);
     save(); markChunkDirty();
   } catch (err) {
-    btn.disabled = false; btn.innerHTML = original;
+    aiBtnDone(btn, original);
     alertModal('Body generation failed.\n\n' + (err.message || ''), { title: 'GENERATE BODY' });
   }
 }
@@ -1454,15 +1478,14 @@ function tagReviewModal(assign, suggest) {
 // to the hop. Mirrors the project-wide DETECT but scoped to a single hop.
 async function detectChunkEntities(K, chunk, btn) {
   if (!(chunk.body || '').trim()) { alertModal('Write some content first.', { title: `DETECT ${K.NOUNS}` }); return; }
-  const original = btn.innerHTML;
-  btn.disabled = true; btn.innerHTML = AI_STAR + ' SCANNING…';
+  const original = aiBtnStart(btn, IC_DETECT, 'SCANNING…');
   try {
     const result = await aiInvoke({
       task: K.detectTask,
       chunks: [{ title: chunk.title, body: chunk.body }],
       existing: db[K.coll].map(e => e.name)
     });
-    btn.disabled = false; btn.innerHTML = original;
+    aiBtnDone(btn, original);
     const found = (result[K.resultKey] || []).filter(f => f && f.name);
     if (!found.length) { alertModal(`No ${K.noun}s found in this hop.`, { title: `DETECT ${K.NOUNS}` }); return; }
 
@@ -1489,7 +1512,7 @@ async function detectChunkEntities(K, chunk, btn) {
     save();
     refreshModalEntityChips(K, chunk);
   } catch (err) {
-    btn.disabled = false; btn.innerHTML = original;
+    aiBtnDone(btn, original);
     alertModal('Detection failed.\n\n' + (err.message || ''), { title: `DETECT ${K.NOUNS}` });
   }
 }
@@ -1557,7 +1580,7 @@ async function runChunkAnalysis(chunk) {
 // ANALYSIS — both the open edit modal and the rendered card surfaces.
 function refreshAnalyzeButtons(chunk) {
   const az = document.getElementById('chunkModalAnalyze');
-  if (az && modalChunkId === chunk.id) az.innerHTML = AI_STAR + ' VIEW ANALYSIS';
+  if (az && modalChunkId === chunk.id) az.innerHTML = IC_ANALYZE + ' VIEW ANALYSIS';
   rerenderActiveView();
 }
 
@@ -1566,18 +1589,17 @@ function refreshAnalyzeButtons(chunk) {
 async function analyzeChunk(chunk, btn) {
   if (hasAnalysis(chunk.analysis)) { analysisResultModal(chunk); return; }
   if (!(chunk.body || '').trim()) { alertModal('Write some content first.', { title: 'ANALYZE' }); return; }
-  const original = btn ? btn.innerHTML : '';
-  if (btn) { btn.disabled = true; btn.innerHTML = AI_STAR + ' READING…'; }
+  const original = aiBtnStart(btn, IC_ANALYZE, 'READING…');
   try {
     const out = await runChunkAnalysis(chunk);
-    if (btn) { btn.disabled = false; btn.innerHTML = original; }
+    aiBtnDone(btn, original);
     if (!hasAnalysis(out)) { alertModal('No analysis came back for this hop.', { title: 'ANALYZE' }); return; }
     chunk.analysis = { ...out, ts: Date.now() };
     save();
     refreshAnalyzeButtons(chunk);
     analysisResultModal(chunk);
   } catch (err) {
-    if (btn) { btn.disabled = false; btn.innerHTML = original; }
+    aiBtnDone(btn, original);
     alertModal('Analysis failed.\n\n' + (err.message || ''), { title: 'ANALYZE' });
   }
 }
@@ -1617,8 +1639,7 @@ function analysisResultModal(chunk) {
   overlay.querySelector('[data-act="close"]').addEventListener('click', close);
   reBtn.addEventListener('click', async () => {
     if (!(chunk.body || '').trim()) { alertModal('Write some content first.', { title: 'REANALYZE' }); return; }
-    const orig = reBtn.innerHTML;
-    reBtn.disabled = true; reBtn.innerHTML = AI_STAR + ' READING…';
+    const orig = aiBtnStart(reBtn, IC_ANALYZE, 'READING…');
     try {
       const out = await runChunkAnalysis(chunk);
       if (!hasAnalysis(out)) { alertModal('No analysis came back for this hop.', { title: 'REANALYZE' }); return; }
@@ -1628,7 +1649,7 @@ function analysisResultModal(chunk) {
     } catch (err) {
       alertModal('Analysis failed.\n\n' + (err.message || ''), { title: 'REANALYZE' });
     } finally {
-      reBtn.disabled = false; reBtn.innerHTML = orig;
+      aiBtnDone(reBtn, orig);
     }
   });
 }
@@ -1667,7 +1688,7 @@ function renderChunkCardDisplay(c) {
       ${c.archived ? '<span class="arch-badge">ARCHIVED</span>' : ''}
       <span class="chunk-disp-meta">${meta}</span>
       <span class="chunk-disp-actions">
-        <button class="add-btn hop-act" data-f="analyze" title="AI: analyze this hop">${hasAnalysis(c.analysis) ? AI_STAR + ' VIEW ANALYSIS' : AI_STAR + ' ANALYZE'}</button>
+        <button class="add-btn hop-act" data-f="analyze" title="AI: analyze this hop">${hasAnalysis(c.analysis) ? IC_ANALYZE + ' VIEW ANALYSIS' : IC_ANALYZE + ' ANALYZE'}</button>
         <button class="add-btn hop-act" data-f="post" title="Share this hop to the community">↗ POST</button>
         <button class="add-btn hop-act" data-f="viewposts" title="Manage this hop's community posts">▤ POSTS <span class="pc-badge">0</span></button>
         <button class="add-btn hop-act" data-f="archive">${c.archived ? 'UNARCHIVE' : 'ARCHIVE'}</button>
@@ -1676,7 +1697,7 @@ function renderChunkCardDisplay(c) {
         <details class="hop-kebab">
           <summary title="Options">⋮</summary>
           <div class="hop-menu">
-            <button class="add-btn" data-f="analyze">${hasAnalysis(c.analysis) ? AI_STAR + ' VIEW ANALYSIS' : AI_STAR + ' ANALYZE'}</button>
+            <button class="add-btn" data-f="analyze">${hasAnalysis(c.analysis) ? IC_ANALYZE + ' VIEW ANALYSIS' : IC_ANALYZE + ' ANALYZE'}</button>
             <button class="add-btn" data-f="post">↗ POST TO COMMUNITY</button>
             <button class="add-btn" data-f="viewposts">▤ VIEW POSTS <span class="pc-badge">0</span></button>
             <button class="add-btn" data-f="archive">${c.archived ? 'UNARCHIVE' : 'ARCHIVE'}</button>
@@ -2141,7 +2162,7 @@ function openChunkModal(chunkId) {
 
   const az = document.getElementById('chunkModalAnalyze');
   if (az) {
-    az.innerHTML = hasAnalysis(c.analysis) ? AI_STAR + ' VIEW ANALYSIS' : AI_STAR + ' ANALYZE';
+    az.innerHTML = hasAnalysis(c.analysis) ? IC_ANALYZE + ' VIEW ANALYSIS' : IC_ANALYZE + ' ANALYZE';
     az.onclick = () => {
       // Analyze the live editor text, not the last-saved body.
       c.title = document.getElementById('chunkModalTitle').value;
@@ -2727,7 +2748,7 @@ function renderEntityPane(K) {
       <h3>SUMMARY</h3>
       <div class="char-summary">${c.summary ? esc(c.summary) : '<span style="color:var(--muted)">No summary yet.</span>'}</div>
       <div style="margin-top:10px;display:flex;gap:8px">
-        <button class="add-btn" data-f="gen" title="AI: summarize from every chunk that references this ${K.noun}">${AI_STAR} GENERATE</button>
+        <button class="add-btn" data-f="gen" title="AI: summarize from every chunk that references this ${K.noun}">${IC_GENERATE} GENERATE</button>
         <button class="add-btn" data-f="editsum">EDIT MANUALLY</button>
       </div>
     </div>
@@ -2737,7 +2758,7 @@ function renderEntityPane(K) {
       ${renderArc(c)}
       ${renderPrinciples(c)}
       <div style="margin-top:10px;display:flex;gap:8px">
-        <button class="add-btn" data-f="genarc" title="AI: trace this character's growth and core principles across every reference, in story order">${AI_STAR} ${((c.arc || []).length || (c.principles || []).length) ? 'REGENERATE ARC' : 'GENERATE ARC'}</button>
+        <button class="add-btn" data-f="genarc" title="AI: trace this character's growth and core principles across every reference, in story order">${IC_GENERATE} ${((c.arc || []).length || (c.principles || []).length) ? 'REGENERATE ARC' : 'GENERATE ARC'}</button>
         ${((c.arc || []).length || (c.principles || []).length) ? '<button class="add-btn" data-f="cleararc">CLEAR</button>' : ''}
       </div>
     </div>
@@ -2745,7 +2766,7 @@ function renderEntityPane(K) {
       <h3>RELATIONSHIPS</h3>
       ${renderRelationships(c)}
       <div style="margin-top:10px;display:flex;gap:8px">
-        <button class="add-btn" data-f="genrel" title="AI: find every other character this one is tied to, with references">${AI_STAR} ${(c.relationships || []).length ? 'REGENERATE' : 'ANALYZE RELATIONSHIPS'}</button>
+        <button class="add-btn" data-f="genrel" title="AI: find every other character this one is tied to, with references">${IC_ANALYZE} ${(c.relationships || []).length ? 'REGENERATE' : 'ANALYZE RELATIONSHIPS'}</button>
         ${(c.relationships || []).length ? '<button class="add-btn" data-f="clearrel">CLEAR</button>' : ''}
       </div>
     </div>` : ''}
@@ -2944,8 +2965,7 @@ function openMergeModal(K, c) {
 async function generateEntitySummary(K, c, btn) {
   const refs = refsFor(K, c);
   if (!refs.length) { alertModal(`No chunks reference this ${K.noun} yet.`, { title: 'AI SUMMARY' }); return; }
-  const original = btn ? btn.innerHTML : '';
-  if (btn) { btn.disabled = true; btn.innerHTML = AI_STAR + ' THINKING…'; }
+  const original = aiBtnStart(btn, IC_GENERATE, 'THINKING…');
   try {
     const { reply } = await aiInvoke({
       task: K.sumTask,
@@ -2955,7 +2975,7 @@ async function generateEntitySummary(K, c, btn) {
     });
     c.summary = reply || ''; save(); renderEntityPane(K);
   } catch (err) {
-    if (btn) { btn.disabled = false; btn.innerHTML = original; }
+    aiBtnDone(btn, original);
     alertModal('Could not generate summary.\n\n' + (err.message || ''), { title: 'AI SUMMARY' });
   }
 }
@@ -3016,8 +3036,7 @@ function renderPrinciples(c) {
 async function generateCharArc(K, c, btn) {
   const refs = refsFor(K, c).slice().sort((a, b) => (a.narrativeOrder ?? 0) - (b.narrativeOrder ?? 0));
   if (!refs.length) { alertModal('No chunks reference this character yet.', { title: 'CHARACTER ARC' }); return; }
-  const original = btn ? btn.innerHTML : '';
-  if (btn) { btn.disabled = true; btn.innerHTML = AI_STAR + ' PLOTTING…'; }
+  const original = aiBtnStart(btn, IC_GENERATE, 'PLOTTING…');
   try {
     const { arc, principles } = await aiInvoke({
       task: 'char_arc',
@@ -3030,7 +3049,7 @@ async function generateCharArc(K, c, btn) {
     save(); renderEntityPane(K);
     if (!c.arc.length && !c.principles.length) alertModal('Could not plot an arc from these references.', { title: 'CHARACTER ARC' });
   } catch (err) {
-    if (btn) { btn.disabled = false; btn.innerHTML = original; }
+    aiBtnDone(btn, original);
     alertModal('Could not generate arc.\n\n' + (err.message || ''), { title: 'CHARACTER ARC' });
   }
 }
@@ -3089,14 +3108,13 @@ async function analyzeOneRelationship(K, c) {
 async function generateCharRelationships(K, c, btn) {
   if (!refsFor(K, c).length) { alertModal('No chunks reference this character yet.', { title: 'RELATIONSHIPS' }); return; }
   if (!db[K.coll].some(x => x.id !== c.id)) { alertModal('Add more characters first — there is no one to relate this character to.', { title: 'RELATIONSHIPS' }); return; }
-  const original = btn ? btn.innerHTML : '';
-  if (btn) { btn.disabled = true; btn.innerHTML = AI_STAR + ' ANALYZING…'; }
+  const original = aiBtnStart(btn, IC_ANALYZE, 'ANALYZING…');
   try {
     await analyzeOneRelationship(K, c);
     renderEntityPane(K);
     if (!c.relationships.length) alertModal('No relationships found among the other tracked characters.', { title: 'RELATIONSHIPS' });
   } catch (err) {
-    if (btn) { btn.disabled = false; btn.innerHTML = original; }
+    aiBtnDone(btn, original);
     alertModal('Could not analyze relationships.\n\n' + (err.message || ''), { title: 'RELATIONSHIPS' });
   }
 }
@@ -3270,8 +3288,7 @@ async function detectEntities(K) {
   const chunks = scope === 'new' ? fresh : all;
   if (!chunks.length) { alertModal('No new content since the last scan.', { title: `DETECT ${K.NOUNS}` }); return; }
 
-  const original = btn.innerHTML;
-  btn.disabled = true; btn.innerHTML = AI_STAR + ' SCANNING…';
+  const original = aiBtnStart(btn, IC_DETECT, 'SCANNING…');
   try {
     const result = await aiInvoke({
       task: K.detectTask,
@@ -3279,7 +3296,7 @@ async function detectEntities(K) {
       existing: db[K.coll].map(c => c.name)
     });
     const found = result[K.resultKey] || [];
-    btn.disabled = false; btn.innerHTML = original;
+    aiBtnDone(btn, original);
     const nowScanned = new Set([...(db.ui[K.scannedKey] || []), ...chunks.map(c => c.id)]);
     db.ui[K.scannedKey] = [...nowScanned];
 
@@ -3292,7 +3309,7 @@ async function detectEntities(K) {
     db.ui[K.active] = db[K.coll][db[K.coll].length - 1].id;
     save(); renderEntityList(K);
   } catch (err) {
-    btn.disabled = false; btn.innerHTML = original;
+    aiBtnDone(btn, original);
     alertModal('Detection failed.\n\n' + (err.message || ''), { title: `DETECT ${K.NOUNS}` });
   }
 }
@@ -3447,7 +3464,7 @@ function renderLabelPane() {
       <h3>SUMMARY <span style="color:var(--muted);font-weight:400">(AI — themes across tagged chunks)</span></h3>
       <div class="char-summary" id="tagSummary">${l.summary ? esc(l.summary) : '<span style="color:var(--muted)">No summary yet.</span>'}</div>
       <div style="margin-top:10px;display:flex;gap:8px">
-        <button class="add-btn" id="genTagSummaryBtn">${AI_STAR} GENERATE</button>
+        <button class="add-btn" id="genTagSummaryBtn">${IC_GENERATE} GENERATE</button>
         <button class="add-btn" id="editTagSummaryBtn">EDIT MANUALLY</button>
       </div>
     </div>
@@ -3520,8 +3537,7 @@ function renderLabelPane() {
 async function generateTagSummary(l, btn) {
   const chunks = labelUsage(l.id).chunks;
   if (!chunks.length) { alertModal('No hops use this tag yet.', { title: 'TAG SUMMARY' }); return; }
-  const original = btn.innerHTML;
-  btn.disabled = true; btn.innerHTML = AI_STAR + ' THINKING…';
+  const original = aiBtnStart(btn, IC_GENERATE, 'THINKING…');
   try {
     const { reply } = await aiInvoke({
       task: 'tag_summary',
@@ -3530,7 +3546,7 @@ async function generateTagSummary(l, btn) {
     });
     l.summary = reply || ''; save(); renderLabelPane();
   } catch (err) {
-    btn.disabled = false; btn.innerHTML = original;
+    aiBtnDone(btn, original);
     alertModal('Could not generate summary.\n\n' + (err.message || ''), { title: 'TAG SUMMARY' });
   }
 }
@@ -3783,8 +3799,7 @@ async function generateIdeaSuggestions() {
   const btn = document.getElementById('suggestIdeasBtn');
   const chunks = db.chunks.filter(c => (c.body || '').trim());
   if (!chunks.length) { alertModal('No hop content to read yet.', { title: 'GENERATE IDEAS' }); return; }
-  const original = btn.innerHTML;
-  btn.disabled = true; btn.innerHTML = AI_STAR + ' THINKING…';
+  const original = aiBtnStart(btn, IC_GENERATE, 'THINKING…');
   try {
     const proj = projectsCache.find(p => p.id === activeProjectId);
     const { ideas } = await aiInvoke({
@@ -3793,7 +3808,7 @@ async function generateIdeaSuggestions() {
       genre: proj?.genre || '',
       chunks: chunks.map(c => ({ title: c.title, body: c.body }))
     });
-    btn.disabled = false; btn.innerHTML = original;
+    aiBtnDone(btn, original);
     if (!ideas || !ideas.length) { alertModal('No ideas came back. Try again.', { title: 'GENERATE IDEAS' }); return; }
     const chosen = await ideaReviewModal(ideas);
     if (!chosen || !chosen.length) return;
@@ -3802,7 +3817,7 @@ async function generateIdeaSuggestions() {
     save(); renderIdeas();
     chosen.forEach(() => recordWritingActivity());
   } catch (err) {
-    btn.disabled = false; btn.innerHTML = original;
+    aiBtnDone(btn, original);
     alertModal('Could not generate ideas.\n\n' + (err.message || ''), { title: 'GENERATE IDEAS' });
   }
 }
@@ -3850,14 +3865,14 @@ function ideaEditModal(idea) {
       <div class="ie-field">
         <div class="ie-label-row">
           <span class="ie-label">NAME</span>
-          <button class="ie-gen" data-act="gen"><span class="ai-star">✦</span> GENERATE</button>
+          <button class="ie-gen" data-act="gen">${IC_GENERATE} GENERATE</button>
         </div>
         <input class="ie-name" type="text" maxlength="120" placeholder="Idea name…" />
       </div>
       <div class="ie-field">
         <div class="ie-label-row">
           <span class="ie-label">BODY</span>
-          <button class="ie-gen" data-act="genbody"><span class="ai-star">✦</span> GENERATE BODY</button>
+          <button class="ie-gen" data-act="genbody">${IC_GENERATE} GENERATE BODY</button>
         </div>
         <textarea class="ie-body" rows="7" placeholder="Flesh it out…"></textarea>
       </div>
@@ -3906,17 +3921,14 @@ function ideaEditModal(idea) {
   genBtn.addEventListener('click', async () => {
     const body = bodyInput.value.trim();
     if (!body) { alertModal('Write some body text first, then generate a title from it.', { title: 'NOTHING TO TITLE' }); return; }
-    genBtn.disabled = true;
-    const prev = genBtn.innerHTML;
-    genBtn.innerHTML = `<span class="ai-star spin">✦</span> …`;
+    const prev = aiBtnStart(genBtn, IC_GENERATE, '…');
     try {
       const { title } = await aiInvoke({ task: 'idea_title', body });
       if (title) nameInput.value = title;
     } catch (err) {
       alertModal(err.message || 'Could not generate a title.', { title: 'GENERATE FAILED' });
     } finally {
-      genBtn.disabled = false;
-      genBtn.innerHTML = prev;
+      aiBtnDone(genBtn, prev);
     }
   });
 
@@ -3925,9 +3937,7 @@ function ideaEditModal(idea) {
     const title = nameInput.value.trim();
     if (!title) { alertModal('Give the idea a name first — the body is generated from it.', { title: 'NAME IT FIRST' }); return; }
     if (bodyInput.value.trim() && !await confirmModal('This will replace the existing body text. Is that okay?', { title: 'REPLACE BODY', okText: 'Replace', danger: false })) return;
-    genBodyBtn.disabled = true;
-    const prev = genBodyBtn.innerHTML;
-    genBodyBtn.innerHTML = `<span class="ai-star spin">✦</span> …`;
+    const prev = aiBtnStart(genBodyBtn, IC_GENERATE, '…');
     try {
       const proj = projectsCache.find(p => p.id === activeProjectId);
       const { body: text } = await aiInvoke({ task: 'generate_body', kind: 'idea', title, type: proj?.type || '', genre: proj?.genre || '', ...projectGenContext(null) });
@@ -3935,8 +3945,7 @@ function ideaEditModal(idea) {
     } catch (err) {
       alertModal(err.message || 'Could not generate body text.', { title: 'GENERATE FAILED' });
     } finally {
-      genBodyBtn.disabled = false;
-      genBodyBtn.innerHTML = prev;
+      aiBtnDone(genBodyBtn, prev);
     }
   });
 

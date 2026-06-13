@@ -820,6 +820,36 @@ select.ui-modal-input { cursor: pointer; appearance: none; -webkit-appearance: n
 /* ---------- AI writing tools ---------- */
 .add-btn:disabled { opacity: 0.6; cursor: default; }
 .add-btn:disabled:hover { border-color: var(--line-2); color: var(--text); background: none; }
+
+/* Inline icon for the three primary AI functions (DETECT / ANALYZE / GENERATE) */
+.aifn-ic {
+  width: 13px; height: 13px; flex: none; display: inline-block;
+  vertical-align: -2px; color: var(--accent);
+}
+
+/* Working state: the icon breathes and a thin accent bar sweeps the button base.
+   Overrides the disabled dimming so a busy button reads as active, not greyed. */
+.ai-working { position: relative; overflow: hidden; color: var(--accent); cursor: progress; }
+.ai-working:disabled { opacity: 1; }
+.idea-edit-modal .ie-gen.ai-working:disabled { opacity: 1; }
+.ai-working:hover { border-color: var(--accent); color: var(--accent); background: none; }
+.ai-working .aifn-ic, .ai-working .ai-star {
+  animation: aifn-pulse 1.05s ease-in-out infinite; transform-origin: center;
+}
+.ai-working::after {
+  content: ""; position: absolute; left: -35%; bottom: 0; height: 1.5px; width: 35%;
+  background: var(--accent); border-radius: 2px;
+  animation: aifn-sweep 1.05s cubic-bezier(0.55, 0, 0.45, 1) infinite;
+}
+@keyframes aifn-pulse {
+  0%, 100% { opacity: 0.4; transform: scale(0.86); }
+  50% { opacity: 1; transform: scale(1.06); }
+}
+@keyframes aifn-sweep { 0% { left: -35%; } 100% { left: 100%; } }
+@media (prefers-reduced-motion: reduce) {
+  .ai-working .aifn-ic, .ai-working .ai-star, .ai-working::after { animation: none; }
+}
+
 .rail-actions { display: flex; gap: 6px; align-items: center; }
 
 /* character names highlighted inside chunk prose */
@@ -1109,8 +1139,6 @@ select.ui-modal-input { cursor: pointer; appearance: none; -webkit-appearance: n
 .idea-edit-modal .ie-spacer { flex: 1; }
 .ui-modal-btn.danger.ghost { background: transparent; border-color: var(--line-2); color: #c0584e; }
 .ui-modal-btn.danger.ghost:hover { border-color: #c0584e; background: rgba(192,88,78,0.1); color: #c0584e; }
-.ai-star.spin { display: inline-block; animation: ai-star-spin 0.9s linear infinite; }
-@keyframes ai-star-spin { to { transform: rotate(360deg); } }
 
 /* ---------- AUTH GATE ---------- */
 /* Line-art card matching the handoff: dark ground, cream "ink" strokes, accent.
