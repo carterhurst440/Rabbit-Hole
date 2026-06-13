@@ -213,12 +213,16 @@ async function doDetect(apiKey: string, body: { chunks?: Chunk[]; existing?: str
   const existing = (body.existing || []).filter(Boolean);
   const system =
     "You are a character extractor inside RABBIT HOLE, a book workbench. Read the manuscript " +
-    "excerpts and identify the distinct named characters (people). For each, give the canonical " +
-    "name and any aliases/nicknames/titles used for the same person. Ignore place names, objects, " +
-    "and generic references. Respond with ONLY a JSON object of the form " +
+    "excerpts and identify the distinct named characters (people) that ACTUALLY APPEAR in the " +
+    "excerpt text below. For each, give the canonical name and any aliases/nicknames/titles used " +
+    "for the same person. Ignore place names, objects, and generic references. " +
+    "CRITICAL: Only return characters who are genuinely mentioned in the excerpt text. Do NOT " +
+    "include a name merely because it appears in the already-tracked list — that list is provided " +
+    "ONLY so you can reuse the same canonical spelling for anyone who does appear. If an excerpt " +
+    "mentions no characters, return an empty array. Respond with ONLY a JSON object of the form " +
     `{"characters":[{"name":"Jane Doe","aliases":["Jane","Doc"]}]}. No markdown, no commentary.`;
   const user =
-    (existing.length ? `Characters already tracked (still list them if present, but focus on new ones): ${existing.join(", ")}\n\n` : "") +
+    (existing.length ? `Canonical names already tracked (use these spellings for any that appear in the excerpts; do NOT list ones that are absent): ${existing.join(", ")}\n\n` : "") +
     `EXCERPTS:\n\n${joinChunks(chunks)}`;
   const raw = await callClaude(apiKey, { system, messages: [{ role: "user", content: user }], max_tokens: 1500 });
   const parsed = parseJsonObject(raw);
@@ -239,14 +243,18 @@ async function doDetectLocations(apiKey: string, body: { chunks?: Chunk[]; exist
   const existing = (body.existing || []).filter(Boolean);
   const system =
     "You are a setting/location extractor inside RABBIT HOLE, a book workbench. Read the manuscript " +
-    "excerpts and identify the distinct named places and settings — cities, towns, regions, " +
-    "buildings, rooms, landmarks, planets, realms, named natural features. For each, give the " +
-    "canonical name and any aliases/alternate names/nicknames used for the same place. Ignore " +
-    "people, objects, organizations, and generic references (e.g. 'the house' with no name). " +
-    "Respond with ONLY a JSON object of the form " +
+    "excerpts and identify the distinct named places and settings that ACTUALLY APPEAR in the " +
+    "excerpt text below — cities, towns, regions, buildings, rooms, landmarks, planets, realms, " +
+    "named natural features. For each, give the canonical name and any aliases/alternate " +
+    "names/nicknames used for the same place. Ignore people, objects, organizations, and generic " +
+    "references (e.g. 'the house' with no name). " +
+    "CRITICAL: Only return places that are genuinely mentioned in the excerpt text. Do NOT include " +
+    "a place merely because it appears in the already-tracked list — that list is provided ONLY so " +
+    "you can reuse the same canonical spelling for any place that does appear. If an excerpt " +
+    "mentions no places, return an empty array. Respond with ONLY a JSON object of the form " +
     `{"locations":[{"name":"Rivermouth","aliases":["the Mouth"]}]}. No markdown, no commentary.`;
   const user =
-    (existing.length ? `Locations already tracked (still list them if present, but focus on new ones): ${existing.join(", ")}\n\n` : "") +
+    (existing.length ? `Canonical names already tracked (use these spellings for any that appear in the excerpts; do NOT list ones that are absent): ${existing.join(", ")}\n\n` : "") +
     `EXCERPTS:\n\n${joinChunks(chunks)}`;
   const raw = await callClaude(apiKey, { system, messages: [{ role: "user", content: user }], max_tokens: 1500 });
   const parsed = parseJsonObject(raw);

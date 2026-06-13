@@ -1486,7 +1486,10 @@ async function detectChunkEntities(K, chunk, btn) {
       existing: db[K.coll].map(e => e.name)
     });
     aiBtnDone(btn, original);
-    const found = (result[K.resultKey] || []).filter(f => f && f.name);
+    const bodyLc = (chunk.body || '').toLowerCase();
+    const inBody = name => { const n = (name || '').trim().toLowerCase(); return n && bodyLc.includes(n); };
+    const found = (result[K.resultKey] || []).filter(f =>
+      f && f.name && (inBody(f.name) || (f.aliases || []).some(inBody)));
     if (!found.length) { alertModal(`No ${K.noun}s found in this hop.`, { title: `DETECT ${K.NOUNS}` }); return; }
 
     const byKey = new Map();
