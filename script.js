@@ -1269,7 +1269,7 @@ function renderEntityListInto(container, K, chunk) {
       if (i >= 0) arr.splice(i, 1);
       save(); markChunkDirty();
       renderEntityListInto(container, K, chunk);
-      if (typeof renderChunkMirror === 'function') renderChunkMirror();
+      if (typeof renderEditorHighlights === 'function') renderEditorHighlights();
     });
   });
   const addBtn = container.querySelector('[data-ent-addmore]');
@@ -1283,7 +1283,7 @@ function renderEntityListInto(container, K, chunk) {
       if (!chunk[K.link].includes(id)) chunk[K.link].push(id);
       save(); markChunkDirty();
       renderEntityListInto(container, K, chunk);
-      if (typeof renderChunkMirror === 'function') renderChunkMirror();
+      if (typeof renderEditorHighlights === 'function') renderEditorHighlights();
     });
   }
 }
@@ -1340,10 +1340,9 @@ function projectGenContext(excludeId) {
 
 async function generateChunkBody(chunk, btn) {
   const titleEl = document.getElementById('chunkModalTitle');
-  const bodyEl = document.getElementById('chunkModalBody');
   const title = (titleEl ? titleEl.value : chunk.title || '').trim();
   if (!title) { alertModal('Give the hop a title first — the body is generated from it.', { title: 'TITLE IT FIRST' }); return; }
-  if ((bodyEl ? bodyEl.value : chunk.body || '').trim() &&
+  if ((typeof getEditorText === 'function' ? getEditorText() : chunk.body || '').trim() &&
       !await confirmModal('This will replace the existing body text. Is that okay?', { title: 'REPLACE BODY', okText: 'Replace', danger: false })) return;
   const original = btn.innerHTML;
   btn.disabled = true; btn.innerHTML = AI_STAR + ' THINKING…';
@@ -1352,9 +1351,9 @@ async function generateChunkBody(chunk, btn) {
     const { body: text } = await aiInvoke({ task: 'generate_body', kind: 'hop', title, type: proj?.type || '', genre: proj?.genre || '', section: chapterTitle(chunk.chapterId), ...projectGenContext(chunk.id) });
     btn.disabled = false; btn.innerHTML = original;
     if (!text) { alertModal('No body text came back. Try again.', { title: 'GENERATE BODY' }); return; }
-    if (bodyEl) bodyEl.value = text;
     chunk.body = text;
-    save(); markChunkDirty(); renderChunkMirror();
+    if (typeof setEditorContent === 'function') setEditorContent(text);
+    save(); markChunkDirty();
   } catch (err) {
     btn.disabled = false; btn.innerHTML = original;
     alertModal('Body generation failed.\n\n' + (err.message || ''), { title: 'GENERATE BODY' });
@@ -2036,7 +2035,7 @@ function openChunkModal(chunkId) {
   modalChunkId = chunkId;
 
   document.getElementById('chunkModalTitle').value = c.title;
-  document.getElementById('chunkModalBody').value = c.body;
+  setEditorContent(c.body);
   document.getElementById('chunkModalChrono').value = c.chronoLabel || '';
   document.getElementById('chunkModalArchive').textContent = c.archived ? 'UNARCHIVE' : 'ARCHIVE';
   const vpBadge = document.querySelector('#chunkModalViewPosts .pc-badge');
@@ -2093,13 +2092,13 @@ function openChunkModal(chunkId) {
     az.onclick = () => {
       // Analyze the live editor text, not the last-saved body.
       c.title = document.getElementById('chunkModalTitle').value;
-      c.body = document.getElementById('chunkModalBody').value;
+      c.body = getEditorText();
       analyzeChunk(c, az);
     };
   }
 
   hideChunkPop();
-  renderChunkMirror();
+  renderEditorHighlights();
   setChunkSaveState('pristine');
   document.getElementById('chunkModalOverlay').hidden = false;
 }
@@ -2111,7 +2110,7 @@ function refreshModalEntityChips(K, c) {
   const wrap = document.getElementById(id);
   if (!wrap) return;
   renderEntityListInto(wrap, K, c);
-  renderChunkMirror();
+  renderEditorHighlights();
 }
 
 function closeChunkModal() {
@@ -2139,7 +2138,8 @@ function rerenderActiveView() {
 (function wireChunkModal() {
   const cur = () => resolveChunk(modalChunkId);
   document.getElementById('chunkModalTitle').addEventListener('input', e => { const c = cur(); if (c) { c.title = e.target.value; save(); markChunkDirty(); } });
-  document.getElementById('chunkModalBody').addEventListener('input', e => { const c = cur(); if (c) { c.body = e.target.value; save(); markChunkDirty(); renderChunkMirror(); hideChunkPop(); } });
+  const onBodyInput = () => { const c = cur(); if (!c) return; c.body = getEditorText(); save(); markChunkDirty(); hideChunkPop(); scheduleRehighlight(); };
+  document.getElementById('chunkModalBody').addEventListener('input', onBodyInput);
   document.getElementById('chunkModalChrono').addEventListener('input', e => { const c = cur(); if (c) { c.chronoLabel = e.target.value; save(); markChunkDirty(); } });
   document.getElementById('chunkModalChapterSel').addEventListener('change', e => {
     const c = cur(); if (!c) return;
@@ -2183,13 +2183,25 @@ function rerenderActiveView() {
   labelsWrap.addEventListener('click', e => { if (e.target.closest('.lbl-chip')) markChunkDirty(); });
   labelsWrap.addEventListener('input', () => markChunkDirty());
   const bodyEl = document.getElementById('chunkModalBody');
-  const mirrorEl = document.getElementById('chunkBodyMirror');
-  bodyEl.addEventListener('scroll', () => { mirrorEl.scrollTop = bodyEl.scrollTop; mirrorEl.scrollLeft = bodyEl.scrollLeft; if (!document.getElementById('chunkHlPop').hidden) hideChunkPop(); });
+  bodyEl.addEventListener('compositionstart', () => { imeComposing = true; });
+  bodyEl.addEventListener('compositionend', () => { imeComposing = false; scheduleRehighlight(); });
+  bodyEl.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); insertTextAtCaret('\n'); onBodyInput(); }
+  });
+  bodyEl.addEventListener('paste', e => {
+    e.preventDefault();
+    const t = ((e.clipboardData || window.clipboardData).getData('text/plain') || '');
+    insertTextAtCaret(t); onBodyInput();
+  });
+  bodyEl.addEventListener('scroll', () => { if (!document.getElementById('chunkHlPop').hidden) hideChunkPop(); });
   bodyEl.addEventListener('mouseup', () => setTimeout(onChunkBodySelect, 0));
-  bodyEl.addEventListener('blur', () => setTimeout(() => { const pop = document.getElementById('chunkHlPop'); if (pop && !pop.contains(document.activeElement)) hideChunkPop(); }, 120));
+  bodyEl.addEventListener('blur', () => setTimeout(() => {
+    const pop = document.getElementById('chunkHlPop');
+    if (pop && !pop.contains(document.activeElement)) { hideChunkPop(); renderEditorHighlights(); }
+  }, 150));
   document.addEventListener('mousedown', e => {
     const pop = document.getElementById('chunkHlPop');
-    if (pop && !pop.hidden && !pop.contains(e.target) && e.target !== bodyEl) hideChunkPop();
+    if (pop && !pop.hidden && !pop.contains(e.target) && !bodyEl.contains(e.target)) hideChunkPop();
   });
   document.getElementById('chunkModalClose').addEventListener('click', closeChunkModal);
   document.getElementById('chunkModalOverlay').addEventListener('click', e => {
@@ -2205,11 +2217,10 @@ function rerenderActiveView() {
 })();
 
 /* ---- inline character/location highlighting in the hop body ----
-   A mirror div behind the (transparent-text) textarea paints every live
-   character/location mention in its entity color. Clicking a mention offers to
-   remove it from the hop; selecting any span offers to tag it as an existing or
-   new character/location. The mirror also serves as the geometry oracle for
-   positioning those popovers. */
+   The hop body is a contenteditable that paints names in their entity colors,
+   exactly like the Sections VIEW. Names recolor shortly after you stop typing
+   (caret preserved). Clicking a colored name offers to remove it from the hop;
+   selecting any text shows a small + button that expands into a tag picker. */
 
 // Live, non-dismissed character + location mentions in this chunk's body, sorted
 // and de-overlapped (first match wins), each carrying its entity + ordinal so a
@@ -2230,27 +2241,62 @@ function chunkHighlightSpans(chunk) {
   return kept;
 }
 
-function renderChunkMirror() {
-  const mirror = document.getElementById('chunkBodyMirror');
-  const ta = document.getElementById('chunkModalBody');
-  const chunk = resolveChunk(modalChunkId);
-  if (!mirror || !ta || !chunk) return;
-  const raw = String(ta.value);
-  const spans = chunkHighlightSpans({ ...chunk, body: raw });
-  let html = '', last = 0;
-  spans.forEach(r => {
-    html += esc(raw.slice(last, r.start));
-    const col = r.color ? ` style="color:${r.color}"` : '';
-    html += `<mark class="hl-occ" data-ent="${r.ent.id}" data-kind="${r.kind.noun}" data-ord="${r.ord}" data-s="${r.start}" data-e="${r.end}"${col}>${esc(raw.slice(r.start, r.end))}</mark>`;
-    last = r.end;
-  });
-  html += esc(raw.slice(last)) + '\n';
-  mirror.innerHTML = html;
-  mirror.scrollTop = ta.scrollTop; mirror.scrollLeft = ta.scrollLeft;
+function getEditorText() {
+  const el = document.getElementById('chunkModalBody');
+  return el ? el.textContent : '';
 }
 
-// Map a character offset within the mirror's text to a {node, off} DOM position.
-function mirrorOffsetToNode(root, offset) {
+// Set the editor's full content from plain text (used on open / generate).
+function setEditorContent(text) {
+  const el = document.getElementById('chunkModalBody');
+  if (el) el.innerHTML = highlightNames(text || '', entityHighlightTerms());
+}
+
+// Re-paint the editor from its own current text, optionally keeping the caret.
+function renderEditorHighlights(opts) {
+  const el = document.getElementById('chunkModalBody');
+  const chunk = resolveChunk(modalChunkId);
+  if (!el || !chunk) return;
+  const preserve = opts && opts.preserveCaret && document.activeElement === el;
+  const off = preserve ? getCaretOffset(el) : null;
+  el.innerHTML = highlightNames(getEditorText(), entityHighlightTerms());
+  if (off != null) setCaretOffset(el, off);
+}
+
+let rehighlightTimer = null, imeComposing = false;
+function scheduleRehighlight() {
+  clearTimeout(rehighlightTimer);
+  rehighlightTimer = setTimeout(() => {
+    if (imeComposing) return;
+    if (document.getElementById('chunkModalOverlay').hidden) return;
+    renderEditorHighlights({ preserveCaret: true });
+  }, 500);
+}
+
+function insertTextAtCaret(text) {
+  const sel = window.getSelection();
+  if (!sel || !sel.rangeCount) return;
+  const range = sel.getRangeAt(0);
+  range.deleteContents();
+  const node = document.createTextNode(text);
+  range.insertNode(node);
+  range.setStartAfter(node); range.collapse(true);
+  sel.removeAllRanges(); sel.addRange(range);
+}
+
+// Caret/selection helpers in the editor's plain-text character domain (newlines
+// are real "\n" characters, so these stay consistent across re-highlights).
+function getCaretOffset(root) {
+  const sel = window.getSelection();
+  if (!sel || !sel.rangeCount) return null;
+  const range = sel.getRangeAt(0);
+  if (!root.contains(range.endContainer)) return null;
+  const pre = range.cloneRange();
+  pre.selectNodeContents(root);
+  pre.setEnd(range.endContainer, range.endOffset);
+  return pre.toString().length;
+}
+function offsetToNode(root, offset) {
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   let n, acc = 0;
   while ((n = walker.nextNode())) {
@@ -2258,30 +2304,48 @@ function mirrorOffsetToNode(root, offset) {
     if (offset <= acc + len) return { node: n, off: offset - acc };
     acc += len;
   }
-  return { node: root, off: 0 };
+  return { node: root, off: root.childNodes.length };
+}
+function setCaretOffset(root, offset) {
+  const p = offsetToNode(root, offset);
+  const range = document.createRange();
+  try { range.setStart(p.node, p.off); } catch { range.selectNodeContents(root); range.collapse(false); }
+  range.collapse(true);
+  const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range);
 }
 
-// Bounding rect (viewport coords) of the body text between two char offsets,
-// read off the scroll-synced mirror so it tracks wrapping + scrolling exactly.
-function mirrorRectForRange(s, e) {
-  const mirror = document.getElementById('chunkBodyMirror');
-  const a = mirrorOffsetToNode(mirror, s), b = mirrorOffsetToNode(mirror, e);
+// Current editor selection as { start, end, text, rect } in the text domain.
+function editorSelection() {
+  const el = document.getElementById('chunkModalBody');
+  const sel = window.getSelection();
+  if (!el || !sel || !sel.rangeCount) return null;
+  const range = sel.getRangeAt(0);
+  if (!el.contains(range.commonAncestorContainer)) return null;
+  const pre = range.cloneRange();
+  pre.selectNodeContents(el); pre.setEnd(range.startContainer, range.startOffset);
+  const start = pre.toString().length;
+  const text = range.toString();
+  return { start, end: start + text.length, text, rect: range.getBoundingClientRect() };
+}
+
+function editorRectForRange(s, e) {
+  const el = document.getElementById('chunkModalBody');
+  const a = offsetToNode(el, s), b = offsetToNode(el, e);
   const range = document.createRange();
   try { range.setStart(a.node, a.off); range.setEnd(b.node, b.off); } catch { return null; }
   const r = range.getBoundingClientRect();
-  return (r.width || r.height) ? r : range.getClientRects()[0] || r;
+  return (r.width || r.height) ? r : (range.getClientRects()[0] || r);
 }
 
-function placeChunkPop(pop, s, e) {
+function placeChunkPop(pop, rect) {
   const wrap = document.getElementById('chunkBodyWrap');
-  const r = mirrorRectForRange(s, e);
-  if (!r) { hideChunkPop(); return; }
+  if (!rect) { hideChunkPop(); return; }
   const wr = wrap.getBoundingClientRect();
   pop.hidden = false;
-  let left = r.left - wr.left;
+  let left = rect.left - wr.left;
   left = Math.max(4, Math.min(left, wrap.clientWidth - pop.offsetWidth - 4));
-  let top = r.bottom - wr.top + 4;
-  if (top + pop.offsetHeight > wrap.clientHeight) top = Math.max(4, r.top - wr.top - pop.offsetHeight - 4);
+  let top = rect.bottom - wr.top + 4;
+  if (top + pop.offsetHeight > wrap.clientHeight) top = Math.max(4, rect.top - wr.top - pop.offsetHeight - 4);
   pop.style.left = left + 'px';
   pop.style.top = top + 'px';
 }
@@ -2291,19 +2355,15 @@ function hideChunkPop() {
   if (pop) { pop.hidden = true; pop.innerHTML = ''; }
 }
 
-// Decide which popover to show from the current textarea selection: a real
-// selection -> tag it; a bare caret landing inside a mention -> remove it.
+// A real selection -> show the + tag button; a bare caret inside a colored
+// name -> show the remove popover.
 function onChunkBodySelect() {
-  const ta = document.getElementById('chunkModalBody');
   const chunk = resolveChunk(modalChunkId);
-  if (!ta || !chunk || document.getElementById('chunkModalOverlay').hidden) return;
-  const s = ta.selectionStart, e = ta.selectionEnd;
-  if (e > s) {
-    const text = ta.value.slice(s, e);
-    if (text.trim()) return showAddTagPop(s, e, text);
-    return hideChunkPop();
-  }
-  const hit = chunkHighlightSpans({ ...chunk, body: ta.value }).find(r => s >= r.start && s <= r.end);
+  if (!chunk || document.getElementById('chunkModalOverlay').hidden) return;
+  const sr = editorSelection();
+  if (!sr) return hideChunkPop();
+  if (sr.end > sr.start && sr.text.trim()) return showAddTagButton(sr);
+  const hit = chunkHighlightSpans({ ...chunk, body: getEditorText() }).find(r => sr.start >= r.start && sr.start <= r.end);
   if (hit) return showRemoveTagPop(hit);
   hideChunkPop();
 }
@@ -2314,7 +2374,7 @@ function showRemoveTagPop(hit) {
     <div class="hl-pop-title">${hit.kind.NOUN}</div>
     <button class="hl-pop-rm" type="button">✕ Remove ${esc(hit.ent.name)} from this hop</button>`;
   pop.querySelector('.hl-pop-rm').addEventListener('click', () => removeMentionTag(hit));
-  placeChunkPop(pop, hit.start, hit.end);
+  placeChunkPop(pop, editorRectForRange(hit.start, hit.end));
 }
 
 function removeMentionTag(hit) {
@@ -2328,23 +2388,33 @@ function removeMentionTag(hit) {
   if (!stillLive && Array.isArray(chunk[K.link])) chunk[K.link] = chunk[K.link].filter(id => id !== ent.id);
   save(); markChunkDirty();
   refreshModalEntityChips(K, chunk);
-  renderChunkMirror();
+  renderEditorHighlights();
   hideChunkPop();
 }
 
-// Tag the current selection. Choose CHARACTER/LOCATION, then either link an
-// existing entity (adding the selected phrase as an alias so it highlights) or
-// create a new one named after the selection.
-let addTagKind = null;
-function showAddTagPop(s, e, text) {
+// First step of tagging: a compact + button so the entity list does NOT pop up
+// automatically on every selection. Clicking it expands into the picker.
+function showAddTagButton(sr) {
   const pop = document.getElementById('chunkHlPop');
-  const sel = text.trim();
+  pop.innerHTML = `<button class="hl-pop-add" type="button" title="Tag this selection">+ Tag</button>`;
+  const btn = pop.querySelector('.hl-pop-add');
+  btn.addEventListener('mousedown', e => e.preventDefault());   // keep the selection
+  btn.addEventListener('click', () => showAddTagPicker(sr));
+  placeChunkPop(pop, sr.rect);
+}
+
+// Expanded picker: choose CHARACTER/LOCATION, then link an existing entity
+// (adding the selected phrase as an alias so it highlights) or create a new one.
+let addTagKind = null;
+function showAddTagPicker(sr) {
+  const pop = document.getElementById('chunkHlPop');
+  const sel = sr.text.trim();
   if (!addTagKind) addTagKind = ENTITY_KINDS.character;
   const draw = () => {
     const K = addTagKind;
     const coll = (db[K.coll] || []);
     pop.innerHTML = `
-      <div class="hl-pop-title">Tag selection</div>
+      <div class="hl-pop-title">Tag “${esc(sel)}”</div>
       <div class="hl-pop-toggle">
         <button type="button" data-k="character" class="${K === ENTITY_KINDS.character ? 'on' : ''}">CHARACTER</button>
         <button type="button" data-k="location" class="${K === ENTITY_KINDS.location ? 'on' : ''}">LOCATION</button>
@@ -2372,7 +2442,7 @@ function showAddTagPop(s, e, text) {
     fill();
   };
   draw();
-  placeChunkPop(pop, s, e);
+  placeChunkPop(pop, sr.rect);
 }
 
 function tagSelectionExisting(K, ent, text) {
@@ -2386,7 +2456,7 @@ function tagSelectionExisting(K, ent, text) {
   if (!chunk[K.link].includes(ent.id)) chunk[K.link].push(ent.id);
   save(); markChunkDirty();
   refreshModalEntityChips(K, chunk);
-  renderChunkMirror();
+  renderEditorHighlights();
   hideChunkPop();
 }
 
@@ -2401,7 +2471,7 @@ function tagSelectionNew(K, text) {
   chunk[K.link].push(ent.id);
   save(); markChunkDirty();
   refreshModalEntityChips(K, chunk);
-  renderChunkMirror();
+  renderEditorHighlights();
   hideChunkPop();
 }
 
@@ -4915,7 +4985,7 @@ function renderHome() {
       { year: 'numeric', month: 'short', day: 'numeric' }) : '';
     const kind = [p.type, p.genre].filter(Boolean).join(' · ');
     return `
-      <div class="project-card ${active ? 'active' : ''}">
+      <div class="project-card ${active ? 'active' : ''}" style="--accent:${esc(p.accent || DEFAULT_ACCENT)}">
         <button class="pc-body" data-open="${p.id}">
           <span class="pc-name">${esc(p.name)}</span>
           ${kind ? `<span class="pc-kind">${esc(kind)}</span>` : ''}
@@ -5243,58 +5313,142 @@ async function runImportOutline(text, instructions, meta, ctl, onProgress) {
 
 // The project-creation upload step. Resolves with a `db`-shaped data object to
 // seed the new project, or null to start blank (skip / cancel / failure).
-function importContentModal(meta) {
+// New-project modal: project settings + a START FRESH / IMPORT toggle in one
+// surface. Choosing IMPORT reveals the upload box and grouping prompt; the
+// primary button becomes CREATE AND BUILD and runs the file → Sections/Hops
+// build (progress, done, error) right here. Resolves with
+// { name, type, genre, accent, seedData } — seedData null when starting fresh.
+function newProjectModal() {
   return new Promise(resolve => {
     const ctl = { canceled: false };
+    let chosenAccent = DEFAULT_ACCENT;
+    let mode = 'fresh';            // 'fresh' | 'import'
+    let chosenFile = null;
+    let npName = 'Untitled', npType = 'Book', npGenre = '';
+    const typeOpts = PROJECT_TYPES.map(t =>
+      `<option value="${esc(t)}">${esc(t)}</option>`).join('');
+    const genreOpts = `<option value="">— none —</option>` +
+      GENRES.map(g => `<option value="${esc(g)}">${esc(g)}</option>`).join('');
+    const swatches = PROJECT_ACCENTS.map(a =>
+      `<button type="button" class="ps-swatch" data-accent="${esc(a.value)}" style="--sw:${esc(a.value)}" title="${esc(a.name)}" aria-label="${esc(a.name)}"></button>`).join('');
+
     const overlay = document.createElement('div');
     overlay.className = 'ui-modal-overlay';
     overlay.innerHTML = `
       <div class="ui-modal import-modal" role="dialog" aria-modal="true">
-        <div class="ui-modal-title">IMPORT CONTENT</div>
-        <div class="im-body" id="imBody"></div>
+        <div class="ui-modal-title">NEW PROJECT</div>
+        <div class="im-body" id="npBody"></div>
       </div>`;
     document.body.appendChild(overlay);
-    const bodyEl = overlay.querySelector('#imBody');
-    let chosenFile = null;
-    const finish = val => { overlay.remove(); resolve(val); };
+    const bodyEl = overlay.querySelector('#npBody');
+    applyProjectAccent(chosenAccent);
 
-    function renderPick() {
+    const restoreAccent = () => applyProjectAccent(projectsCache.find(p => p.id === activeProjectId)?.accent);
+    const finish = val => { document.removeEventListener('keydown', onKey); if (!val) restoreAccent(); overlay.remove(); resolve(val); };
+    const meta = () => ({ type: npType, genre: npGenre });
+    function syncForm() {
+      const n = bodyEl.querySelector('#psName'); if (n) npName = n.value;
+      const t = bodyEl.querySelector('#psType'); if (t) npType = t.value;
+      const g = bodyEl.querySelector('#psGenre'); if (g) npGenre = g.value;
+    }
+
+    function updateOk() {
+      const ok = bodyEl.querySelector('#npOk');
+      if (!ok) return;
+      const nameOk = !!bodyEl.querySelector('#psName').value.trim();
+      if (mode === 'import') { ok.textContent = 'CREATE AND BUILD'; ok.disabled = !nameOk || !chosenFile; }
+      else { ok.textContent = 'CREATE'; ok.disabled = !nameOk; }
+    }
+
+    function setFile(f) {
+      const nameEl = bodyEl.querySelector('#imFileName');
+      if (!f) return;
+      if (!IMPORT_SUPPORTED.test(f.name || '')) {
+        nameEl.textContent = 'Unsupported file — use PDF, TXT, or MD.';
+        nameEl.classList.add('bad'); chosenFile = null; updateOk(); return;
+      }
+      chosenFile = f; nameEl.classList.remove('bad');
+      nameEl.textContent = f.name + ' · ' + fmtBytes(f.size);
+      updateOk();
+    }
+
+    function renderForm() {
       ctl.canceled = false;
       bodyEl.innerHTML = `
-        <p class="im-sub">Optional. Drop a PDF, TXT, or Markdown file and AI will read every word and build your Sections and Hops from it. Or skip and start blank.</p>
-        <label class="im-drop" id="imDrop">
-          <input type="file" id="imFile" accept="${IMPORT_ACCEPT}" hidden />
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><path d="M5 20h14"/></svg>
-          <span class="im-drop-tx">Drag &amp; drop a file here, or <b>browse</b></span>
-          <span class="im-drop-file" id="imFileName"></span>
+        <label class="ps-field"><span class="ps-label">NAME</span>
+          <input class="ui-modal-input" id="psName" type="text" />
         </label>
-        <label class="im-field"><span class="im-label">ANY RECOMMENDATIONS AROUND GROUPING SECTIONS OR HOPS?</span>
-          <textarea class="ui-modal-input im-instr" id="imInstr" rows="3" placeholder="e.g. It's a journal — make every daily entry a HOP with the date as the title, and make Sections the month titled MM/YY."></textarea>
+        <label class="ps-field"><span class="ps-label">TYPE</span>
+          <select class="ui-modal-input" id="psType">${typeOpts}</select>
         </label>
+        <label class="ps-field"><span class="ps-label">GENRE</span>
+          <select class="ui-modal-input" id="psGenre">${genreOpts}</select>
+        </label>
+        <div class="ps-field"><span class="ps-label">THEME COLOR</span>
+          <div class="ps-swatches" id="psSwatches">${swatches}</div>
+        </div>
+        <div class="ps-field"><span class="ps-label">START</span>
+          <div class="np-mode" id="npMode">
+            <button type="button" class="np-mode-btn ${mode === 'fresh' ? 'on' : ''}" data-mode="fresh">START FRESH</button>
+            <button type="button" class="np-mode-btn ${mode === 'import' ? 'on' : ''}" data-mode="import">IMPORT</button>
+          </div>
+        </div>
+        <div class="np-import" id="npImport" ${mode === 'import' ? '' : 'hidden'}>
+          <label class="im-drop" id="imDrop">
+            <input type="file" id="imFile" accept="${IMPORT_ACCEPT}" hidden />
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><path d="M5 20h14"/></svg>
+            <span class="im-drop-tx">Drag &amp; drop a PDF, TXT, or Markdown file, or <b>browse</b></span>
+            <span class="im-drop-file" id="imFileName"></span>
+          </label>
+          <label class="im-field"><span class="im-label">ANY RECOMMENDATIONS AROUND GROUPING SECTIONS OR HOPS?</span>
+            <textarea class="ui-modal-input im-instr" id="imInstr" rows="3" placeholder="e.g. It's a journal — make every daily entry a HOP with the date as the title, and make Sections the month titled MM/YY."></textarea>
+          </label>
+        </div>
         <div class="ui-modal-actions">
-          <button class="ui-modal-btn" data-act="skip">Skip</button>
-          <button class="ui-modal-btn solid" data-act="build" disabled>Build</button>
+          <button class="ui-modal-btn" data-act="cancel">Cancel</button>
+          <button class="ui-modal-btn solid" id="npOk" data-act="ok">Create</button>
         </div>`;
+
+      const nameEl = bodyEl.querySelector('#psName');
+      nameEl.value = npName;
+      bodyEl.querySelector('#psType').value = npType;
+      bodyEl.querySelector('#psGenre').value = npGenre;
+      bodyEl.querySelectorAll('.ps-swatch').forEach(s => s.classList.toggle('active', s.dataset.accent === chosenAccent));
+      applyProjectAccent(chosenAccent);
+
+      nameEl.addEventListener('input', updateOk);
+      bodyEl.querySelector('#psSwatches').addEventListener('click', e => {
+        const sw = e.target.closest('.ps-swatch'); if (!sw) return;
+        chosenAccent = sw.dataset.accent;
+        bodyEl.querySelectorAll('.ps-swatch').forEach(s => s.classList.toggle('active', s === sw));
+        applyProjectAccent(chosenAccent);
+      });
+      bodyEl.querySelector('#npMode').addEventListener('click', e => {
+        const b = e.target.closest('.np-mode-btn'); if (!b) return;
+        mode = b.dataset.mode;
+        bodyEl.querySelectorAll('.np-mode-btn').forEach(x => x.classList.toggle('on', x === b));
+        bodyEl.querySelector('#npImport').hidden = mode !== 'import';
+        updateOk();
+      });
+
       const fileInput = bodyEl.querySelector('#imFile');
       const drop = bodyEl.querySelector('#imDrop');
-      const nameEl = bodyEl.querySelector('#imFileName');
-      const buildBtn = bodyEl.querySelector('[data-act="build"]');
-      const setFile = f => {
-        if (!f) return;
-        if (!IMPORT_SUPPORTED.test(f.name || '')) {
-          nameEl.textContent = 'Unsupported file — use PDF, TXT, or MD.';
-          nameEl.classList.add('bad'); chosenFile = null; buildBtn.disabled = true; return;
-        }
-        chosenFile = f; nameEl.classList.remove('bad');
-        nameEl.textContent = f.name + ' · ' + fmtBytes(f.size);
-        buildBtn.disabled = false;
-      };
       fileInput.addEventListener('change', () => setFile(fileInput.files[0]));
       ['dragenter', 'dragover'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
       ['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
       drop.addEventListener('drop', e => { if (e.dataTransfer.files[0]) setFile(e.dataTransfer.files[0]); });
-      bodyEl.querySelector('[data-act="skip"]').addEventListener('click', () => finish(null));
-      buildBtn.addEventListener('click', () => { if (chosenFile) runBuild(chosenFile, bodyEl.querySelector('#imInstr').value.trim()); });
+
+      bodyEl.querySelector('[data-act="cancel"]').addEventListener('click', () => finish(null));
+      bodyEl.querySelector('#npOk').addEventListener('click', onOk);
+      updateOk();
+      nameEl.focus(); nameEl.select();
+    }
+
+    function onOk() {
+      syncForm();
+      if (!npName.trim()) { bodyEl.querySelector('#psName').focus(); return; }
+      if (mode === 'import' && chosenFile) runBuild(chosenFile, bodyEl.querySelector('#imInstr').value.trim());
+      else finish({ name: npName.trim(), type: npType, genre: npGenre, accent: chosenAccent, seedData: null });
     }
 
     function renderProgress() {
@@ -5317,16 +5471,16 @@ function importContentModal(meta) {
       try {
         setStage('Reading file…');
         const text = await extractText(file, (p, n) => { setStage('Reading PDF — page ' + p + ' / ' + n); setBar((p / n) * 15); });
-        if (ctl.canceled) return finish(null);
+        if (ctl.canceled) return renderForm();
         if (!text || !text.trim()) {
           return renderError('No readable text found in that file. If it is a scanned PDF, it has no text layer to import.');
         }
         setStage('Building Sections and Hops…');
-        const data = await runImportOutline(text, instructions, meta, ctl, (done, total, secs, hops) => {
+        const data = await runImportOutline(text, instructions, meta(), ctl, (done, total, secs, hops) => {
           setBar(15 + (done / total) * 85);
           setCounts(secs + ' section' + (secs === 1 ? '' : 's') + ' · ' + hops + ' hop' + (hops === 1 ? '' : 's') + '  ·  slice ' + done + ' / ' + total);
         });
-        if (ctl.canceled) return finish(null);
+        if (ctl.canceled) return renderForm();
         if (!data) return renderError('Could not build any sections or hops from that file. You can start blank and add content manually.');
         renderDone(data);
       } catch (err) {
@@ -5342,7 +5496,8 @@ function importContentModal(meta) {
           <div class="im-done-tx">Created <b>${secs}</b> section${secs === 1 ? '' : 's'} and <b>${hops}</b> hop${hops === 1 ? '' : 's'} from your file.</div>
           <div class="ui-modal-actions"><button class="ui-modal-btn solid" data-act="done">Open project</button></div>
         </div>`;
-      bodyEl.querySelector('[data-act="done"]').addEventListener('click', () => finish(data));
+      bodyEl.querySelector('[data-act="done"]').addEventListener('click', () =>
+        finish({ name: npName.trim(), type: npType, genre: npGenre, accent: chosenAccent, seedData: data }));
     }
     function renderError(msg) {
       bodyEl.innerHTML = `
@@ -5353,21 +5508,24 @@ function importContentModal(meta) {
             <button class="ui-modal-btn solid" data-act="blank">Start blank</button>
           </div>
         </div>`;
-      bodyEl.querySelector('[data-act="retry"]').addEventListener('click', renderPick);
-      bodyEl.querySelector('[data-act="blank"]').addEventListener('click', () => finish(null));
+      bodyEl.querySelector('[data-act="retry"]').addEventListener('click', () => { chosenFile = null; mode = 'import'; renderForm(); });
+      bodyEl.querySelector('[data-act="blank"]').addEventListener('click', () =>
+        finish({ name: npName.trim(), type: npType, genre: npGenre, accent: chosenAccent, seedData: null }));
     }
 
-    renderPick();
+    overlay.addEventListener('mousedown', e => { if (e.target === overlay) finish(null); });
+    function onKey(e) { if (e.key === 'Escape') { e.preventDefault(); finish(null); } }
+    document.addEventListener('keydown', onKey);
+    renderForm();
   });
 }
 
 async function createProjectFlow() {
-  const res = await projectSettingsModal({ title: 'NEW PROJECT', name: 'Untitled', type: 'Book', okText: 'Create' });
+  const res = await newProjectModal();
   if (!res) return;
-  const seedData = await importContentModal({ type: res.type, genre: res.genre });
   await flushPersist();
   const proj = await createProjectRow(res.name, res.type, res.genre, res.accent);
-  await seedProjectContent(proj.id, seedData);
+  await seedProjectContent(proj.id, res.seedData);
   const projects = await fetchProjects();
   renderProjectSelector(projects, proj.id);
   await loadProject(proj.id);

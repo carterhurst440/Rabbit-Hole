@@ -467,24 +467,30 @@ button, input, textarea, select { font-family: inherit; }
 }
 .chunk-body-wrap { position: relative; width: 100%; }
 .chunk-body {
-  position: relative; z-index: 1; width: 100%; background: transparent;
-  border: 1px solid var(--line); color: transparent; caret-color: var(--text-bright);
-  padding: 10px; font-size: 13px; line-height: 1.6; resize: vertical; min-height: 360px;
-}
-.chunk-body::selection { background: var(--accent-dim, rgba(227,168,105,0.35)); }
-.chunk-body-mirror {
-  position: absolute; inset: 0; z-index: 0; overflow: hidden; pointer-events: none;
-  background: var(--panel-2); color: var(--text);
-  padding: 11px; font-size: 13px; line-height: 1.6;
+  position: relative; width: 100%; background: var(--panel-2);
+  border: 1px solid var(--line); color: var(--text);
+  padding: 10px; font-size: 13px; line-height: 1.6; min-height: 360px;
   white-space: pre-wrap; overflow-wrap: break-word; word-break: break-word;
+  overflow-y: auto; resize: vertical;
 }
-.chunk-body-mirror .hl-occ { border-radius: 2px; }
+.chunk-body:empty::before {
+  content: attr(data-placeholder); color: var(--muted); pointer-events: none;
+}
+.chunk-body .char-ref { font-weight: 700; }
 .hl-pop {
   position: absolute; z-index: 6; min-width: 180px; max-width: 260px;
   background: var(--panel); border: 1px solid var(--line-2); border-radius: 6px;
   box-shadow: 0 8px 24px rgba(0,0,0,0.45); padding: 8px; font-size: 12px;
 }
 .hl-pop[hidden] { display: none; }
+/* Compact first-step + button: shrink the popover to fit it. */
+.hl-pop:has(> .hl-pop-add:only-child) { min-width: 0; padding: 4px; }
+.hl-pop-add {
+  background: var(--panel-2); border: 1px solid var(--accent-mid); color: var(--accent);
+  font-family: inherit; font-size: 11px; letter-spacing: 0.08em; font-weight: 700;
+  padding: 5px 10px; cursor: pointer; border-radius: 4px; white-space: nowrap;
+}
+.hl-pop-add:hover { background: var(--accent-dim); }
 .hl-pop-title { font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted-2); margin-bottom: 6px; }
 .hl-pop-toggle { display: flex; gap: 4px; margin-bottom: 8px; }
 .hl-pop-toggle button {
@@ -982,6 +988,16 @@ select.ui-modal-input { cursor: pointer; appearance: none; -webkit-appearance: n
 .im-field { display: flex; flex-direction: column; gap: 6px; }
 .im-label { font-size: 10px; letter-spacing: 0.1em; color: var(--accent); }
 .im-instr { resize: vertical; min-height: 56px; line-height: 1.5; font-family: inherit; }
+.np-mode { display: flex; gap: 8px; }
+.np-mode-btn {
+  flex: 1; background: var(--panel-2); border: 1px solid var(--line); color: var(--muted);
+  font-family: inherit; font-size: 11px; letter-spacing: 0.12em; padding: 10px 8px;
+  cursor: pointer; border-radius: 6px; transition: border-color 0.15s, color 0.15s;
+}
+.np-mode-btn:hover { color: var(--text); border-color: var(--line-2); }
+.np-mode-btn.on { color: var(--accent); border-color: var(--accent-mid); background: var(--panel); }
+.np-import { display: flex; flex-direction: column; gap: 14px; }
+.np-import[hidden] { display: none; }
 /* progress phase */
 .im-prog { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 18px 0 6px; }
 .im-spin {
