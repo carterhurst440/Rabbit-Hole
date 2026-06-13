@@ -4550,6 +4550,7 @@ async function bootApp() {
     await loadFluffle();
     await initProjects();
     maybeShowWelcome();
+    loadNotifications();
   } catch (e) {
     console.error('boot failed', e);
     document.getElementById('headerMeta').textContent = 'load error';
@@ -5880,6 +5881,143 @@ document.addEventListener('click', e => {
   if (!accountMenu.hidden && !accountMenu.contains(e.target) && e.target !== profileBtn) closeAccount();
 });
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && !accountMenu.hidden) closeAccount(); });
+
+/* ---------------- NOTIFICATIONS ---------------- */
+// Derived client-side from community activity: anyone in your Fluffle posting,
+// and anyone liking or commenting on your posts. Unread = newer than the
+// profiles.notifications_seen_at watermark, which is bumped when the panel opens.
+const NOTIF_ICON = {
+  like: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 20.5S3.5 15 3.5 9.2A4.2 4.2 0 0 1 12 7.4 4.2 4.2 0 0 1 20.5 9.2C20.5 15 12 20.5 12 20.5Z"/></svg>',
+  comment: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H8l-4 4V6a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2z"/></svg>',
+  post: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="15" rx="2"/><line x1="12" y1="9" x2="12" y2="15"/><line x1="9" y1="12" x2="15" y2="12"/></svg>',
+};
+let notifItems = [];
+let panelSeenAt = null;
+
+const notifBtn = document.getElementById('notifBtn');
+const notifPanel = document.getElementById('notifPanel');
+
+function notifSeenAt() { return (currentProfile && currentProfile.notifications_seen_at) || null; }
+function notifUnreadCount() {
+  const seen = notifSeenAt();
+  const t = seen ? new Date(seen).getTime() : 0;
+  return notifItems.filter(n => new Date(n.ts).getTime() > t).length;
+}
+function updateNotifBadge() {
+  const badge = document.getElementById('notifBadge');
+  if (!badge) return;
+  const n = notifUnreadCount();
+  badge.textContent = n > 9 ? '9+' : String(n);
+  badge.hidden = n === 0;
+}
+
+async function loadNotifications() {
+  if (!currentUser) return;
+  const { data: myPosts } = await sb.from('community_posts')
+    .select('id, hop_title').eq('user_id', currentUser.id);
+  const myPostIds = (myPosts || []).map(p => p.id);
+  const titleById = new Map((myPosts || []).map(p => [p.id, p.hop_title || '']));
+  const fluffleIds = [...myFluffle];
+
+  const none = Promise.resolve({ data: [] });
+  const [likesRes, commentsRes, fluffleRes] = await Promise.all([
+    myPostIds.length ? sb.from('community_likes').select('post_id, user_id, created_at')
+      .in('post_id', myPostIds).neq('user_id', currentUser.id)
+      .order('created_at', { ascending: false }).limit(40) : none,
+    myPostIds.length ? sb.from('community_comments').select('post_id, user_id, username, body, created_at')
+      .in('post_id', myPostIds).neq('user_id', currentUser.id)
+      .order('created_at', { ascending: false }).limit(40) : none,
+    fluffleIds.length ? sb.from('community_posts').select('id, user_id, username, hop_title, created_at')
+      .in('user_id', fluffleIds).neq('user_id', currentUser.id)
+      .order('created_at', { ascending: false }).limit(40) : none,
+  ]);
+  const likes = likesRes.data || [], comments = commentsRes.data || [], fposts = fluffleRes.data || [];
+
+  // community_likes has no username column, so resolve the likers' handles.
+  const likerIds = [...new Set(likes.map(l => l.user_id))].filter(id => !(fluffleNames.get(id) || '').trim());
+  const nameMap = new Map();
+  if (likerIds.length) {
+    const { data } = await sb.rpc('usernames_for_ids', { ids: likerIds });
+    (data || []).forEach(r => nameMap.set(r.id, r.username || ''));
+  }
+  const handle = id => nameMap.get(id) || fluffleNames.get(id) || 'someone';
+
+  const items = [];
+  likes.forEach(l => items.push({ kind: 'like', ts: l.created_at, postId: l.post_id, actor: handle(l.user_id), title: titleById.get(l.post_id) || '' }));
+  comments.forEach(c => items.push({ kind: 'comment', ts: c.created_at, postId: c.post_id, actor: c.username || handle(c.user_id), title: titleById.get(c.post_id) || '' }));
+  fposts.forEach(p => items.push({ kind: 'post', ts: p.created_at, postId: p.id, actor: p.username || handle(p.user_id), title: p.hop_title || '' }));
+
+  items.sort((a, b) => new Date(b.ts) - new Date(a.ts));
+  notifItems = items.slice(0, 50);
+  updateNotifBadge();
+  if (!notifPanel.hidden) renderNotifPanel();
+}
+
+const NOTIF_VERB = { like: 'liked your hop', comment: 'commented on your hop', post: 'posted a new hop' };
+function renderNotifPanel() {
+  const list = document.getElementById('notifList');
+  if (!list) return;
+  if (!notifItems.length) {
+    list.innerHTML = '<div class="notif-empty">No notifications yet.</div>';
+    return;
+  }
+  const seenT = panelSeenAt ? new Date(panelSeenAt).getTime() : 0;
+  list.innerHTML = notifItems.map(n => {
+    const unread = new Date(n.ts).getTime() > seenT;
+    return `<button class="notif-item ${unread ? 'unread' : ''}" data-post="${esc(n.postId)}">
+      <span class="notif-ic">${NOTIF_ICON[n.kind]}</span>
+      <span class="notif-body">
+        <span class="notif-text"><b>@${esc(n.actor)}</b> ${NOTIF_VERB[n.kind]}</span>
+        ${n.title ? `<span class="notif-hop">${esc(n.title)}</span>` : ''}
+        <span class="notif-time">${timeAgo(n.ts)}</span>
+      </span>
+    </button>`;
+  }).join('');
+  list.querySelectorAll('.notif-item').forEach(b =>
+    b.addEventListener('click', () => openNotifPost(b.dataset.post)));
+}
+
+async function openNotifPost(postId) {
+  closeNotifications();
+  const [{ data: post, error }, { data: comments }] = await Promise.all([
+    sb.from('community_posts').select('*').eq('id', postId).single(),
+    sb.from('community_comments').select('*').eq('post_id', postId).order('created_at', { ascending: true }),
+  ]);
+  if (error || !post) { alertModal('That hop is no longer available.', { title: 'NOTIFICATIONS' }); return; }
+  post.comments = comments || [];
+  viewHopModal(post);
+}
+
+async function markNotificationsSeen() {
+  if (!currentUser) return;
+  const now = new Date().toISOString();
+  if (currentProfile) currentProfile.notifications_seen_at = now;
+  updateNotifBadge();
+  await sb.from('profiles').update({ notifications_seen_at: now }).eq('id', currentUser.id);
+}
+
+function openNotifications() {
+  panelSeenAt = notifSeenAt();        // freeze watermark so unread rows stay highlighted while open
+  notifPanel.hidden = false;
+  notifBtn.classList.add('active');
+  notifBtn.setAttribute('aria-expanded', 'true');
+  renderNotifPanel();
+  loadNotifications();
+  markNotificationsSeen();
+}
+function closeNotifications() {
+  notifPanel.hidden = true;
+  notifBtn.classList.remove('active');
+  notifBtn.setAttribute('aria-expanded', 'false');
+}
+notifBtn.addEventListener('click', e => {
+  e.stopPropagation();
+  notifPanel.hidden ? openNotifications() : closeNotifications();
+});
+document.addEventListener('click', e => {
+  if (!notifPanel.hidden && !notifPanel.contains(e.target) && e.target !== notifBtn && !notifBtn.contains(e.target)) closeNotifications();
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !notifPanel.hidden) closeNotifications(); });
 
 document.getElementById('aiClose').addEventListener('click', closeAI);
 document.getElementById('aiClear').addEventListener('click', () => { aiMessages = []; renderAILog(); aiInput.focus(); });
