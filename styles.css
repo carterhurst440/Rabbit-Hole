@@ -1328,6 +1328,20 @@ button.feed-comment-user:hover { text-decoration: underline; }
   color: var(--text); padding: 8px 10px; font-size: 12px;
 }
 
+/* VIEW FULL HOP modal — wide like ADD HOP, X to close, full comment chain */
+.vh-modal { max-width: 680px; position: relative; }
+.vh-modal .ui-modal-title { padding-right: 28px; }
+.ui-modal-x {
+  position: absolute; top: 14px; right: 14px; z-index: 1;
+  background: none; border: none; color: var(--muted-2);
+  cursor: pointer; font-size: 15px; padding: 4px; line-height: 1;
+}
+.ui-modal-x:hover { color: var(--danger); }
+.vh-comments { display: flex; flex-direction: column; gap: 10px; border-top: 1px solid var(--line); padding-top: 14px; }
+.vh-comments-head { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+.vh-comments-head span { color: var(--accent); }
+.vh-comment-list { display: flex; flex-direction: column; gap: 8px; }
+
 /* post-to-community modal */
 .post-field { display: flex; flex-direction: column; gap: 6px; }
 .post-field-head {

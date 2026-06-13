@@ -512,6 +512,25 @@ function postToCommunityModal(chunk) {
   });
 }
 
+// Map each post's chunk_id -> its project's CURRENT accent so accent changes
+// show in the feed, not the value frozen at post time. RLS limits the chunk and
+// project reads to the viewer's own rows, so only the viewer's own posts pick up
+// a live accent; everyone else's fall back to the frozen snapshot.
+async function resolveLivePostAccents(posts) {
+  const chunkIds = [...new Set((posts || []).map(p => p.chunk_id).filter(Boolean))];
+  if (!chunkIds.length) return {};
+  const { data: crows } = await sb.from('chunks').select('id, project_id').in('id', chunkIds);
+  const projIds = [...new Set((crows || []).map(r => r.project_id).filter(Boolean))];
+  const projAccent = {};
+  if (projIds.length) {
+    const { data: prows } = await sb.from('projects').select('id, accent').in('id', projIds);
+    (prows || []).forEach(r => { if (r.accent) projAccent[r.id] = r.accent; });
+  }
+  const out = {};
+  (crows || []).forEach(r => { const a = projAccent[r.project_id]; if (a) out[r.id] = a; });
+  return out;
+}
+
 async function renderCommunity() {
   const el = document.getElementById('communityFeed');
   if (!el) return;
@@ -531,8 +550,10 @@ async function renderCommunity() {
     likes = lr.data || []; comments = cr.data || [];
   }
   const me = currentUser && currentUser.id;
+  const liveAccent = await resolveLivePostAccents(posts);
   feedCache = posts.map(p => ({
     ...p,
+    accent: liveAccent[p.chunk_id] || p.accent || DEFAULT_ACCENT,
     likeCount: likes.filter(l => l.post_id === p.id).length,
     likedByMe: likes.some(l => l.post_id === p.id && l.user_id === me),
     comments: comments.filter(c => c.post_id === p.id),
@@ -725,26 +746,56 @@ async function addComment(p, input) {
 }
 
 // Full, un-clamped view of a post's hop opened from the feed's VIEW button.
+// Wide (matches ADD HOP), tinted in the post's project accent, with the full
+// comment chain and an inline add-comment box.
 function viewHopModal(p) {
   const overlay = document.createElement('div');
   overlay.className = 'ui-modal-overlay';
+  const accent = p.accent || DEFAULT_ACCENT;
   overlay.innerHTML = `
-    <div class="ui-modal">
+    <div class="ui-modal vh-modal" style="--accent:${esc(accent)}">
+      <button class="ui-modal-x" data-act="close" title="Close">✕</button>
       <div class="ui-modal-title">${p.hop_title ? esc(p.hop_title) : 'HOP'}</div>
       <div class="ui-modal-scroll">
         ${feedProjHtml(p)}
         ${p.context ? `<div class="feed-context">${esc(p.context)}</div>` : ''}
         <div class="feed-hop-body">${esc(p.hop_body)}</div>
         ${entitySnapshotHtml(p.entities)}
-      </div>
-      <div class="ui-modal-actions">
-        <button class="ui-modal-btn" data-act="close">Done</button>
+        <div class="vh-comments">
+          <div class="vh-comments-head">COMMENTS <span class="vh-comment-count">${p.comments.length}</span></div>
+          <div class="vh-comment-list"></div>
+          <div class="feed-comment-add">
+            <input type="text" class="feed-comment-input" placeholder="Add a comment…" maxlength="280" />
+            <button class="add-btn feed-comment-send">SEND</button>
+          </div>
+        </div>
       </div>
     </div>`;
   document.body.appendChild(overlay);
-  const close = () => overlay.remove();
+  const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
+  const onKey = e => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKey);
   overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
   overlay.querySelector('[data-act="close"]').addEventListener('click', close);
+
+  const list = overlay.querySelector('.vh-comment-list');
+  const renderComments = () => {
+    list.innerHTML = p.comments.map(c =>
+      `<div class="feed-comment">${c.user_id
+        ? `<button class="feed-comment-user" data-uid="${esc(c.user_id)}" data-uname="${esc(c.username)}">@${esc(c.username)}</button>`
+        : `<span class="feed-comment-user">@${esc(c.username)}</span>`} ${esc(c.body)}</div>`).join('')
+      || '<div class="feed-empty">No comments yet.</div>';
+    list.querySelectorAll('button.feed-comment-user').forEach(b =>
+      b.addEventListener('click', () => userProfileModal(b.dataset.uid, b.dataset.uname)));
+    const cnt = overlay.querySelector('.vh-comment-count');
+    if (cnt) cnt.textContent = p.comments.length;
+  };
+  renderComments();
+
+  const input = overlay.querySelector('.feed-comment-input');
+  const submit = async () => { await addComment(p, input); renderComments(); };
+  overlay.querySelector('.feed-comment-send').addEventListener('click', submit);
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
 }
 
 async function deletePost(p) {
