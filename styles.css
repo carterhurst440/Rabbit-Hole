@@ -526,6 +526,7 @@ button, input, textarea, select { font-family: inherit; }
   display: flex; align-items: center; gap: 8px; cursor: pointer;
 }
 .tl-kanban-card:hover { border-color: var(--accent-mid); }
+.tl-kanban-card .tl-kc-ord { flex: 0 0 auto; font-size: 10px; font-weight: 700; letter-spacing: 0.04em; color: var(--accent); background: var(--accent-dim); padding: 1px 6px; border-radius: 2px; }
 .tl-kanban-card .tl-kc-title { flex: 1; font-size: 12px; color: var(--text-bright); line-height: 1.4; }
 .tl-kanban-card.dim { opacity: 0.28; }
 .tl-kanban-card.archived { opacity: 0.55; }
@@ -558,6 +559,7 @@ button, input, textarea, select { font-family: inherit; }
 .chrono-card:hover { border-color: var(--accent-mid); }
 .chrono-item.top .chrono-card { bottom: calc(50% + 22px); }
 .chrono-item.bottom .chrono-card { top: calc(50% + 22px); }
+.chrono-card-ord { align-self: flex-start; font-size: 10px; font-weight: 700; letter-spacing: 0.04em; color: var(--accent); background: var(--accent-dim); padding: 1px 6px; border-radius: 2px; }
 .chrono-card-title { font-size: 12px; font-weight: 700; color: var(--text-bright); line-height: 1.35; }
 .chrono-card-label { font-size: 10px; letter-spacing: 0.06em; color: var(--muted); }
 

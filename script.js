@@ -1817,13 +1817,16 @@ function renderNarrativeTimeline(stage, filterChar, filterLabel) {
   const chapters = [...db.chapters].sort((a, b) => a.order - b.order);
   if (!chapters.length) { stage.innerHTML = `<div class="pane-empty">Add a section to begin.</div>`; return; }
 
+  let nOrd = 0; // running narrative position across every lane, in reading order
   stage.innerHTML = `<div class="kanban tl-kanban">` + chapters.map(ch => {
     const color = chapterColor(ch.id);
     const hops = chunksOf(ch.id).filter(isVisibleChunk);
     const cards = hops.map(c => {
       const dim = tlDimmed(c, filterChar, filterLabel) ? 'dim' : '';
+      const ord = ++nOrd;
       return `
       <div class="tl-kanban-card ${dim} ${c.archived ? 'archived' : ''}" data-id="${c.id}" draggable="true" style="border-left:3px solid ${color}">
+        <span class="tl-kc-ord">N${ord}</span>
         <span class="tl-kc-title">${esc(c.title || 'Untitled hop')}</span>
         ${c.archived ? '<span class="arch-badge">ARCHIVED</span>' : ''}
       </div>`;
@@ -1920,6 +1923,7 @@ function renderChronoTimeline(stage, filterChar, filterLabel) {
     return `
       <div class="chrono-item ${side} ${dim} ${c.archived ? 'archived' : ''}" data-id="${c.id}" draggable="true">
         <div class="chrono-card" style="border-color:${color}">
+          <span class="chrono-card-ord">C${i + 1}</span>
           <span class="chrono-card-title">${esc(c.title || 'Untitled hop')}</span>
           ${c.chronoLabel ? `<span class="chrono-card-label">${esc(c.chronoLabel)}</span>` : ''}
         </div>
