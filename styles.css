@@ -866,6 +866,12 @@ select.ui-modal-input { cursor: pointer; appearance: none; -webkit-appearance: n
 .detect-row input { accent-color: var(--accent); width: 15px; height: 15px; flex: none; }
 .detect-name { color: var(--text-bright); font-size: 13px; font-weight: 600; }
 .detect-aliases { color: var(--muted); font-size: 11px; margin-left: auto; text-align: right; }
+.dl-modal { max-width: 480px; }
+.dl-group-head { display: flex; align-items: center; gap: 10px; margin: 16px 0 8px; font-size: 11px; letter-spacing: 0.12em; color: var(--accent); font-weight: 700; }
+.dl-group-head:first-of-type { margin-top: 6px; }
+.dl-group-head .add-btn { margin-left: auto; }
+.dl-empty { color: var(--muted); font-size: 12px; padding: 6px 2px; }
+.dl-warn { color: #d8746a; font-size: 11px; margin-top: 10px; letter-spacing: 0.04em; }
 
 /* ---------- hop ANALYSIS modal ---------- */
 .analysis-modal { max-width: 560px; }

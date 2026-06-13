@@ -4096,6 +4096,147 @@ document.getElementById('exportBtn').addEventListener('click', () => {
   a.download = `rabbithole-${new Date().toISOString().slice(0, 10)}.json`;
   a.click();
 });
+// --- Per-project DOWNLOAD as Markdown ------------------------------------
+// The active project lives in `db`; for any other project we pull just the
+// fields markdown needs (no join tables), without disturbing the open one.
+async function fetchProjectExport(projectId) {
+  const [chapters, chunks, characters, locations, labels] = await Promise.all([
+    sb.from('chapters').select('*').eq('project_id', projectId),
+    sb.from('chunks').select('*').eq('project_id', projectId),
+    sb.from('characters').select('*').eq('project_id', projectId),
+    sb.from('locations').select('*').eq('project_id', projectId),
+    sb.from('tags').select('*').eq('project_id', projectId)
+  ]);
+  return {
+    chapters: (chapters.data || []).map(r => ({ id: r.id, title: r.title, order: r.position })),
+    chunks: (chunks.data || []).map(r => ({ id: r.id, chapterId: r.chapter_id, title: r.title, body: r.body, orderInChapter: r.order_in_chapter, archived: !!r.archived })),
+    characters: (characters.data || []).map(r => ({ name: r.name, aliases: r.aliases || [], summary: r.summary || '' })),
+    locations: (locations.data || []).map(r => ({ name: r.name, aliases: r.aliases || [], summary: r.summary || '' })),
+    labels: (labels.data || []).map(r => ({ name: (r.name || '').toUpperCase(), summary: r.summary || '' }))
+  };
+}
+
+function exportHopsOf(source, chapterId) {
+  return (source.chunks || [])
+    .filter(c => c.chapterId === chapterId && !c.archived)
+    .sort((a, b) => (a.orderInChapter || 0) - (b.orderInChapter || 0));
+}
+
+function projectMarkdown(project, source, opts) {
+  const lines = [`# ${project.name || 'Untitled project'}`, ''];
+  const chapters = [...(source.chapters || [])].sort((a, b) => (a.order || 0) - (b.order || 0));
+  chapters.filter(ch => opts.chapterIds.includes(ch.id)).forEach(ch => {
+    lines.push(`## ${ch.title || 'Untitled section'}`, '');
+    const hops = exportHopsOf(source, ch.id);
+    if (!hops.length) { lines.push('_No hops in this section._', ''); return; }
+    hops.forEach(h => {
+      if ((h.title || '').trim()) lines.push(`### ${h.title.trim()}`, '');
+      if ((h.body || '').trim()) lines.push(h.body.trim(), '');
+    });
+  });
+  const appendEntities = (heading, coll) => {
+    if (!coll || !coll.length) return;
+    lines.push(`## ${heading}`, '');
+    coll.forEach(e => {
+      const alias = (e.aliases || []).length ? ` _(${e.aliases.join(', ')})_` : '';
+      lines.push(`### ${e.name}${alias}`, '');
+      lines.push((e.summary || '').trim() || '_No summary yet._', '');
+    });
+  };
+  if (opts.chars) appendEntities('CHARACTERS', source.characters);
+  if (opts.locs) appendEntities('LOCATIONS', source.locations);
+  if (opts.tags) {
+    const labels = source.labels || [];
+    if (labels.length) {
+      lines.push('## TAGS', '');
+      labels.forEach(l => { lines.push(`### ${l.name}`, ''); lines.push((l.summary || '').trim() || '_No summary yet._', ''); });
+    }
+  }
+  return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim() + '\n';
+}
+
+function downloadMarkdown(name, md) {
+  const slug = (name || 'project').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'project';
+  const blob = new Blob([md], { type: 'text/markdown' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `${slug}-${new Date().toISOString().slice(0, 10)}.md`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+async function downloadProjectFlow(projectId, btn) {
+  const project = projectsCache.find(p => p.id === projectId);
+  if (!project) return;
+  let source;
+  if (projectId === activeProjectId) {
+    source = db;
+  } else {
+    const label = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = '…'; }
+    try { source = await fetchProjectExport(projectId); }
+    catch (err) { if (btn) { btn.disabled = false; btn.textContent = label; } alertModal('Could not load this project.\n\n' + (err.message || ''), { title: 'DOWNLOAD' }); return; }
+    if (btn) { btn.disabled = false; btn.textContent = label; }
+  }
+  showDownloadModal(project, source);
+}
+
+function showDownloadModal(project, source) {
+  const chapters = [...(source.chapters || [])].sort((a, b) => (a.order || 0) - (b.order || 0));
+  const nChars = (source.characters || []).length;
+  const nLocs = (source.locations || []).length;
+  const nTags = (source.labels || []).length;
+  const overlay = document.createElement('div');
+  overlay.className = 'ui-modal-overlay';
+  overlay.innerHTML = `
+    <div class="ui-modal dl-modal">
+      <div class="ui-modal-title">DOWNLOAD MARKDOWN</div>
+      <div class="ui-modal-msg">Pick the sections and reference lists to include. Everything checked is written into a single .md file.</div>
+      <div class="dl-group-head"><span>SECTIONS</span>${chapters.length ? '<button class="add-btn" data-all>Toggle all</button>' : ''}</div>
+      <div class="detect-list">
+        ${chapters.length ? chapters.map(ch => {
+          const n = exportHopsOf(source, ch.id).length;
+          return `<label class="detect-row">
+            <input type="checkbox" data-ch="${ch.id}" checked />
+            <span class="detect-name">${esc(ch.title || 'Untitled section')}</span>
+            <span class="detect-aliases">${n} hop${n === 1 ? '' : 's'}</span>
+          </label>`;
+        }).join('') : '<div class="dl-empty">No sections in this project.</div>'}
+      </div>
+      <div class="dl-group-head"><span>INCLUDE</span></div>
+      <div class="detect-list">
+        <label class="detect-row"><input type="checkbox" data-inc="chars" /><span class="detect-name">Character list and summaries</span><span class="detect-aliases">${nChars}</span></label>
+        <label class="detect-row"><input type="checkbox" data-inc="locs" /><span class="detect-name">Location list and summaries</span><span class="detect-aliases">${nLocs}</span></label>
+        <label class="detect-row"><input type="checkbox" data-inc="tags" /><span class="detect-name">Tag list and summaries</span><span class="detect-aliases">${nTags}</span></label>
+      </div>
+      <div class="dl-warn" hidden>Pick at least one thing to include.</div>
+      <div class="ui-modal-actions">
+        <button class="ui-modal-btn" data-act="cancel">Cancel</button>
+        <button class="ui-modal-btn solid" data-act="download">Download .md</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const close = () => overlay.remove();
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  overlay.querySelector('[data-act="cancel"]').addEventListener('click', close);
+  overlay.querySelector('[data-all]')?.addEventListener('click', () => {
+    const boxes = [...overlay.querySelectorAll('[data-ch]')];
+    const allOn = boxes.every(b => b.checked);
+    boxes.forEach(b => { b.checked = !allOn; });
+  });
+  overlay.querySelector('[data-act="download"]').addEventListener('click', () => {
+    const chapterIds = [...overlay.querySelectorAll('[data-ch]:checked')].map(b => b.dataset.ch);
+    const inc = sel => !!overlay.querySelector(`[data-inc="${sel}"]`).checked;
+    const opts = { chapterIds, chars: inc('chars'), locs: inc('locs'), tags: inc('tags') };
+    if (!chapterIds.length && !opts.chars && !opts.locs && !opts.tags) {
+      overlay.querySelector('.dl-warn').hidden = false;
+      return;
+    }
+    downloadMarkdown(project.name, projectMarkdown(project, source, opts));
+    close();
+  });
+}
+
 document.getElementById('importBtn').addEventListener('click', () => document.getElementById('importFile').click());
 document.getElementById('importFile').addEventListener('change', e => {
   const file = e.target.files[0]; if (!file) return;
@@ -5092,6 +5233,7 @@ function renderHome() {
           <span class="pc-meta">${active ? 'open · ' : ''}updated ${esc(when)}</span>
         </button>
         <div class="pc-actions">
+          <button class="pc-btn" data-download="${p.id}">DOWNLOAD</button>
           <button class="pc-btn" data-edit="${p.id}">EDIT</button>
           <button class="pc-btn danger" data-del="${p.id}">DELETE</button>
         </div>
@@ -5104,6 +5246,8 @@ function renderHome() {
     </button>`;
   grid.querySelectorAll('[data-open]').forEach(el =>
     el.addEventListener('click', () => openProject(el.dataset.open)));
+  grid.querySelectorAll('[data-download]').forEach(b =>
+    b.addEventListener('click', () => downloadProjectFlow(b.dataset.download, b)));
   grid.querySelectorAll('[data-edit]').forEach(b =>
     b.addEventListener('click', () => editProjectFlow(b.dataset.edit)));
   grid.querySelectorAll('[data-del]').forEach(b =>
