@@ -2217,11 +2217,32 @@ function renderEntityList(K) {
   list.querySelectorAll('.chapter-item').forEach(el => {
     el.addEventListener('click', () => {
       if (db.ui[K.active] !== el.dataset.id) expandedRefs.clear();
-      db.ui[K.active] = el.dataset.id; save(); renderEntityList(K);
+      db.ui[K.active] = el.dataset.id; save();
+      list.closest('.chapter-rail')?.classList.remove('rail-open'); // collapse the mobile dropdown after picking
+      renderEntityList(K);
     });
   });
+  wireRailSelect(K);
   applyRailSearch(K);
   renderEntityPane(K);
+}
+
+// Mobile only: the cast/places list is hidden behind a dropdown trigger that
+// shows the current selection. Tapping it reveals the list; picking an entity
+// (handled in renderEntityList) collapses it again. On desktop the trigger is
+// hidden via CSS and the list is always shown.
+function wireRailSelect(K) {
+  const rail = document.getElementById(K.listId)?.closest('.chapter-rail');
+  const btn = rail?.querySelector('.rail-select');
+  if (!btn) return;
+  const active = db[K.coll].find(x => x.id === db.ui[K.active]);
+  const label = btn.querySelector('.rail-select-label');
+  if (label) label.textContent = active ? active.name : `Select ${K.noun}`;
+  btn.setAttribute('aria-expanded', rail.classList.contains('rail-open') ? 'true' : 'false');
+  btn.onclick = () => {
+    const open = rail.classList.toggle('rail-open');
+    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  };
 }
 
 // Filter the cast/places list by the rail search box (mobile). Re-applied

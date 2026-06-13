@@ -330,6 +330,17 @@ button, input, textarea, select { font-family: inherit; }
   color: var(--text); padding: 10px 14px; font-size: 13px; letter-spacing: 0.04em;
 }
 .rail-search::placeholder { color: var(--muted); }
+/* Mobile-only dropdown trigger for the cast/places list; hidden on desktop. */
+.rail-select {
+  display: none; width: 100%; box-sizing: border-box;
+  align-items: center; justify-content: space-between; gap: 10px;
+  background: var(--panel-2); border: none; border-bottom: 1px solid var(--line);
+  color: var(--text-bright); padding: 12px 14px; font-size: 13px;
+  letter-spacing: 0.04em; cursor: pointer; text-align: left;
+}
+.rail-select-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rail-select-caret { color: var(--muted); flex-shrink: 0; transition: transform 0.15s ease; }
+.chapter-rail.rail-open .rail-select-caret { transform: rotate(180deg); }
 .add-btn {
   background: none; border: 1px solid var(--line-2); color: var(--text);
   padding: 5px 9px; font-size: 11px; letter-spacing: 0.1em; cursor: pointer;
@@ -1283,12 +1294,19 @@ button.feed-comment-user:hover { text-decoration: underline; }
   }
   .chapter-item .ci-title { flex: 0 1 auto; max-width: 46vw; }
 
-  /* Characters & Locations: searchable scrolling list instead of a chip wall */
+  /* Characters & Locations: list stays hidden behind a dropdown trigger that
+     shows the current selection; tapping it reveals the searchable list. */
+  #view-characters .rail-select,
+  #view-locations .rail-select { display: flex; }
   #view-characters .rail-search,
-  #view-locations .rail-search { display: block; }
+  #view-locations .rail-search,
   #view-characters .chapter-list,
-  #view-locations .chapter-list {
-    flex-direction: column; flex-wrap: nowrap; gap: 0;
+  #view-locations .chapter-list { display: none; }
+  #view-characters .chapter-rail.rail-open .rail-search,
+  #view-locations .chapter-rail.rail-open .rail-search { display: block; }
+  #view-characters .chapter-rail.rail-open .chapter-list,
+  #view-locations .chapter-rail.rail-open .chapter-list {
+    display: flex; flex-direction: column; flex-wrap: nowrap; gap: 0;
     max-height: 50vh; overflow-y: auto; padding: 0;
   }
   #view-characters .chapter-item,
