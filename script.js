@@ -1135,11 +1135,24 @@ function chunksOf(chapterId) {
 // Archived chunks are hidden everywhere unless the SHOW ARCHIVED toggle is on.
 function isVisibleChunk(c) { return !!db.ui.showArchived || !c.archived; }
 
-// Sync every SHOW/HIDE ARCHIVED toggle button to the shared ui state.
+// How many archived hops the current view can reveal: the active section's on
+// the SECTIONS view (that list only shows its own chapter), the whole project
+// elsewhere (timelines and entity views span every section).
+function archivedRevealCount() {
+  if (currentRoute() === 'sections') {
+    const id = db.ui.activeChapter;
+    return id ? db.chunks.filter(c => c.chapterId === id && c.archived).length : 0;
+  }
+  return db.chunks.filter(c => c.archived).length;
+}
+
+// Sync every SHOW/HIDE ARCHIVED toggle button to the shared ui state, with a
+// count of how many archived items the toggle would reveal.
 function updateArchiveToggles() {
   const on = !!db.ui.showArchived;
+  const n = archivedRevealCount();
   document.querySelectorAll('[data-arch]').forEach(btn => {
-    btn.textContent = on ? 'HIDE ARCHIVED' : 'SHOW ARCHIVED';
+    btn.textContent = (on ? 'HIDE ARCHIVED' : 'SHOW ARCHIVED') + ' (' + n + ')';
     btn.classList.toggle('on', on);
   });
 }
@@ -1158,6 +1171,7 @@ function renderSections() {
     el.addEventListener('click', () => { db.ui.activeChapter = el.dataset.id; sectionSearchQuery = ''; save(); renderSections(); });
   });
   renderChunkPane();
+  updateArchiveToggles();
 }
 
 function renderChunkPane() {
@@ -2007,6 +2021,7 @@ function renderTimelines() {
   const stage = document.getElementById('timelineStage');
   if (timelineMode === 'chrono') renderChronoTimeline(stage, filterChar, filterLabel);
   else renderNarrativeTimeline(stage, filterChar, filterLabel);
+  updateArchiveToggles();
 }
 
 // Is this hop dimmed under the current filters? (presence = explicit link OR mention)
