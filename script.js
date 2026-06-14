@@ -2747,6 +2747,7 @@ function renderEntityPane(K) {
       <h3>ALIASES <span style="color:var(--muted);font-weight:400">(comma separated — used to find references)</span></h3>
       <input class="chunk-title-input" data-f="aliases" value="${esc((c.aliases || []).join(', '))}" placeholder="alternate names, nicknames…" />
     </div>
+    ${entitySearchBlockHTML(K.noun + ':' + c.id, K.noun)}
     <div class="char-block">
       <h3>SUMMARY</h3>
       <div class="char-summary">${c.summary ? esc(c.summary) : '<span style="color:var(--muted)">No summary yet.</span>'}</div>
@@ -2773,7 +2774,6 @@ function renderEntityPane(K) {
         ${(c.relationships || []).length ? '<button class="add-btn" data-f="clearrel">CLEAR</button>' : ''}
       </div>
     </div>` : ''}
-    ${entitySearchBlockHTML(K.noun + ':' + c.id, K.noun)}
     <div class="char-block">
       <h3>REFERENCES (${refs.length})</h3>
       <div style="color:var(--muted);font-size:11px;margin-bottom:8px">Expand a reference, then click a highlighted mention to dismiss it (click again to restore).</div>
@@ -3592,6 +3592,7 @@ function renderLabelPane() {
     <div class="meta-field" style="margin:0 0 14px">CATEGORY
       <select id="tagCatSel">${catOpts}</select>
     </div>
+    ${entitySearchBlockHTML('tag:' + l.id, 'tag')}
     <div class="char-block">
       <h3>SUMMARY <span style="color:var(--muted);font-weight:400">(AI — themes across tagged chunks)</span></h3>
       <div class="char-summary" id="tagSummary">${l.summary ? esc(l.summary) : '<span style="color:var(--muted)">No summary yet.</span>'}</div>
@@ -3600,7 +3601,6 @@ function renderLabelPane() {
         <button class="add-btn" id="editTagSummaryBtn">EDIT MANUALLY</button>
       </div>
     </div>
-    ${entitySearchBlockHTML('tag:' + l.id, 'tag')}
     <div class="char-block">
       <h3>CHUNKS (${chunks.length})</h3>
       <div class="char-refs">
