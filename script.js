@@ -121,7 +121,9 @@ function importableLocalData() {
   return null;
 }
 
+let _dataVersion = 0;
 function save() {
+  _dataVersion++;
   renderHeaderMeta();
   schedulePersist();
 }
@@ -2665,7 +2667,7 @@ function occurrencesOf(c, chunk) {
   // entity, so "MARK" inside "MARK MALMGREN" does not also count for a separate
   // character named MARK. Ords are assigned before filtering so dismissal keys
   // (chunkId:ord) stay stable across the suppression.
-  const competing = competingSpans(c, body);
+  const competing = competingSpans(c, chunk);
   if (competing.length) {
     return out.filter(o => {
       const i = o.index, j = o.index + o.text.length;
@@ -2675,29 +2677,54 @@ function occurrencesOf(c, chunk) {
   return out;
 }
 
-// Match spans of every other entity in c's collection, so occurrencesOf can tell
-// when one of c's matches is really part of a longer, more-specific name owned by
-// a sibling. Longest terms are tried first so the regex captures the full phrase.
-function competingSpans(c, body) {
-  const coll = (db.characters || []).includes(c) ? db.characters
-    : (db.locations || []).includes(c) ? db.locations : null;
-  if (!coll) return [];
-  const terms = [];
-  coll.forEach(x => {
-    if (x === c || x.id === c.id || x.archived) return;
-    [x.name, ...(x.aliases || [])].forEach(t => {
-      t = (t || '').trim();
-      if (t) terms.push(t);
+// occurrencesOf runs once per entity per chunk during a render, so rebuilding a
+// regex over every sibling and rescanning each body per call froze the UI. The
+// competing terms only change when data changes, and the match spans in a chunk
+// are identical for every entity in the same collection — so both are memoized
+// against _dataVersion and reused. A combined regex over the whole collection
+// (longest terms first) yields the maximal span at each position; a match is only
+// ever suppressed by a strictly longer span containing it, so including c's own
+// terms is harmless.
+const _competingCache = new Map();
+function competingCacheFor(collKey) {
+  let entry = _competingCache.get(collKey);
+  if (!entry || entry.version !== _dataVersion) {
+    const terms = [];
+    (db[collKey] || []).forEach(x => {
+      if (x.archived) return;
+      [x.name, ...(x.aliases || [])].forEach(t => {
+        t = (t || '').trim();
+        if (t) terms.push(t);
+      });
     });
-  });
-  if (!terms.length) return [];
-  terms.sort((a, b) => b.length - a.length);
-  const re = new RegExp('\\b(' + terms.map(escapeReg).join('|') + ')\\b', 'gi');
-  const spans = [];
-  let m;
-  while ((m = re.exec(body)) !== null) {
-    spans.push({ start: m.index, end: m.index + m[0].length, len: m[0].length });
-    if (re.lastIndex === m.index) re.lastIndex++;
+    let regex = null;
+    if (terms.length) {
+      terms.sort((a, b) => b.length - a.length);
+      regex = new RegExp('\\b(' + terms.map(escapeReg).join('|') + ')\\b', 'gi');
+    }
+    entry = { version: _dataVersion, regex, spans: new Map() };
+    _competingCache.set(collKey, entry);
+  }
+  return entry;
+}
+function competingSpans(c, chunk) {
+  const collKey = (db.characters || []).includes(c) ? 'characters'
+    : (db.locations || []).includes(c) ? 'locations' : null;
+  if (!collKey) return [];
+  const entry = competingCacheFor(collKey);
+  if (!entry.regex) return [];
+  let spans = entry.spans.get(chunk.id);
+  if (!spans) {
+    spans = [];
+    const re = entry.regex;
+    re.lastIndex = 0;
+    const body = String(chunk.body || '');
+    let m;
+    while ((m = re.exec(body)) !== null) {
+      spans.push({ start: m.index, end: m.index + m[0].length, len: m[0].length });
+      if (re.lastIndex === m.index) re.lastIndex++;
+    }
+    entry.spans.set(chunk.id, spans);
   }
   return spans;
 }
