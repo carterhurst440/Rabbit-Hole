@@ -1095,7 +1095,7 @@ select.ui-modal-input { cursor: pointer; appearance: none; -webkit-appearance: n
 .ref-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ref-row .ref-where { color: var(--muted); font-size: 10px; }
 .ref-row.ref-off .ref-title { color: var(--muted); }
-.ref-edit { flex: 0 0 auto; align-self: flex-start; }
+.ref-edit, .ref-reassign { flex: 0 0 auto; align-self: flex-start; }
 .ref-body { white-space: pre-wrap; font-size: 12px; line-height: 1.6; color: var(--text); padding: 0 10px 10px; border-top: 1px solid var(--line); margin-top: 2px; padding-top: 8px; }
 .ref-body .occ { cursor: pointer; border-radius: 2px; padding: 0 1px; }
 .ref-body .occ:hover { outline: 1px solid var(--accent-mid); }

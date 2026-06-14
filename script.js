@@ -2724,6 +2724,7 @@ function renderEntityPane(K) {
             <div class="ref-where">${esc(chapterTitle(r.chapterId))}${r.chronoLabel ? ' · ' + esc(r.chronoLabel) : ''}</div>
             ${chunkCharLocLine(r)}
           </div>
+          ${off ? '' : `<button class="add-btn ref-reassign" data-ref-reassign="${r.id}" title="Reassign this reference to a different ${K.noun}">REASSIGN</button>`}
           <button class="add-btn ref-edit" data-ref-edit="${r.id}" title="Edit this chunk">EDIT</button>
         </div>
         ${open ? `<div class="ref-body">${renderRefBody(c, r)}</div>` : ''}
@@ -2824,6 +2825,13 @@ function renderEntityPane(K) {
   });
   pane.querySelectorAll('[data-ref-edit]').forEach(btn => {
     btn.addEventListener('click', e => { e.stopPropagation(); openChunkModal(btn.dataset.refEdit); });
+  });
+  pane.querySelectorAll('[data-ref-reassign]').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      const chunk = db.chunks.find(x => x.id === btn.dataset.refReassign);
+      if (chunk) reassignRefModal(K, c, chunk);
+    });
   });
   pane.querySelectorAll('.occ').forEach(span => {
     span.addEventListener('click', e => {
@@ -3083,6 +3091,93 @@ function mergeCandidatesFor(K, c) {
     .filter(x => x.id !== c.id && !x.archived)
     .map(x => ({ id: x.id, name: x.name, reason: mergeReason(c, x) }))
     .filter(x => x.reason);
+}
+
+// Reassign a single reference (chunk) from `c` to another entity: rewrite c's
+// live (non-dismissed) mentions in the chunk body to the target's primary name,
+// drop the chunk from c, and link it to the target. Lets the author pick off
+// one-off references that belong to a different entity without a full merge.
+function reassignRefToEntity(K, c, chunk, targetId) {
+  const target = db[K.coll].find(x => x.id === targetId);
+  if (!target || target.id === c.id) return;
+  const occ = occurrencesOf(c, chunk);
+  if (!occ.some(o => !o.dismissed)) return;
+
+  const body = String(chunk.body || '');
+  let out = '', last = 0;
+  occ.forEach(o => {
+    out += body.slice(last, o.index);
+    out += o.dismissed ? o.text : target.name;   // leave dismissed mentions alone
+    last = o.index + o.text.length;
+  });
+  out += body.slice(last);
+  chunk.body = out;
+
+  // This reference no longer belongs to c: drop any explicit c link, and dismiss
+  // every remaining c-match in the chunk (covers the case where the target name
+  // still contains c's name as a token, e.g. "John" -> "John Smith").
+  chunk[K.link] = (chunk[K.link] || []).filter(id => id !== c.id);
+  c.dismissedRefs = (c.dismissedRefs || []).filter(k => k.split(':')[0] !== chunk.id);
+  occurrencesOf(c, chunk).forEach(o => c.dismissedRefs.push(chunk.id + ':' + o.ord));
+
+  // Make the target own it explicitly, even if name-matching is imperfect.
+  if (!chunk[K.link].includes(target.id)) chunk[K.link].push(target.id);
+
+  save();
+  renderEntityPane(K);
+  renderEntityList(K);
+}
+
+// Picker for reassignRefToEntity: searchable list of other entities to move the
+// reference to. Rewrites the highlighted mentions to that entity's primary name.
+function reassignRefModal(K, c, chunk) {
+  const others = db[K.coll].filter(x => x.id !== c.id)
+    .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  if (!others.length) { alertModal(`Need another ${K.noun} to reassign to.`, { title: `REASSIGN ${K.NOUN}` }); return; }
+  const liveCount = occurrencesOf(c, chunk).filter(o => !o.dismissed).length;
+
+  const overlay = document.createElement('div');
+  overlay.className = 'ui-modal-overlay';
+  overlay.innerHTML = `
+    <div class="ui-modal merge-modal">
+      <div class="ui-modal-title">REASSIGN REFERENCE</div>
+      <div class="ui-modal-msg">Move this reference from <strong>${esc(c.name)}</strong> to another ${K.noun}. The ${liveCount} highlighted mention${liveCount === 1 ? '' : 's'} in <strong>${esc(chunk.title || 'this hop')}</strong> will be rewritten to the chosen ${K.noun}'s primary name.</div>
+      <div class="merge-field">
+        <label class="merge-label">Reassign to</label>
+        <input type="text" class="chunk-title-input merge-search" id="reassignSearch" placeholder="Search ${K.noun}s…" autocomplete="off" />
+        <select class="chunk-title-input merge-select" id="reassignTarget" size="6">
+          ${others.map(o => `<option value="${o.id}">${esc(o.name)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="ui-modal-actions">
+        <button class="ui-modal-btn" data-act="cancel">Cancel</button>
+        <button class="ui-modal-btn solid" data-act="go">Reassign</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  const sel = overlay.querySelector('#reassignTarget');
+  const searchInp = overlay.querySelector('#reassignSearch');
+  function filterOptions() {
+    const query = searchInp.value.trim().toLowerCase();
+    const matches = others.filter(o => !query
+      || (o.name || '').toLowerCase().includes(query)
+      || (o.aliases || []).some(a => (a || '').toLowerCase().includes(query)));
+    sel.innerHTML = matches.map(o => `<option value="${o.id}">${esc(o.name)}</option>`).join('');
+    if (matches.length) sel.value = matches[0].id;
+  }
+  searchInp.addEventListener('input', filterOptions);
+  searchInp.focus();
+
+  const close = () => overlay.remove();
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  overlay.querySelector('[data-act="cancel"]').addEventListener('click', close);
+  overlay.querySelector('[data-act="go"]').addEventListener('click', () => {
+    const targetId = sel.value;
+    if (!targetId) return;
+    close();
+    reassignRefToEntity(K, c, chunk, targetId);
+  });
 }
 
 // AI summary — sends every chunk that references the entity to the model.
