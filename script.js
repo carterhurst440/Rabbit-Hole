@@ -3406,6 +3406,21 @@ wireEntityRail(ENTITY_KINDS.location);
 
 // Scan chunk text, ask the model for named entities of this kind, then let the
 // author pick which new ones to add via a review modal.
+// One AI call across a whole project overflows the model and comes back empty,
+// so the project-wide scan is split into character-budgeted batches.
+const DETECT_BATCH_CHARS = 10000;
+function batchChunksByChars(chunks, budget) {
+  const batches = [];
+  let cur = [], size = 0;
+  for (const c of chunks) {
+    const len = ((c.title || '') + (c.body || '')).length;
+    if (cur.length && size + len > budget) { batches.push(cur); cur = []; size = 0; }
+    cur.push(c); size += len;
+  }
+  if (cur.length) batches.push(cur);
+  return batches;
+}
+
 async function detectEntities(K) {
   const btn = document.getElementById(K.detectId);
   const all = db.chunks.filter(c => (c.body || '').trim() || (c.title || '').trim());
@@ -3422,14 +3437,36 @@ async function detectEntities(K) {
 
   const original = aiBtnStart(btn, IC_DETECT, 'SCANNING…');
   try {
-    const result = await aiInvoke({
-      task: K.detectTask,
-      chunks: chunks.map(c => ({ title: c.title, body: c.body })),
-      existing: db[K.coll].map(c => c.name)
-    });
-    const found = result[K.resultKey] || [];
+    // Scan in batches and merge, feeding names found so far back in as `existing`
+    // so the model keeps canonical spelling consistent across batches.
+    const batches = batchChunksByChars(chunks, DETECT_BATCH_CHARS);
+    const merged = new Map();   // lowercased name -> { name, aliases:Set }
+    const baseExisting = db[K.coll].map(c => c.name);
+    const scannedIds = [];
+    let anyOk = false;
+    for (let i = 0; i < batches.length; i++) {
+      if (batches.length > 1) btn.innerHTML = IC_DETECT + ' SCANNING ' + (i + 1) + '/' + batches.length + '…';
+      let result;
+      try {
+        result = await aiInvoke({
+          task: K.detectTask,
+          chunks: batches[i].map(c => ({ title: c.title, body: c.body })),
+          existing: [...baseExisting, ...[...merged.values()].map(m => m.name)]
+        });
+      } catch (_) { continue; }   // a failed batch should not sink the whole scan
+      anyOk = true;
+      scannedIds.push(...batches[i].map(c => c.id));
+      (result[K.resultKey] || []).forEach(f => {
+        if (!f || !f.name || !f.name.trim()) return;
+        const key = f.name.trim().toLowerCase();
+        if (!merged.has(key)) merged.set(key, { name: f.name.trim(), aliases: new Set() });
+        (f.aliases || []).forEach(a => a && a.trim() && merged.get(key).aliases.add(a.trim()));
+      });
+    }
+    if (!anyOk) throw new Error('The scan did not return any results. Please try again.');
+    const found = [...merged.values()].map(m => ({ name: m.name, aliases: [...m.aliases] }));
     aiBtnDone(btn, original);
-    const nowScanned = new Set([...(db.ui[K.scannedKey] || []), ...chunks.map(c => c.id)]);
+    const nowScanned = new Set([...(db.ui[K.scannedKey] || []), ...scannedIds]);
     db.ui[K.scannedKey] = [...nowScanned];
 
     const known = new Set(db[K.coll].flatMap(c => [c.name, ...(c.aliases || [])]).map(s => s.toLowerCase()));
