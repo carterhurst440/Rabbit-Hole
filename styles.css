@@ -448,9 +448,24 @@ button, input, textarea, select { font-family: inherit; }
 .chunk-card.collapsed { padding: 0; }
 .chunk-display { display: flex; align-items: center; gap: 12px; padding: 11px 14px; cursor: pointer; }
 .chunk-display:hover { background: var(--panel-2); }
-.chunk-disp-title { flex: 1; font-size: 13px; color: var(--text-bright); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chunk-disp-title { flex: 0 1 auto; min-width: 0; font-size: 13px; color: var(--text-bright); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chunk-disp-title em { color: var(--muted); font-style: italic; }
-.chunk-disp-meta { font-size: 10px; color: var(--muted); white-space: nowrap; }
+/* Pencil sits right beside the title; stays subtle until the row is hovered. */
+.chunk-display .hop-title-edit {
+  flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
+  padding: 2px; font-size: 13px; color: var(--muted); opacity: 0;
+  transition: opacity 0.12s ease, color 0.12s ease;
+}
+.chunk-display .hop-title-edit svg { width: 13px; height: 13px; }
+.chunk-display:hover .hop-title-edit { opacity: 0.7; }
+.chunk-display .hop-title-edit:hover { color: var(--accent); opacity: 1; }
+.hop-title-input {
+  flex: 1 1 auto; min-width: 0; font: inherit; font-size: 13px;
+  background: var(--panel-2); border: 1px solid var(--accent); color: var(--text-bright);
+  padding: 3px 7px; border-radius: 3px;
+}
+.chunk-display .arch-badge { margin-left: auto; }
+.chunk-disp-meta { font-size: 10px; color: var(--muted); white-space: nowrap; margin-left: auto; }
 .chunk-disp-meta .hop-ord { color: var(--accent); font-weight: 600; letter-spacing: 0.06em; }
 .chunk-disp-actions { display: flex; gap: 2px; align-items: center; }
 /* kebab menu replaces the inline buttons everywhere; inline acts are retired */

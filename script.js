@@ -42,6 +42,7 @@ const _aifn = inner => '<svg class="aifn-ic" viewBox="0 0 24 24" fill="none" str
 const IC_DETECT = _aifn('<path d="M4 8V5.5a1.5 1.5 0 0 1 1.5-1.5H8"/><path d="M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8"/><path d="M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16"/><path d="M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16"/><circle cx="12" cy="12" r="2.6"/>');
 const IC_ANALYZE = _aifn('<path d="M4 5v14h16"/><path d="M7.5 14.5l3-3.5 3 2.5 4-5.5"/>');
 const IC_GENERATE = _aifn('<path d="M12 3l1.7 5.3L19 10l-5.3 1.7L12 17l-1.7-5.3L5 10l5.3-1.7L12 3Z"/><path d="M18.5 15l.6 1.9 1.9.6-1.9.6-.6 1.9-.6-1.9-1.9-.6 1.9-.6Z"/>');
+const IC_PENCIL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
 
 // Drive an AI button's working state: swap in its function icon + verb and add
 // the animated `ai-working` class. Returns the prior HTML so callers can restore
@@ -1787,6 +1788,7 @@ function renderChunkCardDisplay(c) {
       <span class="chunk-grip" data-f="grip" title="Drag to reorder">⠿</span>
       <span class="chunk-chevron">${expanded ? '▾' : '▸'}</span>
       <span class="chunk-disp-title">${esc(c.title) || '<em>Untitled hop</em>'}</span>
+      <button class="icon-btn hop-title-edit" data-f="title-edit" title="Rename hop">${IC_PENCIL}</button>
       ${c.archived ? '<span class="arch-badge">ARCHIVED</span>' : ''}
       <span class="chunk-disp-meta">${meta}</span>
       <span class="chunk-disp-actions">
@@ -1898,6 +1900,7 @@ function wireChunkCard(card) {
     if (e.target.closest('[data-f="archive"]')) {
       e.stopPropagation(); c.archived = !c.archived; save(); renderSections(); return;
     }
+    if (e.target.closest('[data-f="title-edit"]')) { e.stopPropagation(); inlineEditHopTitle(card, c); return; }
     if (e.target.closest('[data-f="edit"]')) { e.stopPropagation(); openChunkModal(id); return; }
     if (e.target.closest('[data-f="analyze"]')) {
       e.stopPropagation(); analyzeChunk(c, e.target.closest('[data-f="analyze"]')); return;
@@ -1918,6 +1921,45 @@ function wireChunkCard(card) {
 
   const kebab = card.querySelector('.hop-kebab');
   if (kebab) kebab.addEventListener('toggle', () => { if (kebab.open) positionHopMenu(kebab); });
+}
+
+// Swap the hop title for an inline input right in the card, so a quick rename
+// never needs the full edit modal. Enter or blur commits, Escape cancels.
+function inlineEditHopTitle(card, c) {
+  const titleEl = card.querySelector('.chunk-disp-title');
+  if (!titleEl || card.querySelector('.hop-title-input')) return;
+  const pencil = card.querySelector('[data-f="title-edit"]');
+  const input = document.createElement('input');
+  input.className = 'hop-title-input';
+  input.value = c.title || '';
+  input.placeholder = 'Untitled hop';
+  titleEl.replaceWith(input);
+  if (pencil) pencil.style.display = 'none';
+  input.focus(); input.select();
+
+  let settled = false;
+  const settle = keep => {
+    if (settled) return; settled = true;
+    if (keep) { c.title = input.value.trim(); save(); }
+    const span = document.createElement('span');
+    span.className = 'chunk-disp-title';
+    span.innerHTML = esc(c.title) || '<em>Untitled hop</em>';
+    input.replaceWith(span);
+    if (pencil) pencil.style.display = '';
+    // While a text filter is active the rename can change what matches, so
+    // rebuild the filtered list (also re-applies search highlights).
+    if (keep && (sectionSearchQuery || '').trim()) {
+      const ch = db.chapters.find(x => x.id === c.chapterId);
+      if (ch) renderChunkList(ch);
+    }
+  };
+  input.addEventListener('click', e => e.stopPropagation());
+  input.addEventListener('keydown', e => {
+    e.stopPropagation();
+    if (e.key === 'Enter') { e.preventDefault(); settle(true); }
+    else if (e.key === 'Escape') { e.preventDefault(); settle(false); }
+  });
+  input.addEventListener('blur', () => settle(true));
 }
 
 // The hop menu is position:fixed, so place it under (or above) its summary using
