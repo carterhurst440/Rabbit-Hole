@@ -1956,6 +1956,12 @@ document.getElementById('addChapterBtn').addEventListener('click', () => {
   save(); renderSections();
 });
 
+document.getElementById('importSectionBtn')?.addEventListener('click', () => {
+  const ch = db.chapters.find(c => c.id === db.ui.activeChapter) || db.chapters[0];
+  if (!ch) { alertModal('Add a chapter first, then import content into it.', { title: 'IMPORT' }); return; }
+  openSectionImportModal(ch);
+});
+
 // SHOW/HIDE ARCHIVED: shared toggle across sections, timelines, characters, labels.
 document.querySelectorAll('[data-arch]').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -6250,6 +6256,165 @@ function sliceText(text, size) {
     i = end;
   }
   return out;
+}
+
+/* ---- section import: add hops to an existing section from a file or paste ---- */
+const SECTION_IMPORT_ACCEPT = '.txt,.md,.markdown,.text';
+const SECTION_IMPORT_SUPPORTED = /\.(txt|md|markdown|text)$/i;
+
+// Import pasted or uploaded text into an existing section, splitting it into hops
+// via the same AI outliner the project importer uses. Runs against the loaded
+// project in memory (db + save), so the new hops appear in the active section.
+function openSectionImportModal(ch) {
+  let chosenFile = null;
+  let busy = false;
+  const overlay = document.createElement('div');
+  overlay.className = 'ui-modal-overlay';
+  overlay.innerHTML = `
+    <div class="ui-modal import-modal" role="dialog" aria-modal="true">
+      <div class="ui-modal-title">IMPORT INTO ${esc(ch.title) || 'SECTION'}</div>
+      <div class="im-body" id="siBody"></div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const bodyEl = overlay.querySelector('#siBody');
+
+  const finish = () => { document.removeEventListener('keydown', onKey); overlay.remove(); };
+  function onKey(e) { if (e.key === 'Escape' && !busy) { e.preventDefault(); finish(); } }
+  document.addEventListener('keydown', onKey);
+  overlay.addEventListener('mousedown', e => { if (e.target === overlay && !busy) finish(); });
+
+  function updateOk() {
+    const ok = bodyEl.querySelector('#siOk');
+    if (!ok) return;
+    const pasted = (bodyEl.querySelector('#siPaste')?.value || '').trim();
+    ok.disabled = !chosenFile && !pasted;
+  }
+  function setFile(f) {
+    const nameEl = bodyEl.querySelector('#siFileName');
+    if (!f || !nameEl) return;
+    if (!SECTION_IMPORT_SUPPORTED.test(f.name || '')) {
+      nameEl.textContent = 'Unsupported file — use a TXT or MD file.';
+      nameEl.classList.add('bad'); chosenFile = null; updateOk(); return;
+    }
+    chosenFile = f; nameEl.classList.remove('bad');
+    nameEl.textContent = f.name + ' \u00b7 ' + fmtBytes(f.size);
+    updateOk();
+  }
+
+  function renderForm() {
+    bodyEl.innerHTML = `
+      <div class="ui-modal-msg">Add content to <b>${esc(ch.title) || 'this section'}</b>. Upload a file or paste text, tell the AI how to break it into hops, and it files them here.</div>
+      <label class="im-drop" id="siDrop">
+        <input type="file" id="siFile" accept="${SECTION_IMPORT_ACCEPT}" hidden />
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><path d="M5 20h14"/></svg>
+        <span class="im-drop-tx">Drag &amp; drop a TXT or Markdown file, or <b>browse</b></span>
+        <span class="im-drop-file" id="siFileName"></span>
+      </label>
+      <label class="im-field"><span class="im-label">OR PASTE CONTENT</span>
+        <textarea class="ui-modal-input im-instr" id="siPaste" rows="6" placeholder="Paste the text you want to break into hops\u2026"></textarea>
+      </label>
+      <label class="im-field"><span class="im-label">HOW SHOULD THE AI BREAK OUT AND TITLE THE HOPS?</span>
+        <textarea class="ui-modal-input im-instr" id="siInstr" rows="3" placeholder="e.g. Make every dated journal entry its own HOP titled with the date. Or: split on scene breaks and title each hop with a short summary."></textarea>
+      </label>
+      <div class="ui-modal-actions">
+        <button class="ui-modal-btn" data-act="cancel">Cancel</button>
+        <button class="ui-modal-btn solid" id="siOk" data-act="ok" disabled>IMPORT</button>
+      </div>`;
+    const fileInput = bodyEl.querySelector('#siFile');
+    const drop = bodyEl.querySelector('#siDrop');
+    fileInput.addEventListener('change', () => setFile(fileInput.files[0]));
+    ['dragenter', 'dragover'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
+    ['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
+    drop.addEventListener('drop', e => { if (e.dataTransfer.files[0]) setFile(e.dataTransfer.files[0]); });
+    bodyEl.querySelector('#siPaste').addEventListener('input', updateOk);
+    bodyEl.querySelector('[data-act="cancel"]').addEventListener('click', finish);
+    bodyEl.querySelector('#siOk').addEventListener('click', onImport);
+    updateOk();
+  }
+
+  function renderProgress(stage) {
+    bodyEl.innerHTML = `
+      <div class="ui-modal-msg si-stage">${esc(stage)}</div>
+      <div class="sp-bar"><div class="sp-fill" style="width:0%"></div></div>`;
+  }
+  function setProgress(stage, pct) {
+    const msg = bodyEl.querySelector('.si-stage');
+    const fill = bodyEl.querySelector('.sp-fill');
+    if (msg) msg.textContent = stage;
+    if (fill) fill.style.width = Math.max(0, Math.min(100, pct)) + '%';
+  }
+
+  async function onImport() {
+    if (busy) return;
+    const instructions = (bodyEl.querySelector('#siInstr')?.value || '').trim();
+    const pasted = (bodyEl.querySelector('#siPaste')?.value || '').trim();
+    busy = true;
+    renderProgress('Reading content\u2026');
+    let text = pasted;
+    try {
+      if (chosenFile) text = await extractText(chosenFile);
+    } catch (err) {
+      busy = false; renderForm();
+      alertModal('Could not read that file.\n\n' + (err.message || ''), { title: 'IMPORT' });
+      return;
+    }
+    text = (text || '').trim();
+    if (!text) {
+      busy = false; renderForm();
+      alertModal('There was no readable text to import.', { title: 'IMPORT' });
+      return;
+    }
+    try {
+      const added = await runSectionImport(ch, text, instructions, setProgress);
+      busy = false; finish(); renderSections();
+      if (!added) alertModal('No hops could be built from that content. Try adjusting your instructions.', { title: 'IMPORT' });
+    } catch (err) {
+      busy = false; renderForm();
+      alertModal('Import failed.\n\n' + (err.message || ''), { title: 'IMPORT' });
+    }
+  }
+
+  renderForm();
+}
+
+// Slice the source text and outline each slice into hops via the same AI task the
+// project importer uses, filing every hop into `ch`. Returns the number added.
+async function runSectionImport(ch, text, instructions, onProgress) {
+  const proj = projectsCache.find(p => p.id === activeProjectId);
+  const slices = sliceText(text, IMPORT_SLICE);
+  if (!slices.length) return 0;
+  let added = 0;
+  for (let i = 0; i < slices.length; i++) {
+    if (onProgress) onProgress(
+      'Reading pass ' + (i + 1) + ' of ' + slices.length + '  \u00b7  ' + added + ' hop' + (added === 1 ? '' : 's') + ' so far',
+      Math.round((i / slices.length) * 100));
+    let res = null;
+    try {
+      res = await aiInvoke({
+        task: 'import_outline', text: slices[i], instructions,
+        type: proj?.type || '', genre: proj?.genre || '',
+        sectionsSoFar: [ch.title].filter(Boolean)
+      });
+    } catch (_) { res = null; }   // skip a failed slice, keep going
+    const hops = res && Array.isArray(res.hops) ? res.hops : [];
+    hops.forEach(h => {
+      const body = (h && h.body || '').trim();
+      const title = (h && h.title || '').trim();
+      if (!body && !title) return;
+      db.chunks.push({
+        id: uid(), chapterId: ch.id, title: title || 'Untitled', body,
+        orderInChapter: chunksOf(ch.id).length,
+        narrativeOrder: db.chunks.length,
+        chronoOrder: db.chunks.length,
+        chronoLabel: '',
+        characterIds: [], locationIds: [], labelIds: []
+      });
+      added++;
+    });
+  }
+  if (added) { save(); recordWritingActivity(); }
+  if (onProgress) onProgress('Import complete \u2014 ' + added + ' hop' + (added === 1 ? '' : 's') + ' added', 100);
+  return added;
 }
 
 // The project-creation upload step. Resolves with a `db`-shaped data object to
