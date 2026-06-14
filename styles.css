@@ -330,7 +330,6 @@ button, input, textarea, select { font-family: inherit; }
 .view-head { position: relative; }
 .view-head h1 { margin: 0; font-size: 18px; letter-spacing: 0.16em; color: var(--text-bright); }
 .view-head .sub { margin: 6px 0 22px; color: var(--muted); font-size: 12px; }
-#suggestIdeasBtn { position: absolute; top: 0; right: 0; }
 .arch-toggle { position: absolute; top: 0; right: 0; }
 .arch-toggle.on { border-color: var(--accent); color: var(--accent); }
 .view-head-actions { position: absolute; top: 0; right: 0; display: flex; gap: 8px; }
@@ -1584,8 +1583,7 @@ button.feed-comment-user:hover { text-decoration: underline; }
   .view-head { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
   .view-head h1 { order: 0; }
   .view-head .sub { order: 1; margin-bottom: 14px; }
-  .view-head .arch-toggle,
-  .view-head #suggestIdeasBtn { position: static; order: 2; margin: 0 0 16px; }
+  .view-head .arch-toggle { position: static; order: 2; margin: 0 0 16px; }
   .view-head .view-head-actions { position: static; order: 2; flex-wrap: wrap; margin: 0 0 16px; }
   .view-head .view-head-actions .arch-toggle { margin: 0; }
 
