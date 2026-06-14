@@ -175,13 +175,6 @@ function deleteTagCat(catId) {
   save();
 }
 
-function labelIdsFromString(str) {
-  return [...new Set(
-    String(str || '').split(',').map(s => s.trim()).filter(Boolean)
-      .map(n => ensureLabel(n)?.id).filter(Boolean)
-  )];
-}
-
 // Reusable chip editor for any entity holding a `labelIds` array.
 function labelEditorHTML(selectedIds) {
   const chips = db.labels.map(l =>
@@ -4290,20 +4283,7 @@ function deleteLane(laneId) {
 }
 
 document.getElementById('addIdeaBtn').addEventListener('click', () => {
-  const title = document.getElementById('ideaName').value.trim();
-  const body = document.getElementById('ideaInput').value.trim();
-  if (!title && !body) return;
-  const labelIds = labelIdsFromString(document.getElementById('ideaLabels').value);
-  const id = uid();
-  db.ideas.push({ id, title, body, labelIds, ts: Date.now() });
-  const lanes = ideaLanes(), order = ideaOrder();
-  if (!Array.isArray(order[lanes[0].id])) order[lanes[0].id] = [];
-  order[lanes[0].id].unshift(id);   // new ideas land on top of the first lane
-  document.getElementById('ideaName').value = '';
-  document.getElementById('ideaInput').value = '';
-  document.getElementById('ideaLabels').value = '';
-  save(); renderIdeas();
-  recordWritingActivity();
+  ideaEditModal({ id: uid(), title: '', body: '', labelIds: [], ts: Date.now() }, { isNew: true });
 });
 
 document.getElementById('suggestIdeasBtn').addEventListener('click', generateIdeaSuggestions);
@@ -4370,13 +4350,14 @@ function ideaReviewModal(suggestions) {
 
 // Edit an idea in a focused modal: NAME, GENERATE-from-body, BODY, labels.
 // Works on a copy so CANCEL reverts; SAVE commits back to the live idea.
-function ideaEditModal(idea) {
+function ideaEditModal(idea, opts = {}) {
+  const isNew = !!opts.isNew;
   const work = { labelIds: [...(idea.labelIds || [])] };
   const overlay = document.createElement('div');
   overlay.className = 'ui-modal-overlay';
   overlay.innerHTML = `
     <div class="ui-modal idea-edit-modal" role="dialog" aria-modal="true">
-      <div class="ui-modal-title">EDIT IDEA</div>
+      <div class="ui-modal-title">${isNew ? 'NEW IDEA' : 'EDIT IDEA'}</div>
       <div class="ie-field">
         <div class="ie-label-row">
           <span class="ie-label">NAME</span>
@@ -4396,10 +4377,10 @@ function ideaEditModal(idea) {
         ${labelEditorHTML(work.labelIds)}
       </div>
       <div class="ui-modal-actions ie-actions">
-        <button class="ui-modal-btn danger ghost" data-act="del">Delete</button>
+        ${isNew ? '' : '<button class="ui-modal-btn danger ghost" data-act="del">Delete</button>'}
         <span class="ie-spacer"></span>
         <button class="ui-modal-btn" data-act="cancel">Cancel</button>
-        <button class="ui-modal-btn solid" data-act="save">Save</button>
+        <button class="ui-modal-btn solid" data-act="save">${isNew ? 'Add' : 'Save'}</button>
       </div>
     </div>`;
   document.body.appendChild(overlay);
@@ -4416,15 +4397,26 @@ function ideaEditModal(idea) {
   overlay.querySelector('[data-act="cancel"]').addEventListener('click', close);
 
   overlay.querySelector('[data-act="save"]').addEventListener('click', () => {
-    idea.title = nameInput.value.trim();
-    idea.body = bodyInput.value;
+    const title = nameInput.value.trim();
+    const body = bodyInput.value;
+    if (isNew && !title && !body.trim()) { close(); return; }
+    idea.title = title;
+    idea.body = body;
     idea.labelIds = work.labelIds;
+    if (isNew) {
+      db.ideas.push(idea);
+      const lanes = ideaLanes(), order = ideaOrder();
+      if (!Array.isArray(order[lanes[0].id])) order[lanes[0].id] = [];
+      order[lanes[0].id].unshift(idea.id);   // new ideas land on top of the first lane
+      recordWritingActivity();
+    }
     save();
     close();
     renderIdeas();
   });
 
-  overlay.querySelector('[data-act="del"]').addEventListener('click', async () => {
+  const delBtn = overlay.querySelector('[data-act="del"]');
+  if (delBtn) delBtn.addEventListener('click', async () => {
     if (!await confirmModal('Delete this idea? This cannot be undone.', { title: 'DELETE IDEA', okText: 'Delete', danger: true })) return;
     db.ideas = db.ideas.filter(x => x.id !== idea.id);
     laneRemoveIdea(idea.id);

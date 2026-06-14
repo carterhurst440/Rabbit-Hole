@@ -373,15 +373,10 @@
       <div class="view-head">
         <h1>IDEA BACKLOG</h1>
         <p class="sub">Drag ideas between lanes. Click a lane title to rename, or add your own.</p>
-        <button class="add-btn" id="suggestIdeasBtn" title="AI: read every hop and propose ideas for what comes next"><svg class="aifn-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.7 5.3L19 10l-5.3 1.7L12 17l-1.7-5.3L5 10l5.3-1.7L12 3Z"/><path d="M18.5 15l.6 1.9 1.9.6-1.9.6-.6 1.9-.6-1.9-1.9-.6 1.9-.6Z"/></svg> GENERATE IDEAS</button>
-      </div>
-      <div class="idea-compose">
-        <div class="idea-compose-fields">
-          <input type="text" id="ideaName" placeholder="Idea name…" maxlength="120" />
-          <textarea id="ideaInput" placeholder="Flesh it out… (optional)" rows="2"></textarea>
-          <input type="text" id="ideaLabels" placeholder="tags, comma, separated" />
+        <div class="view-head-actions">
+          <button class="add-btn solid" id="addIdeaBtn">+ IDEA</button>
+          <button class="add-btn" id="suggestIdeasBtn" title="AI: read every hop and propose ideas for what comes next"><svg class="aifn-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.7 5.3L19 10l-5.3 1.7L12 17l-1.7-5.3L5 10l5.3-1.7L12 3Z"/><path d="M18.5 15l.6 1.9 1.9.6-1.9.6-.6 1.9-.6-1.9-1.9-.6 1.9-.6Z"/></svg> GENERATE IDEAS</button>
         </div>
-        <button class="add-btn solid" id="addIdeaBtn">PIN</button>
       </div>
       <div class="idea-filter" id="ideaLabelFilter"></div>
       <div class="idea-board" id="ideaGrid"></div>

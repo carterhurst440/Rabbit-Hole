@@ -1126,10 +1126,6 @@ select.ui-modal-input { cursor: pointer; appearance: none; -webkit-appearance: n
 .note-row .note-text { flex: 1; font-size: 12px; }
 
 /* ---------- IDEAS ---------- */
-.idea-compose { display: grid; grid-template-columns: 1fr auto; gap: 10px; margin-bottom: 16px; align-items: start; }
-.idea-compose-fields { display: flex; flex-direction: column; gap: 8px; }
-.idea-compose textarea { background: var(--panel-2); border: 1px solid var(--line); color: var(--text); padding: 10px; resize: vertical; }
-.idea-compose input { background: var(--panel-2); border: 1px solid var(--line); color: var(--text); padding: 10px; }
 .idea-filter { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
 .idea-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
 .idea-board { width: 100%; }
@@ -1556,7 +1552,6 @@ button.feed-comment-user:hover { text-decoration: underline; }
 /* ---------- responsive ---------- */
 @media (max-width: 820px) {
   .sections-layout { grid-template-columns: 1fr; }
-  .idea-compose { grid-template-columns: 1fr; }
 
   /* collapse the icon rail into a classic labeled slide-out drawer */
   .drawer {
