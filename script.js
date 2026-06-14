@@ -3406,12 +3406,53 @@ wireEntityRail(ENTITY_KINDS.location);
 
 function detectSleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+// One detect call for a single hop, with exponential backoff. Firing many
+// sequential calls makes the Anthropic API reject some with a quick 5xx (rate
+// limit / overloaded); those clear if we wait and retry, so a failed hop backs
+// off (~1.5s, 3s, 6s, 11s + jitter) and tries again rather than being dropped.
+async function detectScanHop(K, chunk, existing, shouldStop) {
+  const delays = [1500, 3000, 6000, 11000];
+  for (let attempt = 0; attempt <= delays.length; attempt++) {
+    if (shouldStop()) return null;
+    try {
+      return await aiInvoke({
+        task: K.detectTask,
+        chunks: [{ title: chunk.title, body: chunk.body }],
+        existing
+      });
+    } catch (_) {
+      if (attempt === delays.length) return null;
+      const jitter = delays[attempt] * (0.7 + Math.random() * 0.6);
+      await detectSleep(jitter);
+    }
+  }
+  return null;
+}
+
+// Merge one hop's detected entities into the running map and stream them into
+// the live modal. Only trusts names the model can point to in this hop's text.
+function detectMergeHop(K, chunk, result, known, merged, ui) {
+  const bodyLc = (chunk.body || '').toLowerCase();
+  const inBody = name => { const n = (name || '').trim().toLowerCase(); return n && bodyLc.includes(n); };
+  (result[K.resultKey] || []).forEach(f => {
+    if (!f || !f.name || !f.name.trim()) return;
+    if (!(inBody(f.name) || (f.aliases || []).some(inBody))) return;
+    const key = f.name.trim().toLowerCase();
+    if (!merged.has(key)) {
+      const entry = { name: f.name.trim(), aliases: new Set(), isNew: !known.has(key) };
+      merged.set(key, entry);
+      ui.addFound(key, entry.name, entry.isNew);
+    }
+    (f.aliases || []).forEach(a => a && a.trim() && merged.get(key).aliases.add(a.trim()));
+    ui.updateAliases(key, [...merged.get(key).aliases], merged.get(key).isNew);
+  });
+}
+
 // Scan chunk text hop-by-hop and surface a live modal that shows the scan
-// advancing through hops with candidates appearing in real time. A single
-// whole-project call overflows the model (empty results) and rapid multi-hop
-// batches drew fast 500s; scanning one hop per call keeps each payload small —
-// the same proven-reliable path the per-hop DETECT button uses — and a brief
-// backoff/retry plus gentle pacing keeps the API happy across many hops.
+// advancing through hops with candidates appearing in real time. Scanning one
+// hop per call keeps each payload small — the proven-reliable path the per-hop
+// DETECT button uses — while backoff + a retry pass over rejected hops keeps the
+// API's rate-limit rejections from silently dropping characters.
 async function detectEntities(K) {
   const btn = document.getElementById(K.detectId);
   const all = db.chunks.filter(c => (c.body || '').trim() || (c.title || '').trim());
@@ -3431,47 +3472,43 @@ async function detectEntities(K) {
   const merged = new Map();   // lowercased name -> { name, aliases:Set, isNew }
   const scannedIds = [];
   const ui = liveDetectModal(K, chunks.length);
+  const stop = () => ui.canceled;
+  const existingNames = () => [...known, ...[...merged.values()].map(m => m.name)];
 
+  // First pass, in order.
+  let failed = [];
   for (let i = 0; i < chunks.length; i++) {
     if (ui.canceled) break;
     const chunk = chunks[i];
     ui.setProgress(i, chunk.title || `Hop ${i + 1}`);
-    let result = null;
-    for (let attempt = 0; attempt < 2 && !ui.canceled; attempt++) {
-      try {
-        result = await aiInvoke({
-          task: K.detectTask,
-          chunks: [{ title: chunk.title, body: chunk.body }],
-          existing: [...known, ...[...merged.values()].map(m => m.name)]
-        });
-        break;
-      } catch (_) {
-        if (attempt === 0) await detectSleep(700);   // brief backoff, then one retry
-      }
-    }
+    const result = await detectScanHop(K, chunk, existingNames(), stop);
     scannedIds.push(chunk.id);
-    if (!result) { ui.markHopFailed(); continue; }   // a failed hop should not sink the scan
-    // Only trust names the model can point to in this hop's text.
-    const bodyLc = (chunk.body || '').toLowerCase();
-    const inBody = name => { const n = (name || '').trim().toLowerCase(); return n && bodyLc.includes(n); };
-    (result[K.resultKey] || []).forEach(f => {
-      if (!f || !f.name || !f.name.trim()) return;
-      if (!(inBody(f.name) || (f.aliases || []).some(inBody))) return;
-      const key = f.name.trim().toLowerCase();
-      if (!merged.has(key)) {
-        const entry = { name: f.name.trim(), aliases: new Set(), isNew: !known.has(key) };
-        merged.set(key, entry);
-        ui.addFound(key, entry.name, entry.isNew);
-      }
-      (f.aliases || []).forEach(a => a && a.trim() && merged.get(key).aliases.add(a.trim()));
-      ui.updateAliases(key, [...merged.get(key).aliases], merged.get(key).isNew);
-    });
-    if (i < chunks.length - 1) await detectSleep(120);   // gentle pacing between hops
+    if (!result) { failed.push(chunk); ui.setFailed(failed.length); continue; }
+    detectMergeHop(K, chunk, result, known, merged, ui);
+    if (i < chunks.length - 1) await detectSleep(250);   // gentle pacing between hops
+  }
+
+  // Second pass over hops the API rejected — by now any rate-limit window has
+  // cleared, so most stragglers come back clean.
+  if (failed.length && !ui.canceled) {
+    const retry = failed; failed = [];
+    for (let i = 0; i < retry.length; i++) {
+      if (ui.canceled) break;
+      ui.setRetry(i + 1, retry.length);
+      const result = await detectScanHop(K, retry[i], existingNames(), stop);
+      if (!result) { failed.push(retry[i]); continue; }
+      detectMergeHop(K, retry[i], result, known, merged, ui);
+      await detectSleep(250);
+    }
+    ui.setFailed(failed.length);
   }
   ui.setProgress(chunks.length, null);
 
-  // Record scanned hops so a later "new only" run skips them.
-  const nowScanned = new Set([...(db.ui[K.scannedKey] || []), ...scannedIds]);
+  // Only mark hops we actually read as scanned — a hop that never came back
+  // should be eligible for a future "new only" run.
+  const failedIds = new Set(failed.map(c => c.id));
+  const readIds = scannedIds.filter(id => !failedIds.has(id));
+  const nowScanned = new Set([...(db.ui[K.scannedKey] || []), ...readIds]);
   db.ui[K.scannedKey] = [...nowScanned];
 
   const keys = await ui.finish();   // selected NEW candidate keys, or null if dismissed
@@ -3500,6 +3537,7 @@ function liveDetectModal(K, total) {
         <div class="ld-status">Starting…</div>
       </div>
       <div class="ld-count"><span class="ld-found-n">0</span> new ${K.noun}(s) found</div>
+      <div class="ld-warn" hidden></div>
       <div class="detect-list ld-list"><div class="ld-empty">No ${K.noun}s yet…</div></div>
       <div class="ui-modal-actions">
         <button class="ui-modal-btn" data-act="stop">Stop</button>
@@ -3513,6 +3551,7 @@ function liveDetectModal(K, total) {
   const foundN = overlay.querySelector('.ld-found-n');
   const stopBtn = overlay.querySelector('[data-act="stop"]');
   const addBtn = overlay.querySelector('[data-act="add"]');
+  const warn = overlay.querySelector('.ld-warn');
   const rows = new Map();   // key -> { el, checkbox, isNew }
   let newCount = 0, failed = 0;
   const api = { canceled: false };
@@ -3524,7 +3563,17 @@ function liveDetectModal(K, total) {
       ? 'Scan complete'
       : `Hop ${done + 1} / ${total}${title ? ' — ' + title : ''}`;
   };
-  api.markHopFailed = () => { failed++; };
+  // The API rate-limits bursts of calls; surface that honestly instead of
+  // letting rejected hops look like "nothing found".
+  api.setFailed = n => {
+    failed = n;
+    if (!n) { warn.hidden = true; return; }
+    warn.hidden = false;
+    warn.textContent = `⚠ ${n} hop(s) hit a rate limit — retrying`;
+  };
+  api.setRetry = (i, totalRetry) => {
+    status.textContent = `Retrying rejected hops · ${i} / ${totalRetry}`;
+  };
   api.addFound = (key, name, isNew) => {
     const empty = list.querySelector('.ld-empty'); if (empty) empty.remove();
     const row = document.createElement('label');
@@ -3553,8 +3602,10 @@ function liveDetectModal(K, total) {
     finishResolve = resolve;
     fill.style.width = '100%';
     status.textContent = newCount
-      ? `Scan complete — ${newCount} new ${K.noun}(s)` + (failed ? ` · ${failed} hop(s) skipped` : '')
-      : (failed ? `Scan finished — ${failed} hop(s) failed, no new ${K.noun}s` : `Scan complete — no new ${K.noun}s`);
+      ? `Scan complete — ${newCount} new ${K.noun}(s)`
+      : `Scan complete — no new ${K.noun}s`;
+    if (failed) { warn.hidden = false; warn.textContent = `⚠ ${failed} hop(s) could not be read — run DETECT again to retry them`; }
+    else warn.hidden = true;
     stopBtn.textContent = 'Cancel';
     addBtn.disabled = newCount === 0;
     addBtn.textContent = newCount ? `Add selected (${newCount})` : 'Nothing new';

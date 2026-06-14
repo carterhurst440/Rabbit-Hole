@@ -886,6 +886,7 @@ select.ui-modal-input { cursor: pointer; appearance: none; -webkit-appearance: n
 .live-detect .ld-fill { height: 100%; background: var(--accent); transition: width 0.25s ease; }
 .live-detect .ld-status { margin-top: 7px; font-size: 11px; letter-spacing: 0.04em; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .live-detect .ld-count { font-size: 11px; letter-spacing: 0.08em; color: var(--accent); font-weight: 700; margin-bottom: 6px; }
+.live-detect .ld-warn { font-size: 11px; letter-spacing: 0.03em; color: #d8a24a; margin-bottom: 6px; }
 .live-detect .ld-empty { color: var(--muted); font-size: 12px; padding: 6px 2px; }
 .live-detect .ld-row.is-existing { opacity: 0.55; }
 .live-detect .ld-row.is-new { animation: ld-pop 0.25s ease; }
