@@ -416,6 +416,9 @@ button, input, textarea, select { font-family: inherit; }
     display: flex; flex-direction: column;
   }
   .chapter-rail .chapter-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+  /* Cast/Places get their filter box pinned above the scrolling list. */
+  #view-characters .rail-search,
+  #view-locations .rail-search { display: block; flex: none; }
 }
 .tag-cat-group { border-bottom: 1px solid var(--line); }
 .tag-cat-group:last-child { border-bottom: none; }
