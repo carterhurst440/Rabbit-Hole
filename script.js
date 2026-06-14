@@ -2578,13 +2578,13 @@ function reorderChunk(orderKey, draggedId, beforeId) {
 const ENTITY_KINDS = {
   character: {
     coll: 'characters', link: 'characterIds', active: 'activeChar', scannedKey: 'detectScannedIds',
-    listId: 'charList', paneId: 'charPane', detectId: 'detectCharsBtn', addId: 'addCharBtn', searchId: 'charSearch',
+    listId: 'charList', paneId: 'charPane', detectId: 'detectCharsBtn', addId: 'addCharBtn', searchId: 'charSearch', suggestId: 'suggestMergeChars',
     detectTask: 'detect_characters', resultKey: 'characters', sumTask: 'char_summary',
     noun: 'character', NOUN: 'CHARACTER', NOUNS: 'CHARACTERS', newName: 'New character'
   },
   location: {
     coll: 'locations', link: 'locationIds', active: 'activeLoc', scannedKey: 'detectScannedLocs',
-    listId: 'locList', paneId: 'locPane', detectId: 'detectLocsBtn', addId: 'addLocBtn', searchId: 'locSearch',
+    listId: 'locList', paneId: 'locPane', detectId: 'detectLocsBtn', addId: 'addLocBtn', searchId: 'locSearch', suggestId: 'suggestMergeLocs',
     detectTask: 'detect_locations', resultKey: 'locations', sumTask: 'loc_summary',
     noun: 'location', NOUN: 'LOCATION', NOUNS: 'LOCATIONS', newName: 'New location'
   }
@@ -2982,6 +2982,219 @@ function openMergeModal(K, c) {
     const other = db[K.coll].find(x => x.id === otherId);
     if (!await confirmModal(`Merge "${other.name}" into "${primaryName}"? This cannot be undone.`, { title: `MERGE ${K.NOUNS}`, okText: 'Merge' })) return;
     mergeEntities(K, c.id, otherId, primaryName);
+  });
+}
+
+// ---- SUGGEST MERGE CANDIDATES ------------------------------------------
+// Heuristic, fully client-side (no AI): find entities that are likely the same
+// based only on their name + aliases, group them, and let the author confirm a
+// combo merge in one pass.
+
+// Lowercase, strip accents/punctuation, collapse whitespace.
+function normalizeName(s) {
+  return (s || '')
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// Classic Levenshtein edit distance (small strings, fine to compute directly).
+function levenshtein(a, b) {
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    let cur = [i];
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost);
+    }
+    prev = cur;
+  }
+  return prev[b.length];
+}
+
+// Every comparable label for an entity: its name plus all aliases, normalized.
+function entityLabels(c) {
+  return [c.name, ...(c.aliases || [])]
+    .map(normalizeName)
+    .filter(Boolean);
+}
+
+// Decide whether two entities likely refer to the same person/place, and why.
+// Returns a short human reason string, or '' if they should not be suggested.
+function mergeReason(a, b) {
+  const la = entityLabels(a), lb = entityLabels(b);
+  const setA = new Set(la), setB = new Set(lb);
+
+  // Exact shared label (identical name, or one name equals the other's alias,
+  // or they share an alias).
+  for (const label of setA) {
+    if (setB.has(label)) {
+      if (label === normalizeName(a.name) && label === normalizeName(b.name)) return 'Identical name';
+      return `Shared name/alias “${label}”`;
+    }
+  }
+
+  // Token-subset containment: one full label is a multi-word subset of the
+  // other (e.g. "Tom" inside "Tom Riddle", "Mrs Weasley" inside "Molly Weasley").
+  for (const x of la) {
+    const tx = x.split(' ');
+    for (const y of lb) {
+      const ty = y.split(' ');
+      if (tx.length > 1 || ty.length > 1) {
+        const big = tx.length >= ty.length ? new Set(tx) : new Set(ty);
+        const small = tx.length >= ty.length ? ty : tx;
+        if (small.length && small.every(t => big.has(t))) return `“${x}” / “${y}” overlap`;
+      }
+    }
+  }
+
+  // Near-identical spelling (typo / variant), for labels long enough that a
+  // single edit is meaningful rather than coincidental.
+  for (const x of la) {
+    for (const y of lb) {
+      if (x.length >= 4 && y.length >= 4 && Math.abs(x.length - y.length) <= 1
+          && levenshtein(x, y) <= 1) return `“${x}” ≈ “${y}”`;
+    }
+  }
+  return '';
+}
+
+// Group likely-duplicate entities with union-find over pairwise mergeReason.
+// Returns [{ ids:[...], primaryId, primaryName, reasons:[...] }] for groups of 2+.
+function suggestMergeGroups(K) {
+  const coll = (db[K.coll] || []).filter(c => !c.archived);
+  const parent = {}; coll.forEach(c => parent[c.id] = c.id);
+  const find = id => { while (parent[id] !== id) { parent[id] = parent[parent[id]]; id = parent[id]; } return id; };
+  const union = (x, y) => { const rx = find(x), ry = find(y); if (rx !== ry) parent[rx] = ry; };
+  const reasons = {}; // groupRoot is resolved at the end; collect by pair first
+  const pairReasons = [];
+
+  for (let i = 0; i < coll.length; i++) {
+    for (let j = i + 1; j < coll.length; j++) {
+      const why = mergeReason(coll[i], coll[j]);
+      if (why) { union(coll[i].id, coll[j].id); pairReasons.push([coll[i].id, why]); }
+    }
+  }
+
+  const groups = {};
+  coll.forEach(c => {
+    const root = find(c.id);
+    (groups[root] = groups[root] || []).push(c);
+  });
+  pairReasons.forEach(([id, why]) => {
+    const root = find(id);
+    (reasons[root] = reasons[root] || []).push(why);
+  });
+
+  return Object.entries(groups)
+    .filter(([, members]) => members.length >= 2)
+    .map(([root, members]) => {
+      // Primary = most references, tie-break on longest name.
+      const ranked = members.slice().sort((a, b) => {
+        const ra = refsFor(K, a).length, rb = refsFor(K, b).length;
+        if (rb !== ra) return rb - ra;
+        return (b.name || '').length - (a.name || '').length;
+      });
+      const primary = ranked[0];
+      const uniqReasons = [...new Set(reasons[root] || [])].slice(0, 3);
+      return {
+        ids: members.map(m => m.id),
+        members: ranked,
+        primaryId: primary.id,
+        primaryName: primary.name,
+        reasons: uniqReasons
+      };
+    })
+    .sort((a, b) => b.ids.length - a.ids.length);
+}
+
+// Modal listing each suggested group with a checkbox, a primary-name selector,
+// its members, and why it was flagged. Confirming runs a combo merge.
+function openSuggestMergeModal(K) {
+  const groups = suggestMergeGroups(K);
+  const overlay = document.createElement('div');
+  overlay.className = 'ui-modal-overlay';
+
+  if (!groups.length) {
+    overlay.innerHTML = `
+      <div class="ui-modal suggest-modal">
+        <div class="ui-modal-title">SUGGEST MERGES — ${K.NOUNS}</div>
+        <div class="ui-modal-msg">No likely duplicate ${K.noun}s found by name or alias.</div>
+        <div class="ui-modal-actions">
+          <button class="ui-modal-btn solid" data-act="cancel">Close</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    const close = () => overlay.remove();
+    overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+    overlay.querySelector('[data-act="cancel"]').addEventListener('click', close);
+    return;
+  }
+
+  overlay.innerHTML = `
+    <div class="ui-modal suggest-modal">
+      <div class="ui-modal-title">SUGGEST MERGES — ${K.NOUNS}</div>
+      <div class="ui-modal-msg">${groups.length} likely-duplicate group${groups.length > 1 ? 's' : ''} found. Pick which to merge and which name survives.</div>
+      <div class="suggest-list">
+        ${groups.map((g, gi) => `
+          <div class="suggest-group" data-gi="${gi}">
+            <label class="suggest-group-head">
+              <input type="checkbox" class="suggest-check" checked />
+              <span class="suggest-count">${g.ids.length} ${K.noun}s</span>
+              ${g.reasons.length ? `<span class="suggest-reason">${esc(g.reasons.join(' · '))}</span>` : ''}
+            </label>
+            <div class="suggest-body">
+              <label class="merge-label">Keep as primary</label>
+              <select class="chunk-title-input suggest-primary">
+                ${g.members.map(m => `<option value="${m.id}"${m.id === g.primaryId ? ' selected' : ''}>${esc(m.name)} (${refsFor(K, m).length} refs)</option>`).join('')}
+              </select>
+              <div class="suggest-members">${g.members.map(m => esc(m.name)).join(', ')}</div>
+            </div>
+          </div>`).join('')}
+      </div>
+      <div class="ui-modal-actions">
+        <button class="ui-modal-btn" data-act="cancel">Cancel</button>
+        <button class="ui-modal-btn solid" data-act="merge">Merge selected</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  const close = () => overlay.remove();
+  const mergeBtn = overlay.querySelector('[data-act="merge"]');
+  function updateCount() {
+    const n = overlay.querySelectorAll('.suggest-check:checked').length;
+    mergeBtn.textContent = n ? `Merge selected (${n})` : 'Merge selected';
+    mergeBtn.disabled = !n;
+  }
+  overlay.querySelectorAll('.suggest-check').forEach(cb => cb.addEventListener('change', updateCount));
+  updateCount();
+
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  overlay.querySelector('[data-act="cancel"]').addEventListener('click', close);
+  mergeBtn.addEventListener('click', async () => {
+    const chosen = [];
+    overlay.querySelectorAll('.suggest-group').forEach(el => {
+      if (!el.querySelector('.suggest-check').checked) return;
+      const gi = +el.dataset.gi;
+      const primaryId = el.querySelector('.suggest-primary').value;
+      const g = groups[gi];
+      const primary = g.members.find(m => m.id === primaryId) || g.members[0];
+      chosen.push({
+        primaryId,
+        primaryName: primary.name,
+        secondaryIds: g.ids.filter(id => id !== primaryId)
+      });
+    });
+    if (!chosen.length) return;
+    const total = chosen.reduce((n, g) => n + g.secondaryIds.length, 0);
+    close();
+    if (!await confirmModal(`Merge ${total} ${K.noun}${total > 1 ? 's' : ''} across ${chosen.length} group${chosen.length > 1 ? 's' : ''}? This cannot be undone.`, { title: `MERGE ${K.NOUNS}`, okText: 'Merge' })) return;
+    chosen.forEach(g => g.secondaryIds.forEach(sid => mergeEntities(K, g.primaryId, sid, g.primaryName)));
   });
 }
 
@@ -3419,6 +3632,8 @@ function wireEntityRail(K) {
   });
   const detectBtn = document.getElementById(K.detectId);
   if (detectBtn) detectBtn.addEventListener('click', () => detectEntities(K));
+  const suggestBtn = document.getElementById(K.suggestId);
+  if (suggestBtn) suggestBtn.addEventListener('click', () => openSuggestMergeModal(K));
 }
 wireEntityRail(ENTITY_KINDS.character);
 wireEntityRail(ENTITY_KINDS.location);
