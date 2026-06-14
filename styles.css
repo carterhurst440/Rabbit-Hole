@@ -881,6 +881,15 @@ select.ui-modal-input { cursor: pointer; appearance: none; -webkit-appearance: n
 .detect-row input { accent-color: var(--accent); width: 15px; height: 15px; flex: none; }
 .detect-name { color: var(--text-bright); font-size: 13px; font-weight: 600; }
 .detect-aliases { color: var(--muted); font-size: 11px; margin-left: auto; text-align: right; }
+.live-detect .ld-progress { margin: 4px 0 10px; }
+.live-detect .ld-bar { position: relative; height: 6px; background: var(--panel-2); border: 1px solid var(--line); overflow: hidden; }
+.live-detect .ld-fill { height: 100%; background: var(--accent); transition: width 0.25s ease; }
+.live-detect .ld-status { margin-top: 7px; font-size: 11px; letter-spacing: 0.04em; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.live-detect .ld-count { font-size: 11px; letter-spacing: 0.08em; color: var(--accent); font-weight: 700; margin-bottom: 6px; }
+.live-detect .ld-empty { color: var(--muted); font-size: 12px; padding: 6px 2px; }
+.live-detect .ld-row.is-existing { opacity: 0.55; }
+.live-detect .ld-row.is-new { animation: ld-pop 0.25s ease; }
+@keyframes ld-pop { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 .dl-modal { max-width: 480px; }
 .dl-group-head { display: flex; align-items: center; gap: 10px; margin: 16px 0 8px; font-size: 11px; letter-spacing: 0.12em; color: var(--accent); font-weight: 700; }
 .dl-group-head:first-of-type { margin-top: 6px; }

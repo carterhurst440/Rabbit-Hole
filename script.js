@@ -3404,23 +3404,14 @@ function wireEntityRail(K) {
 wireEntityRail(ENTITY_KINDS.character);
 wireEntityRail(ENTITY_KINDS.location);
 
-// Scan chunk text, ask the model for named entities of this kind, then let the
-// author pick which new ones to add via a review modal.
-// One AI call across a whole project overflows the model and comes back empty,
-// so the project-wide scan is split into character-budgeted batches.
-const DETECT_BATCH_CHARS = 10000;
-function batchChunksByChars(chunks, budget) {
-  const batches = [];
-  let cur = [], size = 0;
-  for (const c of chunks) {
-    const len = ((c.title || '') + (c.body || '')).length;
-    if (cur.length && size + len > budget) { batches.push(cur); cur = []; size = 0; }
-    cur.push(c); size += len;
-  }
-  if (cur.length) batches.push(cur);
-  return batches;
-}
+function detectSleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+// Scan chunk text hop-by-hop and surface a live modal that shows the scan
+// advancing through hops with candidates appearing in real time. A single
+// whole-project call overflows the model (empty results) and rapid multi-hop
+// batches drew fast 500s; scanning one hop per call keeps each payload small —
+// the same proven-reliable path the per-hop DETECT button uses — and a brief
+// backoff/retry plus gentle pacing keeps the API happy across many hops.
 async function detectEntities(K) {
   const btn = document.getElementById(K.detectId);
   const all = db.chunks.filter(c => (c.body || '').trim() || (c.title || '').trim());
@@ -3436,51 +3427,151 @@ async function detectEntities(K) {
   if (!chunks.length) { alertModal('No new content since the last scan.', { title: `DETECT ${K.NOUNS}` }); return; }
 
   const original = aiBtnStart(btn, IC_DETECT, 'SCANNING…');
-  try {
-    // Scan in batches and merge, feeding names found so far back in as `existing`
-    // so the model keeps canonical spelling consistent across batches.
-    const batches = batchChunksByChars(chunks, DETECT_BATCH_CHARS);
-    const merged = new Map();   // lowercased name -> { name, aliases:Set }
-    const baseExisting = db[K.coll].map(c => c.name);
-    const scannedIds = [];
-    let anyOk = false;
-    for (let i = 0; i < batches.length; i++) {
-      if (batches.length > 1) btn.innerHTML = IC_DETECT + ' SCANNING ' + (i + 1) + '/' + batches.length + '…';
-      let result;
+  const known = new Set(db[K.coll].flatMap(c => [c.name, ...(c.aliases || [])]).map(s => s.toLowerCase()));
+  const merged = new Map();   // lowercased name -> { name, aliases:Set, isNew }
+  const scannedIds = [];
+  const ui = liveDetectModal(K, chunks.length);
+
+  for (let i = 0; i < chunks.length; i++) {
+    if (ui.canceled) break;
+    const chunk = chunks[i];
+    ui.setProgress(i, chunk.title || `Hop ${i + 1}`);
+    let result = null;
+    for (let attempt = 0; attempt < 2 && !ui.canceled; attempt++) {
       try {
         result = await aiInvoke({
           task: K.detectTask,
-          chunks: batches[i].map(c => ({ title: c.title, body: c.body })),
-          existing: [...baseExisting, ...[...merged.values()].map(m => m.name)]
+          chunks: [{ title: chunk.title, body: chunk.body }],
+          existing: [...known, ...[...merged.values()].map(m => m.name)]
         });
-      } catch (_) { continue; }   // a failed batch should not sink the whole scan
-      anyOk = true;
-      scannedIds.push(...batches[i].map(c => c.id));
-      (result[K.resultKey] || []).forEach(f => {
-        if (!f || !f.name || !f.name.trim()) return;
-        const key = f.name.trim().toLowerCase();
-        if (!merged.has(key)) merged.set(key, { name: f.name.trim(), aliases: new Set() });
-        (f.aliases || []).forEach(a => a && a.trim() && merged.get(key).aliases.add(a.trim()));
-      });
+        break;
+      } catch (_) {
+        if (attempt === 0) await detectSleep(700);   // brief backoff, then one retry
+      }
     }
-    if (!anyOk) throw new Error('The scan did not return any results. Please try again.');
-    const found = [...merged.values()].map(m => ({ name: m.name, aliases: [...m.aliases] }));
-    aiBtnDone(btn, original);
-    const nowScanned = new Set([...(db.ui[K.scannedKey] || []), ...scannedIds]);
-    db.ui[K.scannedKey] = [...nowScanned];
-
-    const known = new Set(db[K.coll].flatMap(c => [c.name, ...(c.aliases || [])]).map(s => s.toLowerCase()));
-    const candidates = found.filter(c => c.name && !known.has(c.name.toLowerCase()));
-    if (!candidates.length) { save(); alertModal(`No new ${K.noun}s found.`, { title: `DETECT ${K.NOUNS}` }); return; }
-    const chosen = await entityReviewModal(K, candidates);
-    if (!chosen || !chosen.length) { save(); return; }
-    chosen.forEach(cand => db[K.coll].push({ id: uid(), name: cand.name, aliases: cand.aliases || [], summary: '', notes: [], color: CHAPTER_PALETTE[db[K.coll].length % CHAPTER_PALETTE.length], dismissedRefs: [] }));
-    db.ui[K.active] = db[K.coll][db[K.coll].length - 1].id;
-    save(); renderEntityList(K);
-  } catch (err) {
-    aiBtnDone(btn, original);
-    alertModal('Detection failed.\n\n' + (err.message || ''), { title: `DETECT ${K.NOUNS}` });
+    scannedIds.push(chunk.id);
+    if (!result) { ui.markHopFailed(); continue; }   // a failed hop should not sink the scan
+    // Only trust names the model can point to in this hop's text.
+    const bodyLc = (chunk.body || '').toLowerCase();
+    const inBody = name => { const n = (name || '').trim().toLowerCase(); return n && bodyLc.includes(n); };
+    (result[K.resultKey] || []).forEach(f => {
+      if (!f || !f.name || !f.name.trim()) return;
+      if (!(inBody(f.name) || (f.aliases || []).some(inBody))) return;
+      const key = f.name.trim().toLowerCase();
+      if (!merged.has(key)) {
+        const entry = { name: f.name.trim(), aliases: new Set(), isNew: !known.has(key) };
+        merged.set(key, entry);
+        ui.addFound(key, entry.name, entry.isNew);
+      }
+      (f.aliases || []).forEach(a => a && a.trim() && merged.get(key).aliases.add(a.trim()));
+      ui.updateAliases(key, [...merged.get(key).aliases], merged.get(key).isNew);
+    });
+    if (i < chunks.length - 1) await detectSleep(120);   // gentle pacing between hops
   }
+  ui.setProgress(chunks.length, null);
+
+  // Record scanned hops so a later "new only" run skips them.
+  const nowScanned = new Set([...(db.ui[K.scannedKey] || []), ...scannedIds]);
+  db.ui[K.scannedKey] = [...nowScanned];
+
+  const keys = await ui.finish();   // selected NEW candidate keys, or null if dismissed
+  aiBtnDone(btn, original);
+  if (!keys || !keys.length) { save(); return; }
+  keys.forEach(key => {
+    const m = merged.get(key); if (!m) return;
+    db[K.coll].push({ id: uid(), name: m.name, aliases: [...m.aliases], summary: '', notes: [], color: CHAPTER_PALETTE[db[K.coll].length % CHAPTER_PALETTE.length], dismissedRefs: [] });
+  });
+  db.ui[K.active] = db[K.coll][db[K.coll].length - 1].id;
+  save(); renderEntityList(K);
+}
+
+// Live scanning modal: a progress bar advances hop-by-hop while detected
+// candidates stream into a checklist. Returns a small controller the scan loop
+// drives; `finish()` resolves with the lowercased keys of the checked NEW
+// candidates once the author clicks Add (or null if they cancel/dismiss).
+function liveDetectModal(K, total) {
+  const overlay = document.createElement('div');
+  overlay.className = 'ui-modal-overlay';
+  overlay.innerHTML = `
+    <div class="ui-modal detect-modal live-detect">
+      <div class="ui-modal-title">SCANNING ${K.NOUNS}</div>
+      <div class="ld-progress">
+        <div class="ld-bar"><div class="ld-fill" style="width:0%"></div></div>
+        <div class="ld-status">Starting…</div>
+      </div>
+      <div class="ld-count"><span class="ld-found-n">0</span> new ${K.noun}(s) found</div>
+      <div class="detect-list ld-list"><div class="ld-empty">No ${K.noun}s yet…</div></div>
+      <div class="ui-modal-actions">
+        <button class="ui-modal-btn" data-act="stop">Stop</button>
+        <button class="ui-modal-btn solid" data-act="add" disabled>Scanning…</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const fill = overlay.querySelector('.ld-fill');
+  const status = overlay.querySelector('.ld-status');
+  const list = overlay.querySelector('.ld-list');
+  const foundN = overlay.querySelector('.ld-found-n');
+  const stopBtn = overlay.querySelector('[data-act="stop"]');
+  const addBtn = overlay.querySelector('[data-act="add"]');
+  const rows = new Map();   // key -> { el, checkbox, isNew }
+  let newCount = 0, failed = 0;
+  const api = { canceled: false };
+
+  api.setProgress = (done, title) => {
+    const pct = total ? Math.round((done / total) * 100) : 100;
+    fill.style.width = pct + '%';
+    status.textContent = done >= total
+      ? 'Scan complete'
+      : `Hop ${done + 1} / ${total}${title ? ' — ' + title : ''}`;
+  };
+  api.markHopFailed = () => { failed++; };
+  api.addFound = (key, name, isNew) => {
+    const empty = list.querySelector('.ld-empty'); if (empty) empty.remove();
+    const row = document.createElement('label');
+    row.className = 'detect-row ld-row' + (isNew ? ' is-new' : ' is-existing');
+    row.dataset.key = key;
+    row.innerHTML = `<input type="checkbox" ${isNew ? 'checked' : 'disabled'} />
+      <span class="detect-name">${esc(name)}</span>
+      <span class="detect-aliases">${isNew ? 'new' : 'existing'}</span>`;
+    list.appendChild(row);
+    list.scrollTop = list.scrollHeight;
+    rows.set(key, { el: row, checkbox: row.querySelector('input'), isNew });
+    if (isNew) { newCount++; foundN.textContent = String(newCount); }
+  };
+  api.updateAliases = (key, aliases, isNew) => {
+    const r = rows.get(key); if (!r || !aliases || !aliases.length) return;
+    r.el.querySelector('.detect-aliases').textContent = (isNew ? 'new · ' : 'existing · ') + aliases.join(', ');
+  };
+
+  let finishResolve;
+  const settle = val => { overlay.remove(); finishResolve && finishResolve(val); };
+  // During the scan, Stop just flips the cancel flag; the loop exits and then
+  // calls finish(), which rebinds these controls for the review step.
+  stopBtn.addEventListener('click', () => { api.canceled = true; });
+
+  api.finish = () => new Promise(resolve => {
+    finishResolve = resolve;
+    fill.style.width = '100%';
+    status.textContent = newCount
+      ? `Scan complete — ${newCount} new ${K.noun}(s)` + (failed ? ` · ${failed} hop(s) skipped` : '')
+      : (failed ? `Scan finished — ${failed} hop(s) failed, no new ${K.noun}s` : `Scan complete — no new ${K.noun}s`);
+    stopBtn.textContent = 'Cancel';
+    addBtn.disabled = newCount === 0;
+    addBtn.textContent = newCount ? `Add selected (${newCount})` : 'Nothing new';
+    const recount = () => {
+      let n = 0; rows.forEach(r => { if (r.isNew && r.checkbox.checked) n++; });
+      addBtn.disabled = n === 0; addBtn.textContent = n ? `Add selected (${n})` : 'Add selected';
+    };
+    list.querySelectorAll('input').forEach(cb => cb.addEventListener('change', recount));
+    stopBtn.addEventListener('click', () => settle(null), { once: true });
+    overlay.addEventListener('click', e => { if (e.target === overlay) settle(null); });
+    addBtn.addEventListener('click', () => {
+      const chosen = [];
+      rows.forEach((r, key) => { if (r.isNew && r.checkbox.checked) chosen.push(key); });
+      settle(chosen);
+    });
+  });
+  return api;
 }
 
 // Ask whether to scan only content added since the last DETECT, or everything.
@@ -3504,38 +3595,6 @@ function detectScopeModal(K, newCount, allCount) {
     overlay.querySelector('[data-act="cancel"]').addEventListener('click', () => close(null));
     overlay.querySelector('[data-act="all"]').addEventListener('click', () => close('all'));
     overlay.querySelector('[data-act="new"]').addEventListener('click', () => close('new'));
-  });
-}
-
-function entityReviewModal(K, candidates) {
-  return new Promise(resolve => {
-    const overlay = document.createElement('div');
-    overlay.className = 'ui-modal-overlay';
-    overlay.innerHTML = `
-      <div class="ui-modal detect-modal">
-        <div class="ui-modal-title">DETECTED ${K.NOUNS}</div>
-        <div class="ui-modal-msg">Select which to add. You can edit names and aliases afterward.</div>
-        <div class="detect-list">
-          ${candidates.map((c, i) => `
-            <label class="detect-row">
-              <input type="checkbox" data-i="${i}" checked />
-              <span class="detect-name">${esc(c.name)}</span>
-              ${(c.aliases && c.aliases.length) ? `<span class="detect-aliases">${esc(c.aliases.join(', '))}</span>` : ''}
-            </label>`).join('')}
-        </div>
-        <div class="ui-modal-actions">
-          <button class="ui-modal-btn" data-act="cancel">Cancel</button>
-          <button class="ui-modal-btn solid" data-act="add">Add selected</button>
-        </div>
-      </div>`;
-    document.body.appendChild(overlay);
-    const close = val => { overlay.remove(); resolve(val); };
-    overlay.addEventListener('click', e => { if (e.target === overlay) close(null); });
-    overlay.querySelector('[data-act="cancel"]').addEventListener('click', () => close(null));
-    overlay.querySelector('[data-act="add"]').addEventListener('click', () => {
-      const picked = [...overlay.querySelectorAll('.detect-row input:checked')].map(inp => candidates[+inp.dataset.i]);
-      close(picked);
-    });
   });
 }
 
@@ -5462,7 +5521,7 @@ function renderHome() {
       <span class="pc-new-label">NEW PROJECT</span>
     </button>`;
   grid.querySelectorAll('[data-open]').forEach(el =>
-    el.addEventListener('click', () => openProject(el.dataset.open)));
+    el.addEventListener('click', () => openProject(el.dataset.open, { stayHome: true })));
   grid.querySelectorAll('[data-download]').forEach(b =>
     b.addEventListener('click', () => downloadProjectFlow(b.dataset.download, b)));
   grid.querySelectorAll('[data-edit]').forEach(b =>
@@ -5642,7 +5701,7 @@ function saveSuggestedAsIdea(s) {
 }
 
 /* ---- project flows ---- */
-async function openProject(id) {
+async function openProject(id, opts = {}) {
   // A project still importing in the background only has partial content; keep
   // the current project open until its tile finishes.
   if (uploadJobs.has(id)) {
@@ -5652,11 +5711,14 @@ async function openProject(id) {
   }
   if (id !== activeProjectId) {
     await flushPersist();
-    await loadProject(id);
+    await loadProject(id);   // swaps in the project's content and accent
     localStorage.setItem(activeKey(), id);
     document.getElementById('projectSelect').value = id;
     renderHeaderMeta();
   }
+  // From the home grid, selecting a project orients the whole app to it
+  // (accent, header, suggestions) without leaving the dashboard.
+  if (opts.stayHome) { renderHome(); return; }
   go('sections');
 }
 
