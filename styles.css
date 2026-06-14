@@ -1095,6 +1095,9 @@ select.ui-modal-input { cursor: pointer; appearance: none; -webkit-appearance: n
 .merge-label { display: block; font-size: 10px; letter-spacing: 0.12em; color: var(--accent); margin-bottom: 6px; }
 .merge-names { display: flex; flex-direction: column; gap: 6px; }
 .merge-name-opt { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
+.merge-search { margin-bottom: 6px; }
+.merge-select { width: 100%; padding: 4px; }
+.merge-select option { padding: 4px 6px; }
 .note-row { display: flex; gap: 8px; align-items: flex-start; padding: 8px; background: var(--panel-2); border: 1px solid var(--line); margin-bottom: 6px; }
 .note-row .note-text { flex: 1; font-size: 12px; }
 

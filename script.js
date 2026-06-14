@@ -2914,7 +2914,8 @@ function mergeEntities(K, primaryId, secondaryId, primaryName) {
 // Modal: pick another entity to fold into `c`, then choose which of the two
 // names survives as the primary (the other becomes an alias).
 function openMergeModal(K, c) {
-  const others = db[K.coll].filter(x => x.id !== c.id);
+  const others = db[K.coll].filter(x => x.id !== c.id)
+    .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
   if (!others.length) { alertModal(`Need at least two ${K.noun}s to merge.`, { title: `MERGE ${K.NOUNS}` }); return; }
   const overlay = document.createElement('div');
   overlay.className = 'ui-modal-overlay';
@@ -2924,7 +2925,8 @@ function openMergeModal(K, c) {
       <div class="ui-modal-msg">Fold another ${K.noun} into <strong>${esc(c.name)}</strong>. Their references and notes move over; the unused name becomes an alias.</div>
       <div class="merge-field">
         <label class="merge-label">Merge this ${K.noun} in</label>
-        <select class="chunk-title-input" id="mergeOther">
+        <input type="text" class="chunk-title-input merge-search" id="mergeSearch" placeholder="Search ${K.noun}s…" autocomplete="off" />
+        <select class="chunk-title-input merge-select" id="mergeOther" size="6">
           ${others.map(o => `<option value="${o.id}">${esc(o.name)}</option>`).join('')}
         </select>
       </div>
@@ -2940,6 +2942,7 @@ function openMergeModal(K, c) {
   document.body.appendChild(overlay);
 
   const otherSel = overlay.querySelector('#mergeOther');
+  const searchInp = overlay.querySelector('#mergeSearch');
   const namesBox = overlay.querySelector('#mergeNames');
   function renderNames() {
     const other = db[K.coll].find(x => x.id === otherSel.value);
@@ -2950,14 +2953,30 @@ function openMergeModal(K, c) {
         <span>${esc(n)}</span>
       </label>`).join('');
   }
+  // Filter the listbox by name or alias as the author types, keeping a valid
+  // selection so the Primary-name choices below always reflect a real target.
+  function filterOptions() {
+    const query = searchInp.value.trim().toLowerCase();
+    const matches = others.filter(o => !query
+      || (o.name || '').toLowerCase().includes(query)
+      || (o.aliases || []).some(a => (a || '').toLowerCase().includes(query)));
+    otherSel.innerHTML = matches.length
+      ? matches.map(o => `<option value="${o.id}">${esc(o.name)}</option>`).join('')
+      : '';
+    if (matches.length) otherSel.value = matches[0].id;
+    renderNames();
+  }
   renderNames();
   otherSel.addEventListener('change', renderNames);
+  searchInp.addEventListener('input', filterOptions);
+  searchInp.focus();
 
   const close = () => overlay.remove();
   overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
   overlay.querySelector('[data-act="cancel"]').addEventListener('click', close);
   overlay.querySelector('[data-act="merge"]').addEventListener('click', async () => {
     const otherId = otherSel.value;
+    if (!otherId) return;   // nothing matched the search
     const primaryName = (overlay.querySelector('input[name="mergePrimary"]:checked') || {}).value || c.name;
     close();
     const other = db[K.coll].find(x => x.id === otherId);
