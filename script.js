@@ -2735,7 +2735,7 @@ function renderEntityPane(K) {
       <input type="color" class="chap-color" data-f="color" value="${c.color || '#e0a96d'}" title="${K.NOUN} color" />
       <input class="chunk-title-input" data-f="name" value="${esc(c.name)}" />
       <button class="add-btn" data-f="merge" title="Merge another ${K.noun} into this one">MERGE</button>
-      <button class="icon-btn" data-f="del" title="Delete">✕</button>
+      <button class="add-btn danger" data-f="del" title="Delete this ${K.noun}">DELETE</button>
     </div>
     <div class="char-block">
       <h3>ALIASES <span style="color:var(--muted);font-weight:400">(comma separated — used to find references)</span></h3>
