@@ -4902,7 +4902,7 @@ function remapSeedData(data) {
 
 // Map the in-memory `db` shape onto a brand-new project (used by the quick,
 // foreground path — fresh projects and the initial seed). Background imports
-// use runProjectUpload instead so they don't clobber the open project.
+// use runProjectImportBuild instead so they don't clobber the open project.
 async function seedProjectContent(projectId, data) {
   const d = data ? remapSeedData(data) : seed();
   db = d;
@@ -5038,71 +5038,102 @@ async function persistProject() {
    and never touches the open project's `db`. */
 const uploadJobs = new Map();   // projectId -> { projectId, name, total, done, stage, status, ctl }
 
-function seedRowCounts(d) {
-  let joins = 0;
-  d.chunks.forEach(c => { joins += (c.labelIds || []).length + (c.characterIds || []).length + (c.locationIds || []).length; });
-  d.ideas.forEach(i => { joins += (i.labelIds || []).length; });
-  return d.chapters.length + d.chunks.length + d.characters.length +
-    d.locations.length + d.labels.length + d.ideas.length + joins;
-}
-
-async function insertSeedBatches(table, rows, job) {
-  const SIZE = 300;
-  for (let i = 0; i < rows.length; i += SIZE) {
-    if (job.ctl.canceled) throw new Error('canceled');
-    const batch = rows.slice(i, i + SIZE);
-    const { error } = await sb.from(table).insert(batch);
-    if (error) throw error;
-    job.done += batch.length;
-    paintUploadJobs();
-  }
-}
-
-async function runProjectUpload(projectId, d, job) {
+// Build an imported project straight into the DB, slice by slice. The project
+// row already exists (so its tile is visible); this reads the file, drives the
+// AI outline one slice at a time, and inserts each slice's new Sections and
+// Hops as it goes. Progress and cancel live on the project tile, so dismissing
+// the modal or navigating away never aborts the job. Cancel deletes the
+// half-built project (content rows cascade on delete).
+async function runProjectImportBuild(projectId, file, instructions, meta, job) {
   const U = currentUser.id, P = projectId;
   try {
-    const chapters = d.chapters.map((c, i) => ({ id: c.id, user_id: U, project_id: P, title: c.title, color: c.color, position: c.order ?? i }));
-    const chunks = d.chunks.map((c, i) => ({ id: c.id, user_id: U, project_id: P, chapter_id: c.chapterId || null, title: c.title, body: c.body, chrono_label: c.chronoLabel || null, narrative_pos: c.narrativeOrder ?? i, chrono_pos: c.chronoOrder ?? i, order_in_chapter: c.orderInChapter ?? 0, archived: !!c.archived, analysis: c.analysis || null }));
-    const characters = d.characters.map(c => ({ id: c.id, user_id: U, project_id: P, name: c.name, aliases: c.aliases || [], summary: c.summary || '', notes: c.notes || [], color: c.color || null, dismissed_refs: c.dismissedRefs || [], arc: c.arc || [], principles: c.principles || [], relationships: c.relationships || [] }));
-    const locations = (d.locations || []).map(c => ({ id: c.id, user_id: U, project_id: P, name: c.name, aliases: c.aliases || [], summary: c.summary || '', notes: c.notes || [], color: c.color || null, dismissed_refs: c.dismissedRefs || [] }));
-    const labels = d.labels.map(l => ({ id: l.id, user_id: U, project_id: P, name: l.name, color: l.color, summary: l.summary || null }));
-    const ideas = d.ideas.map(i => ({ id: i.id, user_id: U, project_id: P, title: i.title || null, body: i.body || null, text: (i.body || i.title || ''), ts: i.ts || Date.now() }));
-
-    const chunkLabels = [], chunkChars = [], chunkLocs = [], ideaLabels = [];
-    d.chunks.forEach(c => {
-      (c.labelIds || []).forEach(lid => chunkLabels.push({ chunk_id: c.id, label_id: lid, user_id: U }));
-      (c.characterIds || []).forEach(chid => chunkChars.push({ chunk_id: c.id, character_id: chid, user_id: U }));
-      (c.locationIds || []).forEach(lid => chunkLocs.push({ chunk_id: c.id, location_id: lid, user_id: U }));
+    job.stage = 'Reading file'; paintUploadJobs();
+    const text = await extractText(file, (p, n) => {
+      job.stage = 'Reading PDF — page ' + p + ' / ' + n; paintUploadJobs();
     });
-    d.ideas.forEach(i => (i.labelIds || []).forEach(lid => ideaLabels.push({ idea_id: i.id, label_id: lid, user_id: U })));
+    if (job.ctl.canceled) throw new Error('canceled');
+    if (!text || !text.trim()) throw new Error('No readable text found in that file.');
 
-    // Parents before children so foreign keys resolve.
-    job.stage = 'Uploading sections'; paintUploadJobs();
-    await insertSeedBatches('chapters', chapters, job);
-    job.stage = 'Uploading references'; paintUploadJobs();
-    await insertSeedBatches('tags', labels, job);
-    await insertSeedBatches('characters', characters, job);
-    await insertSeedBatches('locations', locations, job);
-    job.stage = 'Uploading hops'; paintUploadJobs();
-    await insertSeedBatches('chunks', chunks, job);
-    await insertSeedBatches('ideas', ideas, job);
-    job.stage = 'Linking content'; paintUploadJobs();
-    await insertSeedBatches('chunk_labels', chunkLabels, job);
-    await insertSeedBatches('chunk_chars', chunkChars, job);
-    await insertSeedBatches('chunk_locations', chunkLocs, job);
-    await insertSeedBatches('idea_labels', ideaLabels, job);
+    const slices = sliceText(text, IMPORT_SLICE);
+    if (!slices.length) throw new Error('No readable text found in that file.');
+    job.total = slices.length; job.done = 0; paintUploadJobs();
+
+    const sectionId = new Map();    // section title -> chapter id (already in DB)
+    const perSection = new Map();   // chapter id -> hop count so far
+    let narrative = 0;
+
+    const ensureSection = async title => {
+      const t = (title || '').trim() || 'Imported';
+      if (!sectionId.has(t)) {
+        const id = uid();
+        const pos = sectionId.size;
+        const { error } = await sb.from('chapters').insert({
+          id, user_id: U, project_id: P, title: t,
+          color: CHAPTER_PALETTE[pos % CHAPTER_PALETTE.length], position: pos
+        });
+        if (error) throw error;
+        sectionId.set(t, id);
+        job.sections = sectionId.size;
+      }
+      return sectionId.get(t);
+    };
+
+    for (let i = 0; i < slices.length; i++) {
+      if (job.ctl.canceled) throw new Error('canceled');
+      let res = null;
+      try {
+        res = await aiInvoke({
+          task: 'import_outline', text: slices[i], instructions,
+          type: meta.type, genre: meta.genre,
+          sectionsSoFar: [...sectionId.keys()].slice(-60)
+        });
+      } catch (_) { res = null; }   // skip a failed slice, keep building the rest
+      if (res) {
+        for (const s of (Array.isArray(res.sections) ? res.sections : [])) {
+          await ensureSection(s && s.title);
+        }
+        const rows = [];
+        for (const h of (Array.isArray(res.hops) ? res.hops : [])) {
+          const body = (h && h.body || '').trim();
+          const title = (h && h.title || '').trim();
+          if (!body && !title) continue;
+          const cid = await ensureSection(h && h.section);
+          const n = perSection.get(cid) || 0; perSection.set(cid, n + 1);
+          rows.push({
+            id: uid(), user_id: U, project_id: P, chapter_id: cid,
+            title: title || 'Untitled', body, chrono_label: null, analysis: null,
+            narrative_pos: narrative, chrono_pos: narrative, order_in_chapter: n, archived: false
+          });
+          narrative++;
+        }
+        if (rows.length) {
+          const { error } = await sb.from('chunks').insert(rows);
+          if (error) throw error;
+          job.hops = (job.hops || 0) + rows.length;
+        }
+      }
+      job.done = i + 1;
+      job.stage = (job.sections || 0) + ' section' + ((job.sections || 0) === 1 ? '' : 's') +
+        ' · ' + (job.hops || 0) + ' hop' + ((job.hops || 0) === 1 ? '' : 's');
+      paintUploadJobs();
+    }
 
     if (job.ctl.canceled) throw new Error('canceled');
-    await sb.from('projects').update({ ui: d.ui, updated_at: new Date().toISOString() }).eq('id', P);
+    if (!sectionId.size || !job.hops) throw new Error('Could not build any sections or hops from that file.');
 
-    job.status = 'done'; job.stage = 'Upload complete'; paintUploadJobs();
+    const firstId = [...sectionId.values()][0] || null;
+    await sb.from('projects').update({
+      ui: { activeChapter: firstId, activeChar: null, activeLoc: null, activeLabel: null },
+      updated_at: new Date().toISOString()
+    }).eq('id', P);
+
+    job.status = 'done'; job.stage = 'Import complete'; paintUploadJobs();
     const projects = await fetchProjects();
     renderProjectSelector(projects, activeProjectId);
     if (currentRoute() === 'home') renderHome();
     setTimeout(() => { uploadJobs.delete(P); if (currentRoute() === 'home') renderHome(); }, 1800);
   } catch (err) {
     if (job.ctl.canceled) {
-      // Roll back the half-built project (content rows cascade on delete).
       await sb.from('projects').delete().eq('id', P).then(() => {}, () => {});
       uploadJobs.delete(P);
       const projects = await fetchProjects();
@@ -5110,20 +5141,19 @@ async function runProjectUpload(projectId, d, job) {
       if (currentRoute() === 'home') renderHome();
     } else {
       job.status = 'error';
-      job.error = (err && err.message) ? err.message : 'Upload failed';
+      job.error = (err && err.message) ? err.message : 'Import failed';
       if (currentRoute() === 'home') renderHome();
     }
   }
 }
 
-async function startBackgroundProjectUpload(res) {
+async function startBackgroundImportBuild(spec) {
   let proj;
-  try { proj = await createProjectRow(res.name, res.type, res.genre, res.accent); }
+  try { proj = await createProjectRow(spec.name, spec.type, spec.genre, spec.accent); }
   catch (err) { alertModal('Could not create the project.\n\n' + (err.message || ''), { title: 'NEW PROJECT' }); return; }
-  const d = remapSeedData(res.seedData);
   uploadJobs.set(proj.id, {
-    projectId: proj.id, name: res.name, total: seedRowCounts(d),
-    done: 0, stage: 'Starting upload', status: 'uploading', ctl: { canceled: false }
+    projectId: proj.id, name: spec.name, total: 0, done: 0,
+    sections: 0, hops: 0, stage: 'Starting…', status: 'building', ctl: { canceled: false }
   });
   const projects = await fetchProjects();
   renderProjectSelector(projects, activeProjectId);
@@ -5133,11 +5163,11 @@ async function startBackgroundProjectUpload(res) {
   renderHeaderMeta();
   go('home');
   renderHome();
-  runProjectUpload(proj.id, d, uploadJobs.get(proj.id));
+  runProjectImportBuild(proj.id, spec.importFile, spec.instructions, { type: spec.type, genre: spec.genre }, uploadJobs.get(proj.id));
 }
 
 function uploadJobProgressHTML(job) {
-  if (job.status === 'error') return `<div class="pc-up-err">${esc(job.error || 'Upload failed')}</div>`;
+  if (job.status === 'error') return `<div class="pc-up-err">${esc(job.error || 'Import failed')}</div>`;
   const pct = job.status === 'done' ? 100 : (job.total ? Math.round((job.done / job.total) * 100) : 0);
   return `<div class="pc-up-bar"><div class="pc-up-fill" style="width:${pct}%"></div></div>
     <div class="pc-up-stage">${esc(job.stage)} · ${pct}%</div>`;
@@ -5149,13 +5179,13 @@ function uploadingCardHTML(p, job) {
     <div class="project-card uploading ${err ? 'has-error' : ''}" style="--accent:${esc(p.accent || DEFAULT_ACCENT)}">
       <div class="pc-body pc-up-body">
         <span class="pc-name">${esc(p.name)}</span>
-        <span class="pc-kind">${err ? 'UPLOAD FAILED' : 'UPLOADING…'}</span>
+        <span class="pc-kind">${err ? 'IMPORT FAILED' : 'BUILDING…'}</span>
         <div class="pc-up" data-upjob="${p.id}">${uploadJobProgressHTML(job)}</div>
       </div>
       <div class="pc-actions">
         ${err
           ? `<button class="pc-btn danger" data-updismiss="${p.id}">DISMISS</button>`
-          : `<button class="pc-btn danger" data-upcancel="${p.id}">CANCEL UPLOAD</button>`}
+          : `<button class="pc-btn danger" data-upcancel="${p.id}">CANCEL IMPORT</button>`}
       </div>
     </div>`;
 }
@@ -5569,6 +5599,13 @@ function saveSuggestedAsIdea(s) {
 
 /* ---- project flows ---- */
 async function openProject(id) {
+  // A project still importing in the background only has partial content; keep
+  // the current project open until its tile finishes.
+  if (uploadJobs.has(id)) {
+    document.getElementById('projectSelect').value = activeProjectId;
+    if (currentRoute() === 'home') renderHome();
+    return;
+  }
   if (id !== activeProjectId) {
     await flushPersist();
     await loadProject(id);
@@ -5660,71 +5697,16 @@ function sliceText(text, size) {
   return out;
 }
 
-// Drive the AI outline slice by slice, accumulating Sections + Hops, then
-// fold the result into the `db`-shaped object seedProjectContent expects.
-async function runImportOutline(text, instructions, meta, ctl, onProgress) {
-  const slices = sliceText(text, IMPORT_SLICE);
-  if (!slices.length) return null;
-  const sectionId = new Map();   // title -> id
-  const sections = [];           // { id, title } in first-seen order
-  const hops = [];               // { sectionId, title, body }
-  const ensureSection = title => {
-    const t = (title || '').trim() || 'Imported';
-    if (!sectionId.has(t)) {
-      const id = uid();
-      sectionId.set(t, id);
-      sections.push({ id, title: t });
-    }
-    return sectionId.get(t);
-  };
-  for (let i = 0; i < slices.length; i++) {
-    if (ctl.canceled) break;
-    try {
-      const res = await aiInvoke({
-        task: 'import_outline',
-        text: slices[i],
-        instructions,
-        type: meta.type, genre: meta.genre,
-        sectionsSoFar: sections.slice(-60).map(s => s.title)
-      });
-      (Array.isArray(res.sections) ? res.sections : []).forEach(s => ensureSection(s && s.title));
-      (Array.isArray(res.hops) ? res.hops : []).forEach(h => {
-        const body = (h && h.body || '').trim();
-        const title = (h && h.title || '').trim();
-        if (!body && !title) return;
-        hops.push({ sectionId: ensureSection(h.section), title: title || 'Untitled', body });
-      });
-    } catch (_) { /* skip this slice, keep importing the rest */ }
-    onProgress(i + 1, slices.length, sections.length, hops.length);
-  }
-  if (!sections.length || !hops.length) return null;
-  const perSection = new Map();
-  const chunks = hops.map((h, i) => {
-    const n = perSection.get(h.sectionId) || 0;
-    perSection.set(h.sectionId, n + 1);
-    return {
-      id: uid(), chapterId: h.sectionId, title: h.title, body: h.body,
-      narrativeOrder: i, chronoOrder: i, orderInChapter: n,
-      archived: false, labelIds: [], characterIds: [], locationIds: []
-    };
-  });
-  const chapters = sections.map((s, i) => ({ id: s.id, title: s.title, order: i, color: CHAPTER_PALETTE[i % CHAPTER_PALETTE.length] }));
-  return {
-    chapters, chunks, characters: [], locations: [], labels: [], ideas: [],
-    ui: { activeChapter: chapters[0]?.id || null, activeChar: null, activeLoc: null, activeLabel: null }
-  };
-}
-
 // The project-creation upload step. Resolves with a `db`-shaped data object to
 // seed the new project, or null to start blank (skip / cancel / failure).
 // New-project modal: project settings + a START FRESH / IMPORT toggle in one
 // surface. Choosing IMPORT reveals the upload box and grouping prompt; the
-// primary button becomes CREATE AND BUILD and runs the file → Sections/Hops
-// build (progress, done, error) right here. Resolves with
-// { name, type, genre, accent, seedData } — seedData null when starting fresh.
+// primary button becomes CREATE AND BUILD. Resolves with either
+// { name, type, genre, accent, seedData:null } for a fresh project, or
+// { name, type, genre, accent, importFile, instructions } for an import —
+// createProjectFlow then builds the import in the background on the tile.
 function newProjectModal() {
   return new Promise(resolve => {
-    const ctl = { canceled: false };
     let chosenAccent = DEFAULT_ACCENT;
     let mode = 'fresh';            // 'fresh' | 'import'
     let chosenFile = null;
@@ -5749,7 +5731,6 @@ function newProjectModal() {
 
     const restoreAccent = () => applyProjectAccent(projectsCache.find(p => p.id === activeProjectId)?.accent);
     const finish = val => { document.removeEventListener('keydown', onKey); if (!val) restoreAccent(); overlay.remove(); resolve(val); };
-    const meta = () => ({ type: npType, genre: npGenre });
     function syncForm() {
       const n = bodyEl.querySelector('#psName'); if (n) npName = n.value;
       const t = bodyEl.querySelector('#psType'); if (t) npType = t.value;
@@ -5777,7 +5758,6 @@ function newProjectModal() {
     }
 
     function renderForm() {
-      ctl.canceled = false;
       bodyEl.innerHTML = `
         <label class="ps-field"><span class="ps-label">NAME</span>
           <input class="ui-modal-input" id="psName" type="text" />
@@ -5851,70 +5831,16 @@ function newProjectModal() {
     function onOk() {
       syncForm();
       if (!npName.trim()) { bodyEl.querySelector('#psName').focus(); return; }
-      if (mode === 'import' && chosenFile) runBuild(chosenFile, bodyEl.querySelector('#imInstr').value.trim());
-      else finish({ name: npName.trim(), type: npType, genre: npGenre, accent: chosenAccent, seedData: null });
-    }
-
-    function renderProgress() {
-      bodyEl.innerHTML = `
-        <div class="im-prog">
-          <div class="im-spin"></div>
-          <div class="im-stage" id="imStage">Reading file…</div>
-          <div class="im-bar"><div class="im-fill" id="imFill" style="width:0%"></div></div>
-          <div class="im-counts" id="imCounts"></div>
-          <button class="ui-modal-btn im-cancel" data-act="cancel">Cancel</button>
-        </div>`;
-      bodyEl.querySelector('[data-act="cancel"]').addEventListener('click', () => { ctl.canceled = true; });
-    }
-    const setStage = t => { const e = bodyEl.querySelector('#imStage'); if (e) e.textContent = t; };
-    const setBar = pct => { const e = bodyEl.querySelector('#imFill'); if (e) e.style.width = Math.max(0, Math.min(100, pct)) + '%'; };
-    const setCounts = t => { const e = bodyEl.querySelector('#imCounts'); if (e) e.textContent = t; };
-
-    async function runBuild(file, instructions) {
-      renderProgress();
-      try {
-        setStage('Reading file…');
-        const text = await extractText(file, (p, n) => { setStage('Reading PDF — page ' + p + ' / ' + n); setBar((p / n) * 15); });
-        if (ctl.canceled) return renderForm();
-        if (!text || !text.trim()) {
-          return renderError('No readable text found in that file. If it is a scanned PDF, it has no text layer to import.');
-        }
-        setStage('Building Sections and Hops…');
-        const data = await runImportOutline(text, instructions, meta(), ctl, (done, total, secs, hops) => {
-          setBar(15 + (done / total) * 85);
-          setCounts(secs + ' section' + (secs === 1 ? '' : 's') + ' · ' + hops + ' hop' + (hops === 1 ? '' : 's') + '  ·  slice ' + done + ' / ' + total);
+      // IMPORT: hand the raw file off so the build runs in the background on the
+      // project tile (the project row is created immediately by createProjectFlow).
+      if (mode === 'import' && chosenFile) {
+        finish({
+          name: npName.trim(), type: npType, genre: npGenre, accent: chosenAccent,
+          importFile: chosenFile, instructions: bodyEl.querySelector('#imInstr').value.trim()
         });
-        if (ctl.canceled) return renderForm();
-        if (!data) return renderError('Could not build any sections or hops from that file. You can start blank and add content manually.');
-        renderDone(data);
-      } catch (err) {
-        renderError('Import failed. ' + (err && err.message ? err.message : ''));
+      } else {
+        finish({ name: npName.trim(), type: npType, genre: npGenre, accent: chosenAccent, seedData: null });
       }
-    }
-
-    function renderDone(data) {
-      const secs = data.chapters.length, hops = data.chunks.length;
-      bodyEl.innerHTML = `
-        <div class="im-done">
-          <div class="im-check">✓</div>
-          <div class="im-done-tx">Created <b>${secs}</b> section${secs === 1 ? '' : 's'} and <b>${hops}</b> hop${hops === 1 ? '' : 's'} from your file. It uploads in the background — you can keep working and watch progress on the project tile.</div>
-          <div class="ui-modal-actions"><button class="ui-modal-btn solid" data-act="done">Start upload</button></div>
-        </div>`;
-      bodyEl.querySelector('[data-act="done"]').addEventListener('click', () =>
-        finish({ name: npName.trim(), type: npType, genre: npGenre, accent: chosenAccent, seedData: data }));
-    }
-    function renderError(msg) {
-      bodyEl.innerHTML = `
-        <div class="im-err">
-          <div class="im-err-tx">${esc(msg)}</div>
-          <div class="ui-modal-actions">
-            <button class="ui-modal-btn" data-act="retry">Try another file</button>
-            <button class="ui-modal-btn solid" data-act="blank">Start blank</button>
-          </div>
-        </div>`;
-      bodyEl.querySelector('[data-act="retry"]').addEventListener('click', () => { chosenFile = null; mode = 'import'; renderForm(); });
-      bodyEl.querySelector('[data-act="blank"]').addEventListener('click', () =>
-        finish({ name: npName.trim(), type: npType, genre: npGenre, accent: chosenAccent, seedData: null }));
     }
 
     overlay.addEventListener('mousedown', e => { if (e.target === overlay) finish(null); });
@@ -5927,9 +5853,10 @@ function newProjectModal() {
 async function createProjectFlow() {
   const res = await newProjectModal();
   if (!res) return;
-  // Imported projects can be large; upload them in the background so the modal
-  // can be dismissed without aborting, with progress on the project tile.
-  if (res.seedData) { await startBackgroundProjectUpload(res); return; }
+  // IMPORT: create the project row now (tile appears immediately) and build it
+  // in the background so the modal can be dismissed without aborting, with
+  // progress and cancel on the project tile.
+  if (res.importFile) { await startBackgroundImportBuild(res); return; }
   await flushPersist();
   const proj = await createProjectRow(res.name, res.type, res.genre, res.accent);
   await seedProjectContent(proj.id, null);
