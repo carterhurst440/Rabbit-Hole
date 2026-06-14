@@ -4876,32 +4876,35 @@ async function createProjectRow(name, type = 'Book', genre = '', accent = '') {
   return data;
 }
 
-// Map the in-memory `db` shape onto a brand-new project, remapping any
-// legacy short ids to UUIDs (and rewiring every reference) before persisting.
-async function seedProjectContent(projectId, data) {
+// Remap a db-shaped seed's (possibly legacy short) ids to fresh UUIDs, rewiring
+// every cross-reference. Returns a new object; does not touch globals.
+function remapSeedData(data) {
   const map = new Map();
   const rid = old => { if (!map.has(old)) map.set(old, crypto.randomUUID()); return map.get(old); };
-  let d;
-  if (data) {
-    d = {
-      chapters: (data.chapters || []).map(c => ({ ...c, id: rid(c.id) })),
-      chunks: (data.chunks || []).map(c => ({
-        ...c, id: rid(c.id),
-        chapterId: c.chapterId ? rid(c.chapterId) : null,
-        labelIds: (c.labelIds || []).map(rid),
-        characterIds: (c.characterIds || []).map(rid),
-        locationIds: (c.locationIds || []).map(rid)
-      })),
-      characters: (data.characters || []).map(c => ({ ...c, id: rid(c.id) })),
-      locations: (data.locations || []).map(c => ({ ...c, id: rid(c.id) })),
-      labels: (data.labels || []).map(l => ({ ...l, id: rid(l.id) })),
-      ideas: (data.ideas || []).map(i => ({ ...i, id: rid(i.id), title: i.title || '', body: (i.body != null ? i.body : (i.text || '')), labelIds: (i.labelIds || []).map(rid) })),
-      ui: {}
-    };
-    d.ui = { activeChapter: d.chapters[0]?.id || null, activeChar: null, activeLoc: null, activeLabel: null };
-  } else {
-    d = seed();
-  }
+  const d = {
+    chapters: (data.chapters || []).map(c => ({ ...c, id: rid(c.id) })),
+    chunks: (data.chunks || []).map(c => ({
+      ...c, id: rid(c.id),
+      chapterId: c.chapterId ? rid(c.chapterId) : null,
+      labelIds: (c.labelIds || []).map(rid),
+      characterIds: (c.characterIds || []).map(rid),
+      locationIds: (c.locationIds || []).map(rid)
+    })),
+    characters: (data.characters || []).map(c => ({ ...c, id: rid(c.id) })),
+    locations: (data.locations || []).map(c => ({ ...c, id: rid(c.id) })),
+    labels: (data.labels || []).map(l => ({ ...l, id: rid(l.id) })),
+    ideas: (data.ideas || []).map(i => ({ ...i, id: rid(i.id), title: i.title || '', body: (i.body != null ? i.body : (i.text || '')), labelIds: (i.labelIds || []).map(rid) })),
+    ui: {}
+  };
+  d.ui = { activeChapter: d.chapters[0]?.id || null, activeChar: null, activeLoc: null, activeLabel: null };
+  return d;
+}
+
+// Map the in-memory `db` shape onto a brand-new project (used by the quick,
+// foreground path — fresh projects and the initial seed). Background imports
+// use runProjectUpload instead so they don't clobber the open project.
+async function seedProjectContent(projectId, data) {
+  const d = data ? remapSeedData(data) : seed();
   db = d;
   activeProjectId = projectId;
   await persistProject();
@@ -5026,6 +5029,144 @@ async function persistProject() {
     persisting = false;
     if (dirtyAgain) { dirtyAgain = false; schedulePersist(); }
   }
+}
+
+/* ---- background project upload ----
+   A large imported project is uploaded as a detached job so the new-project
+   modal can be dismissed without aborting it. Progress + cancel live on the
+   project tile (renderHome). The job uploads directly to its own project id
+   and never touches the open project's `db`. */
+const uploadJobs = new Map();   // projectId -> { projectId, name, total, done, stage, status, ctl }
+
+function seedRowCounts(d) {
+  let joins = 0;
+  d.chunks.forEach(c => { joins += (c.labelIds || []).length + (c.characterIds || []).length + (c.locationIds || []).length; });
+  d.ideas.forEach(i => { joins += (i.labelIds || []).length; });
+  return d.chapters.length + d.chunks.length + d.characters.length +
+    d.locations.length + d.labels.length + d.ideas.length + joins;
+}
+
+async function insertSeedBatches(table, rows, job) {
+  const SIZE = 300;
+  for (let i = 0; i < rows.length; i += SIZE) {
+    if (job.ctl.canceled) throw new Error('canceled');
+    const batch = rows.slice(i, i + SIZE);
+    const { error } = await sb.from(table).insert(batch);
+    if (error) throw error;
+    job.done += batch.length;
+    paintUploadJobs();
+  }
+}
+
+async function runProjectUpload(projectId, d, job) {
+  const U = currentUser.id, P = projectId;
+  try {
+    const chapters = d.chapters.map((c, i) => ({ id: c.id, user_id: U, project_id: P, title: c.title, color: c.color, position: c.order ?? i }));
+    const chunks = d.chunks.map((c, i) => ({ id: c.id, user_id: U, project_id: P, chapter_id: c.chapterId || null, title: c.title, body: c.body, chrono_label: c.chronoLabel || null, narrative_pos: c.narrativeOrder ?? i, chrono_pos: c.chronoOrder ?? i, order_in_chapter: c.orderInChapter ?? 0, archived: !!c.archived, analysis: c.analysis || null }));
+    const characters = d.characters.map(c => ({ id: c.id, user_id: U, project_id: P, name: c.name, aliases: c.aliases || [], summary: c.summary || '', notes: c.notes || [], color: c.color || null, dismissed_refs: c.dismissedRefs || [], arc: c.arc || [], principles: c.principles || [], relationships: c.relationships || [] }));
+    const locations = (d.locations || []).map(c => ({ id: c.id, user_id: U, project_id: P, name: c.name, aliases: c.aliases || [], summary: c.summary || '', notes: c.notes || [], color: c.color || null, dismissed_refs: c.dismissedRefs || [] }));
+    const labels = d.labels.map(l => ({ id: l.id, user_id: U, project_id: P, name: l.name, color: l.color, summary: l.summary || null }));
+    const ideas = d.ideas.map(i => ({ id: i.id, user_id: U, project_id: P, title: i.title || null, body: i.body || null, text: (i.body || i.title || ''), ts: i.ts || Date.now() }));
+
+    const chunkLabels = [], chunkChars = [], chunkLocs = [], ideaLabels = [];
+    d.chunks.forEach(c => {
+      (c.labelIds || []).forEach(lid => chunkLabels.push({ chunk_id: c.id, label_id: lid, user_id: U }));
+      (c.characterIds || []).forEach(chid => chunkChars.push({ chunk_id: c.id, character_id: chid, user_id: U }));
+      (c.locationIds || []).forEach(lid => chunkLocs.push({ chunk_id: c.id, location_id: lid, user_id: U }));
+    });
+    d.ideas.forEach(i => (i.labelIds || []).forEach(lid => ideaLabels.push({ idea_id: i.id, label_id: lid, user_id: U })));
+
+    // Parents before children so foreign keys resolve.
+    job.stage = 'Uploading sections'; paintUploadJobs();
+    await insertSeedBatches('chapters', chapters, job);
+    job.stage = 'Uploading references'; paintUploadJobs();
+    await insertSeedBatches('tags', labels, job);
+    await insertSeedBatches('characters', characters, job);
+    await insertSeedBatches('locations', locations, job);
+    job.stage = 'Uploading hops'; paintUploadJobs();
+    await insertSeedBatches('chunks', chunks, job);
+    await insertSeedBatches('ideas', ideas, job);
+    job.stage = 'Linking content'; paintUploadJobs();
+    await insertSeedBatches('chunk_labels', chunkLabels, job);
+    await insertSeedBatches('chunk_chars', chunkChars, job);
+    await insertSeedBatches('chunk_locations', chunkLocs, job);
+    await insertSeedBatches('idea_labels', ideaLabels, job);
+
+    if (job.ctl.canceled) throw new Error('canceled');
+    await sb.from('projects').update({ ui: d.ui, updated_at: new Date().toISOString() }).eq('id', P);
+
+    job.status = 'done'; job.stage = 'Upload complete'; paintUploadJobs();
+    const projects = await fetchProjects();
+    renderProjectSelector(projects, activeProjectId);
+    if (currentRoute() === 'home') renderHome();
+    setTimeout(() => { uploadJobs.delete(P); if (currentRoute() === 'home') renderHome(); }, 1800);
+  } catch (err) {
+    if (job.ctl.canceled) {
+      // Roll back the half-built project (content rows cascade on delete).
+      await sb.from('projects').delete().eq('id', P).then(() => {}, () => {});
+      uploadJobs.delete(P);
+      const projects = await fetchProjects();
+      renderProjectSelector(projects, activeProjectId);
+      if (currentRoute() === 'home') renderHome();
+    } else {
+      job.status = 'error';
+      job.error = (err && err.message) ? err.message : 'Upload failed';
+      if (currentRoute() === 'home') renderHome();
+    }
+  }
+}
+
+async function startBackgroundProjectUpload(res) {
+  let proj;
+  try { proj = await createProjectRow(res.name, res.type, res.genre, res.accent); }
+  catch (err) { alertModal('Could not create the project.\n\n' + (err.message || ''), { title: 'NEW PROJECT' }); return; }
+  const d = remapSeedData(res.seedData);
+  uploadJobs.set(proj.id, {
+    projectId: proj.id, name: res.name, total: seedRowCounts(d),
+    done: 0, stage: 'Starting upload', status: 'uploading', ctl: { canceled: false }
+  });
+  const projects = await fetchProjects();
+  renderProjectSelector(projects, activeProjectId);
+  // The modal live-previewed the new project's accent; the open project hasn't
+  // changed, so restore its theme.
+  applyProjectAccent(projectsCache.find(p => p.id === activeProjectId)?.accent);
+  renderHeaderMeta();
+  go('home');
+  renderHome();
+  runProjectUpload(proj.id, d, uploadJobs.get(proj.id));
+}
+
+function uploadJobProgressHTML(job) {
+  if (job.status === 'error') return `<div class="pc-up-err">${esc(job.error || 'Upload failed')}</div>`;
+  const pct = job.status === 'done' ? 100 : (job.total ? Math.round((job.done / job.total) * 100) : 0);
+  return `<div class="pc-up-bar"><div class="pc-up-fill" style="width:${pct}%"></div></div>
+    <div class="pc-up-stage">${esc(job.stage)} · ${pct}%</div>`;
+}
+
+function uploadingCardHTML(p, job) {
+  const err = job.status === 'error';
+  return `
+    <div class="project-card uploading ${err ? 'has-error' : ''}" style="--accent:${esc(p.accent || DEFAULT_ACCENT)}">
+      <div class="pc-body pc-up-body">
+        <span class="pc-name">${esc(p.name)}</span>
+        <span class="pc-kind">${err ? 'UPLOAD FAILED' : 'UPLOADING…'}</span>
+        <div class="pc-up" data-upjob="${p.id}">${uploadJobProgressHTML(job)}</div>
+      </div>
+      <div class="pc-actions">
+        ${err
+          ? `<button class="pc-btn danger" data-updismiss="${p.id}">DISMISS</button>`
+          : `<button class="pc-btn danger" data-upcancel="${p.id}">CANCEL UPLOAD</button>`}
+      </div>
+    </div>`;
+}
+
+// Lightweight per-batch repaint of just the progress bars (no full re-render).
+function paintUploadJobs() {
+  if (currentRoute() !== 'home') return;
+  document.querySelectorAll('[data-upjob]').forEach(el => {
+    const job = uploadJobs.get(el.dataset.upjob);
+    if (job && job.status !== 'error') el.innerHTML = uploadJobProgressHTML(job);
+  });
 }
 
 /* ---- project selector UI ---- */
@@ -5220,6 +5361,8 @@ function renderHome() {
   const grid = document.getElementById('projectGrid');
   if (!grid) return;
   const cards = projectsCache.map(p => {
+    const job = uploadJobs.get(p.id);
+    if (job) return uploadingCardHTML(p, job);
     const active = p.id === activeProjectId;
     const stamp = p.updated_at || p.created_at;
     const when = stamp ? new Date(stamp).toLocaleDateString(undefined,
@@ -5252,6 +5395,23 @@ function renderHome() {
     b.addEventListener('click', () => editProjectFlow(b.dataset.edit)));
   grid.querySelectorAll('[data-del]').forEach(b =>
     b.addEventListener('click', () => deleteProjectFlow(b.dataset.del)));
+  grid.querySelectorAll('[data-upcancel]').forEach(b =>
+    b.addEventListener('click', () => {
+      const job = uploadJobs.get(b.dataset.upcancel);
+      if (!job || job.ctl.canceled) return;
+      job.ctl.canceled = true; job.stage = 'Canceling';
+      b.disabled = true; b.textContent = 'CANCELING…';
+    }));
+  grid.querySelectorAll('[data-updismiss]').forEach(b =>
+    b.addEventListener('click', async () => {
+      const id = b.dataset.updismiss;
+      b.disabled = true;
+      await sb.from('projects').delete().eq('id', id).then(() => {}, () => {});
+      uploadJobs.delete(id);
+      const projects = await fetchProjects();
+      renderProjectSelector(projects, activeProjectId);
+      renderHome();
+    }));
   grid.querySelector('#newProjectCard').addEventListener('click', createProjectFlow);
   renderSuggestedChunks();
 }
@@ -5737,8 +5897,8 @@ function newProjectModal() {
       bodyEl.innerHTML = `
         <div class="im-done">
           <div class="im-check">✓</div>
-          <div class="im-done-tx">Created <b>${secs}</b> section${secs === 1 ? '' : 's'} and <b>${hops}</b> hop${hops === 1 ? '' : 's'} from your file.</div>
-          <div class="ui-modal-actions"><button class="ui-modal-btn solid" data-act="done">Open project</button></div>
+          <div class="im-done-tx">Created <b>${secs}</b> section${secs === 1 ? '' : 's'} and <b>${hops}</b> hop${hops === 1 ? '' : 's'} from your file. It uploads in the background — you can keep working and watch progress on the project tile.</div>
+          <div class="ui-modal-actions"><button class="ui-modal-btn solid" data-act="done">Start upload</button></div>
         </div>`;
       bodyEl.querySelector('[data-act="done"]').addEventListener('click', () =>
         finish({ name: npName.trim(), type: npType, genre: npGenre, accent: chosenAccent, seedData: data }));
@@ -5767,9 +5927,12 @@ function newProjectModal() {
 async function createProjectFlow() {
   const res = await newProjectModal();
   if (!res) return;
+  // Imported projects can be large; upload them in the background so the modal
+  // can be dismissed without aborting, with progress on the project tile.
+  if (res.seedData) { await startBackgroundProjectUpload(res); return; }
   await flushPersist();
   const proj = await createProjectRow(res.name, res.type, res.genre, res.accent);
-  await seedProjectContent(proj.id, res.seedData);
+  await seedProjectContent(proj.id, null);
   const projects = await fetchProjects();
   renderProjectSelector(projects, proj.id);
   await loadProject(proj.id);

@@ -277,6 +277,15 @@ button, input, textarea, select { font-family: inherit; }
 .pc-btn:hover { background: var(--panel-2); color: var(--accent); }
 .pc-btn.danger:hover { color: #d8746a; }
 .pc-btn + .pc-btn { border-left: 1px solid var(--line); }
+.project-card.uploading { border-color: var(--accent-mid); }
+.project-card.uploading.has-error { border-color: #c0584e; }
+.pc-up-body { cursor: default; }
+.pc-up-body:hover { background: none; }
+.pc-up { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.pc-up-bar { height: 6px; background: var(--panel-2); border: 1px solid var(--line); overflow: hidden; }
+.pc-up-fill { height: 100%; background: var(--accent); transition: width 0.3s ease; }
+.pc-up-stage { font-size: 10px; color: var(--muted); letter-spacing: 0.06em; }
+.pc-up-err { font-size: 11px; color: #d8746a; line-height: 1.5; }
 .project-card.new {
   align-items: center; justify-content: center; gap: 8px;
   background: none; border: 1px dashed var(--line-2); cursor: pointer;
