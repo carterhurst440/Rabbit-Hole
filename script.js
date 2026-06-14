@@ -2571,13 +2571,13 @@ function reorderChunk(orderKey, draggedId, beforeId) {
 const ENTITY_KINDS = {
   character: {
     coll: 'characters', link: 'characterIds', active: 'activeChar', scannedKey: 'detectScannedIds',
-    listId: 'charList', paneId: 'charPane', detectId: 'detectCharsBtn', addId: 'addCharBtn', searchId: 'charSearch', suggestId: 'suggestMergeChars',
+    listId: 'charList', paneId: 'charPane', detectId: 'detectCharsBtn', addId: 'addCharBtn', searchId: 'charSearch',
     detectTask: 'detect_characters', resultKey: 'characters', sumTask: 'char_summary',
     noun: 'character', NOUN: 'CHARACTER', NOUNS: 'CHARACTERS', newName: 'New character'
   },
   location: {
     coll: 'locations', link: 'locationIds', active: 'activeLoc', scannedKey: 'detectScannedLocs',
-    listId: 'locList', paneId: 'locPane', detectId: 'detectLocsBtn', addId: 'addLocBtn', searchId: 'locSearch', suggestId: 'suggestMergeLocs',
+    listId: 'locList', paneId: 'locPane', detectId: 'detectLocsBtn', addId: 'addLocBtn', searchId: 'locSearch',
     detectTask: 'detect_locations', resultKey: 'locations', sumTask: 'loc_summary',
     noun: 'location', NOUN: 'LOCATION', NOUNS: 'LOCATIONS', newName: 'New location'
   }
@@ -2907,25 +2907,40 @@ function mergeEntities(K, primaryId, secondaryId, primaryName) {
 // Modal: pick another entity to fold into `c`, then choose which of the two
 // names survives as the primary (the other becomes an alias).
 function openMergeModal(K, c) {
-  const others = db[K.coll].filter(x => x.id !== c.id)
+  const all = db[K.coll].filter(x => x.id !== c.id);
+  if (!all.length) { alertModal(`Need at least two ${K.noun}s to merge.`, { title: `MERGE ${K.NOUNS}` }); return; }
+
+  // Likely duplicates of THIS record, by name/alias heuristic — pre-checked so
+  // the author can confirm a combo merge without leaving the modal.
+  const reasonById = {};
+  mergeCandidatesFor(K, c).forEach(s => { reasonById[s.id] = s.reason; });
+  const suggested = all.filter(x => reasonById[x.id])
+    .sort((a, b) => refsFor(K, b).length - refsFor(K, a).length);
+  const rest = all.filter(x => !reasonById[x.id])
     .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-  if (!others.length) { alertModal(`Need at least two ${K.noun}s to merge.`, { title: `MERGE ${K.NOUNS}` }); return; }
+  const ordered = [...suggested, ...rest];
+
   const overlay = document.createElement('div');
   overlay.className = 'ui-modal-overlay';
   overlay.innerHTML = `
     <div class="ui-modal merge-modal">
       <div class="ui-modal-title">MERGE ${K.NOUNS}</div>
-      <div class="ui-modal-msg">Fold another ${K.noun} into <strong>${esc(c.name)}</strong>. Their references and notes move over; the unused name becomes an alias.</div>
+      <div class="ui-modal-msg">Fold duplicate ${K.noun}s into <strong>${esc(c.name)}</strong>. Their references and notes move over; unused names become aliases.</div>
       <div class="merge-field">
-        <label class="merge-label">Merge this ${K.noun} in</label>
+        <label class="merge-label">${suggested.length ? `Likely duplicates of ${esc(c.name)} are pre-checked` : `Pick ${K.noun}s to merge in`}</label>
         <input type="text" class="chunk-title-input merge-search" id="mergeSearch" placeholder="Search ${K.noun}s…" autocomplete="off" />
-        <select class="chunk-title-input merge-select" id="mergeOther" size="6">
-          ${others.map(o => `<option value="${o.id}">${esc(o.name)}</option>`).join('')}
-        </select>
+        <div class="merge-checklist" id="mergeList">
+          ${ordered.map(o => `
+            <label class="merge-row${reasonById[o.id] ? ' is-suggested' : ''}" data-name="${esc((o.name || '').toLowerCase())}" data-aliases="${esc((o.aliases || []).join(' ').toLowerCase())}">
+              <input type="checkbox" class="merge-pick" value="${o.id}"${reasonById[o.id] ? ' checked' : ''} />
+              <span class="merge-row-name">${esc(o.name)}</span>
+              ${reasonById[o.id] ? `<span class="merge-row-reason">${esc(reasonById[o.id])}</span>` : ''}
+            </label>`).join('')}
+        </div>
       </div>
       <div class="merge-field">
         <label class="merge-label">Primary name (kept)</label>
-        <div class="merge-names" id="mergeNames"></div>
+        <select class="chunk-title-input merge-select" id="mergePrimaryName"></select>
       </div>
       <div class="ui-modal-actions">
         <button class="ui-modal-btn" data-act="cancel">Cancel</button>
@@ -2934,54 +2949,58 @@ function openMergeModal(K, c) {
     </div>`;
   document.body.appendChild(overlay);
 
-  const otherSel = overlay.querySelector('#mergeOther');
+  const listBox = overlay.querySelector('#mergeList');
   const searchInp = overlay.querySelector('#mergeSearch');
-  const namesBox = overlay.querySelector('#mergeNames');
-  function renderNames() {
-    const other = db[K.coll].find(x => x.id === otherSel.value);
-    const opts = [c.name, other ? other.name : ''].filter(Boolean);
-    namesBox.innerHTML = opts.map((n, i) => `
-      <label class="merge-name-opt">
-        <input type="radio" name="mergePrimary" value="${esc(n)}" ${i === 0 ? 'checked' : ''} />
-        <span>${esc(n)}</span>
-      </label>`).join('');
+  const primarySel = overlay.querySelector('#mergePrimaryName');
+  const mergeBtn = overlay.querySelector('[data-act="merge"]');
+
+  const checkedIds = () => [...listBox.querySelectorAll('.merge-pick:checked')].map(cb => cb.value);
+  // Primary-name choices = the viewed record plus every currently-checked target.
+  function refreshPrimary() {
+    const prev = primarySel.value;
+    const names = [c.name, ...checkedIds().map(id => (all.find(x => x.id === id) || {}).name)].filter(Boolean);
+    const uniq = [...new Set(names)];
+    primarySel.innerHTML = uniq.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('');
+    primarySel.value = uniq.includes(prev) ? prev : c.name;
   }
-  // Filter the listbox by name or alias as the author types, keeping a valid
-  // selection so the Primary-name choices below always reflect a real target.
-  function filterOptions() {
-    const query = searchInp.value.trim().toLowerCase();
-    const matches = others.filter(o => !query
-      || (o.name || '').toLowerCase().includes(query)
-      || (o.aliases || []).some(a => (a || '').toLowerCase().includes(query)));
-    otherSel.innerHTML = matches.length
-      ? matches.map(o => `<option value="${o.id}">${esc(o.name)}</option>`).join('')
-      : '';
-    if (matches.length) otherSel.value = matches[0].id;
-    renderNames();
+  function refreshBtn() {
+    const n = checkedIds().length;
+    mergeBtn.textContent = n > 1 ? `Merge ${n}` : 'Merge';
+    mergeBtn.disabled = !n;
   }
-  renderNames();
-  otherSel.addEventListener('change', renderNames);
-  searchInp.addEventListener('input', filterOptions);
+  function filterList() {
+    const q = searchInp.value.trim().toLowerCase();
+    listBox.querySelectorAll('.merge-row').forEach(row => {
+      const hit = !q || row.dataset.name.includes(q) || row.dataset.aliases.includes(q);
+      row.style.display = hit ? '' : 'none';
+    });
+  }
+
+  listBox.addEventListener('change', () => { refreshPrimary(); refreshBtn(); });
+  searchInp.addEventListener('input', filterList);
+  refreshPrimary(); refreshBtn();
   searchInp.focus();
 
   const close = () => overlay.remove();
   overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
   overlay.querySelector('[data-act="cancel"]').addEventListener('click', close);
-  overlay.querySelector('[data-act="merge"]').addEventListener('click', async () => {
-    const otherId = otherSel.value;
-    if (!otherId) return;   // nothing matched the search
-    const primaryName = (overlay.querySelector('input[name="mergePrimary"]:checked') || {}).value || c.name;
+  mergeBtn.addEventListener('click', async () => {
+    const ids = checkedIds();
+    if (!ids.length) return;
+    const primaryName = primarySel.value || c.name;
     close();
-    const other = db[K.coll].find(x => x.id === otherId);
-    if (!await confirmModal(`Merge "${other.name}" into "${primaryName}"? This cannot be undone.`, { title: `MERGE ${K.NOUNS}`, okText: 'Merge' })) return;
-    mergeEntities(K, c.id, otherId, primaryName);
+    const msg = ids.length > 1
+      ? `Merge ${ids.length} ${K.noun}s into "${primaryName}"? This cannot be undone.`
+      : `Merge "${(all.find(x => x.id === ids[0]) || {}).name}" into "${primaryName}"? This cannot be undone.`;
+    if (!await confirmModal(msg, { title: `MERGE ${K.NOUNS}`, okText: 'Merge' })) return;
+    ids.forEach(id => mergeEntities(K, c.id, id, primaryName));
   });
 }
 
-// ---- SUGGEST MERGE CANDIDATES ------------------------------------------
-// Heuristic, fully client-side (no AI): find entities that are likely the same
-// based only on their name + aliases, group them, and let the author confirm a
-// combo merge in one pass.
+// ---- MERGE CANDIDATE HEURISTIC -----------------------------------------
+// Fully client-side (no AI): score whether two entities are likely the same,
+// based only on their name + aliases. Used to pre-check duplicates of the
+// viewed record inside the MERGE modal.
 
 // Lowercase, strip accents/punctuation, collapse whitespace.
 function normalizeName(s) {
@@ -3057,138 +3076,13 @@ function mergeReason(a, b) {
   return '';
 }
 
-// Group likely-duplicate entities with union-find over pairwise mergeReason.
-// Returns [{ ids:[...], primaryId, primaryName, reasons:[...] }] for groups of 2+.
-function suggestMergeGroups(K) {
-  const coll = (db[K.coll] || []).filter(c => !c.archived);
-  const parent = {}; coll.forEach(c => parent[c.id] = c.id);
-  const find = id => { while (parent[id] !== id) { parent[id] = parent[parent[id]]; id = parent[id]; } return id; };
-  const union = (x, y) => { const rx = find(x), ry = find(y); if (rx !== ry) parent[rx] = ry; };
-  const reasons = {}; // groupRoot is resolved at the end; collect by pair first
-  const pairReasons = [];
-
-  for (let i = 0; i < coll.length; i++) {
-    for (let j = i + 1; j < coll.length; j++) {
-      const why = mergeReason(coll[i], coll[j]);
-      if (why) { union(coll[i].id, coll[j].id); pairReasons.push([coll[i].id, why]); }
-    }
-  }
-
-  const groups = {};
-  coll.forEach(c => {
-    const root = find(c.id);
-    (groups[root] = groups[root] || []).push(c);
-  });
-  pairReasons.forEach(([id, why]) => {
-    const root = find(id);
-    (reasons[root] = reasons[root] || []).push(why);
-  });
-
-  return Object.entries(groups)
-    .filter(([, members]) => members.length >= 2)
-    .map(([root, members]) => {
-      // Primary = most references, tie-break on longest name.
-      const ranked = members.slice().sort((a, b) => {
-        const ra = refsFor(K, a).length, rb = refsFor(K, b).length;
-        if (rb !== ra) return rb - ra;
-        return (b.name || '').length - (a.name || '').length;
-      });
-      const primary = ranked[0];
-      const uniqReasons = [...new Set(reasons[root] || [])].slice(0, 3);
-      return {
-        ids: members.map(m => m.id),
-        members: ranked,
-        primaryId: primary.id,
-        primaryName: primary.name,
-        reasons: uniqReasons
-      };
-    })
-    .sort((a, b) => b.ids.length - a.ids.length);
-}
-
-// Modal listing each suggested group with a checkbox, a primary-name selector,
-// its members, and why it was flagged. Confirming runs a combo merge.
-function openSuggestMergeModal(K) {
-  const groups = suggestMergeGroups(K);
-  const overlay = document.createElement('div');
-  overlay.className = 'ui-modal-overlay';
-
-  if (!groups.length) {
-    overlay.innerHTML = `
-      <div class="ui-modal suggest-modal">
-        <div class="ui-modal-title">SUGGEST MERGES — ${K.NOUNS}</div>
-        <div class="ui-modal-msg">No likely duplicate ${K.noun}s found by name or alias.</div>
-        <div class="ui-modal-actions">
-          <button class="ui-modal-btn solid" data-act="cancel">Close</button>
-        </div>
-      </div>`;
-    document.body.appendChild(overlay);
-    const close = () => overlay.remove();
-    overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
-    overlay.querySelector('[data-act="cancel"]').addEventListener('click', close);
-    return;
-  }
-
-  overlay.innerHTML = `
-    <div class="ui-modal suggest-modal">
-      <div class="ui-modal-title">SUGGEST MERGES — ${K.NOUNS}</div>
-      <div class="ui-modal-msg">${groups.length} likely-duplicate group${groups.length > 1 ? 's' : ''} found. Pick which to merge and which name survives.</div>
-      <div class="suggest-list">
-        ${groups.map((g, gi) => `
-          <div class="suggest-group" data-gi="${gi}">
-            <label class="suggest-group-head">
-              <input type="checkbox" class="suggest-check" checked />
-              <span class="suggest-count">${g.ids.length} ${K.noun}s</span>
-              ${g.reasons.length ? `<span class="suggest-reason">${esc(g.reasons.join(' · '))}</span>` : ''}
-            </label>
-            <div class="suggest-body">
-              <label class="merge-label">Keep as primary</label>
-              <select class="chunk-title-input suggest-primary">
-                ${g.members.map(m => `<option value="${m.id}"${m.id === g.primaryId ? ' selected' : ''}>${esc(m.name)} (${refsFor(K, m).length} refs)</option>`).join('')}
-              </select>
-              <div class="suggest-members">${g.members.map(m => esc(m.name)).join(', ')}</div>
-            </div>
-          </div>`).join('')}
-      </div>
-      <div class="ui-modal-actions">
-        <button class="ui-modal-btn" data-act="cancel">Cancel</button>
-        <button class="ui-modal-btn solid" data-act="merge">Merge selected</button>
-      </div>
-    </div>`;
-  document.body.appendChild(overlay);
-
-  const close = () => overlay.remove();
-  const mergeBtn = overlay.querySelector('[data-act="merge"]');
-  function updateCount() {
-    const n = overlay.querySelectorAll('.suggest-check:checked').length;
-    mergeBtn.textContent = n ? `Merge selected (${n})` : 'Merge selected';
-    mergeBtn.disabled = !n;
-  }
-  overlay.querySelectorAll('.suggest-check').forEach(cb => cb.addEventListener('change', updateCount));
-  updateCount();
-
-  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
-  overlay.querySelector('[data-act="cancel"]').addEventListener('click', close);
-  mergeBtn.addEventListener('click', async () => {
-    const chosen = [];
-    overlay.querySelectorAll('.suggest-group').forEach(el => {
-      if (!el.querySelector('.suggest-check').checked) return;
-      const gi = +el.dataset.gi;
-      const primaryId = el.querySelector('.suggest-primary').value;
-      const g = groups[gi];
-      const primary = g.members.find(m => m.id === primaryId) || g.members[0];
-      chosen.push({
-        primaryId,
-        primaryName: primary.name,
-        secondaryIds: g.ids.filter(id => id !== primaryId)
-      });
-    });
-    if (!chosen.length) return;
-    const total = chosen.reduce((n, g) => n + g.secondaryIds.length, 0);
-    close();
-    if (!await confirmModal(`Merge ${total} ${K.noun}${total > 1 ? 's' : ''} across ${chosen.length} group${chosen.length > 1 ? 's' : ''}? This cannot be undone.`, { title: `MERGE ${K.NOUNS}`, okText: 'Merge' })) return;
-    chosen.forEach(g => g.secondaryIds.forEach(sid => mergeEntities(K, g.primaryId, sid, g.primaryName)));
-  });
+// Entities likely to be the same as `c`, each with a short reason. Excludes
+// archived records and `c` itself.
+function mergeCandidatesFor(K, c) {
+  return (db[K.coll] || [])
+    .filter(x => x.id !== c.id && !x.archived)
+    .map(x => ({ id: x.id, name: x.name, reason: mergeReason(c, x) }))
+    .filter(x => x.reason);
 }
 
 // AI summary — sends every chunk that references the entity to the model.
@@ -3625,8 +3519,6 @@ function wireEntityRail(K) {
   });
   const detectBtn = document.getElementById(K.detectId);
   if (detectBtn) detectBtn.addEventListener('click', () => detectEntities(K));
-  const suggestBtn = document.getElementById(K.suggestId);
-  if (suggestBtn) suggestBtn.addEventListener('click', () => openSuggestMergeModal(K));
 }
 wireEntityRail(ENTITY_KINDS.character);
 wireEntityRail(ENTITY_KINDS.location);
