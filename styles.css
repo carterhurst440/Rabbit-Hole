@@ -504,6 +504,12 @@ button, input, textarea, select { font-family: inherit; }
   flex: 1; background: var(--panel-2); border: 1px solid var(--line); color: var(--text-bright);
   padding: 8px 10px; font-size: 13px; letter-spacing: 0.04em;
 }
+.section-search {
+  display: block; width: 100%; box-sizing: border-box; margin: 0 0 14px;
+  background: var(--panel-2); border: 1px solid var(--line); color: var(--text-bright);
+  padding: 8px 10px; font-size: 12px; letter-spacing: 0.04em;
+}
+.section-search::placeholder { color: var(--muted); }
 .chunk-body-wrap { position: relative; width: 100%; }
 .chunk-body {
   position: relative; width: 100%; background: var(--panel-2);

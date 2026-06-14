@@ -1155,7 +1155,7 @@ function renderSections() {
         <span class="ci-count">${chunksOf(ch.id).filter(isVisibleChunk).length}</span>
       </div>`).join('');
   list.querySelectorAll('.chapter-item').forEach(el => {
-    el.addEventListener('click', () => { db.ui.activeChapter = el.dataset.id; save(); renderSections(); });
+    el.addEventListener('click', () => { db.ui.activeChapter = el.dataset.id; sectionSearchQuery = ''; save(); renderSections(); });
   });
   renderChunkPane();
 }
@@ -1174,11 +1174,15 @@ function renderChunkPane() {
       <button class="icon-btn" id="delChapBtn" title="Delete chapter">✕</button>
     </div>`;
 
+  const searchRow = chunks.length
+    ? `<input type="search" class="section-search" id="sectionSearch" placeholder="Search within ${esc(ch.title)}\u2026" value="${esc(sectionSearchQuery)}" />`
+    : '';
+
   const body = chunks.length
     ? chunks.map(renderChunkCard).join('')
     : `<div class="pane-empty">No hops yet. Add one above.</div>`;
 
-  pane.innerHTML = head + body;
+  pane.innerHTML = head + searchRow + body;
 
   document.getElementById('chapTitle').addEventListener('input', e => {
     ch.title = e.target.value; save();
@@ -1213,9 +1217,46 @@ function renderChunkPane() {
     save(); renderSections();
   });
 
+  const searchEl = document.getElementById('sectionSearch');
+  if (searchEl) searchEl.addEventListener('input', e => {
+    sectionSearchQuery = e.target.value;
+    applySectionSearch();
+  });
+
   pane.querySelectorAll('.chunk-card').forEach(card => wireChunkCard(card));
   enableChunkDragReorder(pane, ch.id);
   refreshHopPostBadges();
+  applySectionSearch();
+}
+
+// Transient (not persisted): live filter for the active chapter's hop list,
+// matching hop title and body. Cleared when the active chapter changes so a
+// stale filter never hides hops in a freshly opened section.
+let sectionSearchQuery = '';
+function applySectionSearch() {
+  const pane = document.getElementById('chunkPane');
+  if (!pane) return;
+  const q = (sectionSearchQuery || '').trim().toLowerCase();
+  let shown = 0;
+  pane.querySelectorAll('.chunk-card').forEach(card => {
+    const c = db.chunks.find(x => x.id === card.dataset.id);
+    const hit = !q || (c && ((c.title || '').toLowerCase().includes(q)
+      || (c.body || '').toLowerCase().includes(q)));
+    card.style.display = hit ? '' : 'none';
+    if (hit) shown++;
+  });
+  let empty = pane.querySelector('.section-search-empty');
+  if (q && shown === 0) {
+    if (!empty) {
+      empty = document.createElement('div');
+      empty.className = 'pane-empty section-search-empty';
+      empty.textContent = 'No hops match your search.';
+      pane.appendChild(empty);
+    }
+    empty.style.display = '';
+  } else if (empty) {
+    empty.style.display = 'none';
+  }
 }
 
 /* ---- drag-and-drop reorder of chunks within a chapter ---- */
