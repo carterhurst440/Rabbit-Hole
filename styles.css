@@ -518,6 +518,18 @@ mark.search-hit {
   background: color-mix(in srgb, var(--accent) 38%, transparent);
   color: var(--text-bright); border-radius: 2px; padding: 0 1px;
 }
+.section-import-strip {
+  display: flex; flex-direction: column; gap: 6px;
+  margin: 0 0 14px; padding: 10px 12px;
+  background: var(--panel-2); border: 1px solid var(--line);
+}
+.section-import-strip .si-dismiss { align-self: flex-start; margin-top: 2px; }
+.pc-up-fill-err { background: #d8746a; }
+.sp-bar.is-indeterminate { overflow: hidden; position: relative; }
+.sp-bar.is-indeterminate .sp-fill { animation: si-indeterminate 1.15s ease-in-out infinite; }
+@keyframes si-indeterminate {
+  0% { margin-left: -30%; } 100% { margin-left: 100%; }
+}
 .chunk-body-wrap { position: relative; width: 100%; }
 .chunk-body {
   position: relative; width: 100%; background: var(--panel-2);

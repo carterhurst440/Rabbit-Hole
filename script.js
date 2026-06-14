@@ -1187,7 +1187,15 @@ function renderChunkPane() {
       </div>`
     : '';
 
-  pane.innerHTML = head + searchRow + `<div id="chunkList"></div>`;
+  const importJob = sectionImportJobs.get(ch.id);
+  const importStrip = importJob
+    ? `<div class="section-import-strip" data-secimport="${ch.id}">${sectionImportProgressHTML(importJob)}</div>`
+    : '';
+
+  pane.innerHTML = head + importStrip + searchRow + `<div id="chunkList"></div>`;
+
+  const stripEl = pane.querySelector('[data-secimport]');
+  if (stripEl) wireSectionImportDismiss(stripEl, ch.id);
 
   document.getElementById('chapTitle').addEventListener('input', e => {
     ch.title = e.target.value; save();
@@ -6262,6 +6270,12 @@ function sliceText(text, size) {
 const SECTION_IMPORT_ACCEPT = '.txt,.md,.markdown,.text';
 const SECTION_IMPORT_SUPPORTED = /\.(txt|md|markdown|text)$/i;
 
+/* The import runs as a detached job keyed by chapter id, so closing the modal
+   never aborts it. A live progress strip (with a shimmer while an AI pass is in
+   flight) renders at the top of the importing section, and new hops appear in
+   the list as each slice completes. */
+const sectionImportJobs = new Map();   // chapterId -> { chapterId, total, pct, working, added, stage, status, error }
+
 // Import pasted or uploaded text into an existing section, splitting it into hops
 // via the same AI outliner the project importer uses. Runs against the loaded
 // project in memory (db + save), so the new hops appear in the active section.
@@ -6335,17 +6349,15 @@ function openSectionImportModal(ch) {
   function renderProgress(stage) {
     bodyEl.innerHTML = `
       <div class="ui-modal-msg si-stage">${esc(stage)}</div>
-      <div class="sp-bar"><div class="sp-fill" style="width:0%"></div></div>`;
-  }
-  function setProgress(stage, pct) {
-    const msg = bodyEl.querySelector('.si-stage');
-    const fill = bodyEl.querySelector('.sp-fill');
-    if (msg) msg.textContent = stage;
-    if (fill) fill.style.width = Math.max(0, Math.min(100, pct)) + '%';
+      <div class="sp-bar is-indeterminate"><div class="sp-fill" style="width:30%"></div></div>`;
   }
 
   async function onImport() {
     if (busy) return;
+    if (sectionImportJobs.has(ch.id)) {
+      alertModal('An import is already running for this section. Let it finish first.', { title: 'IMPORT' });
+      return;
+    }
     const instructions = (bodyEl.querySelector('#siInstr')?.value || '').trim();
     const pasted = (bodyEl.querySelector('#siPaste')?.value || '').trim();
     busy = true;
@@ -6364,57 +6376,136 @@ function openSectionImportModal(ch) {
       alertModal('There was no readable text to import.', { title: 'IMPORT' });
       return;
     }
-    try {
-      const added = await runSectionImport(ch, text, instructions, setProgress);
-      busy = false; finish(); renderSections();
-      if (!added) alertModal('No hops could be built from that content. Try adjusting your instructions.', { title: 'IMPORT' });
-    } catch (err) {
-      busy = false; renderForm();
-      alertModal('Import failed.\n\n' + (err.message || ''), { title: 'IMPORT' });
-    }
+    // Hand the work to a background job and close the modal. The import keeps
+    // running and shows its progress at the top of the section.
+    busy = false; finish();
+    startSectionImport(ch, text, instructions);
   }
 
   renderForm();
 }
 
+// Kick off a detached section-import job and surface its progress at the top of
+// the importing section. The modal has already closed; the job runs on its own.
+function startSectionImport(ch, text, instructions) {
+  const job = {
+    chapterId: ch.id, total: 0, pct: 0, working: true,
+    added: 0, stage: 'Starting\u2026', status: 'building', error: ''
+  };
+  sectionImportJobs.set(ch.id, job);
+  // Make the importing section active so its progress strip is visible.
+  if (db.ui.activeChapter !== ch.id) { db.ui.activeChapter = ch.id; save(); }
+  if (currentRoute() === 'sections') renderSections();
+  else location.hash = '#sections';
+  runSectionImportJob(ch, text, instructions, job);
+}
+
 // Slice the source text and outline each slice into hops via the same AI task the
-// project importer uses, filing every hop into `ch`. Returns the number added.
-async function runSectionImport(ch, text, instructions, onProgress) {
+// project importer uses, filing every hop into `ch`. Drives the job's progress
+// state and repaints the section's strip / list as it goes.
+async function runSectionImportJob(ch, text, instructions, job) {
   const proj = projectsCache.find(p => p.id === activeProjectId);
   const slices = sliceText(text, IMPORT_SLICE);
-  if (!slices.length) return 0;
-  let added = 0;
-  for (let i = 0; i < slices.length; i++) {
-    if (onProgress) onProgress(
-      'Reading pass ' + (i + 1) + ' of ' + slices.length + '  \u00b7  ' + added + ' hop' + (added === 1 ? '' : 's') + ' so far',
-      Math.round((i / slices.length) * 100));
-    let res = null;
-    try {
-      res = await aiInvoke({
-        task: 'import_outline', text: slices[i], instructions,
-        type: proj?.type || '', genre: proj?.genre || '',
-        sectionsSoFar: [ch.title].filter(Boolean)
-      });
-    } catch (_) { res = null; }   // skip a failed slice, keep going
-    const hops = res && Array.isArray(res.hops) ? res.hops : [];
-    hops.forEach(h => {
-      const body = (h && h.body || '').trim();
-      const title = (h && h.title || '').trim();
-      if (!body && !title) return;
-      db.chunks.push({
-        id: uid(), chapterId: ch.id, title: title || 'Untitled', body,
-        orderInChapter: chunksOf(ch.id).length,
-        narrativeOrder: db.chunks.length,
-        chronoOrder: db.chunks.length,
-        chronoLabel: '',
-        characterIds: [], locationIds: [], labelIds: []
-      });
-      added++;
-    });
+  job.total = slices.length;
+  if (!slices.length) {
+    job.status = 'done'; job.working = false; job.pct = 100;
+    job.stage = 'Nothing to import';
+    paintSectionImport(ch.id); scheduleSectionImportCleanup(ch.id);
+    return;
   }
-  if (added) { save(); recordWritingActivity(); }
-  if (onProgress) onProgress('Import complete \u2014 ' + added + ' hop' + (added === 1 ? '' : 's') + ' added', 100);
-  return added;
+  try {
+    for (let i = 0; i < slices.length; i++) {
+      // Mark "working" before the (slow) AI call so the shimmer signals progress
+      // even while the bar width hasn't moved.
+      job.working = true;
+      job.pct = Math.round((i / slices.length) * 100);
+      job.stage = 'Reading pass ' + (i + 1) + ' of ' + slices.length +
+        '  \u00b7  ' + job.added + ' hop' + (job.added === 1 ? '' : 's') + ' so far';
+      paintSectionImport(ch.id);
+      let res = null;
+      try {
+        res = await aiInvoke({
+          task: 'import_outline', text: slices[i], instructions,
+          type: proj?.type || '', genre: proj?.genre || '',
+          sectionsSoFar: [ch.title].filter(Boolean)
+        });
+      } catch (_) { res = null; }   // skip a failed slice, keep going
+      const hops = res && Array.isArray(res.hops) ? res.hops : [];
+      let addedThisSlice = 0;
+      hops.forEach(h => {
+        const body = (h && h.body || '').trim();
+        const title = (h && h.title || '').trim();
+        if (!body && !title) return;
+        db.chunks.push({
+          id: uid(), chapterId: ch.id, title: title || 'Untitled', body,
+          orderInChapter: chunksOf(ch.id).length,
+          narrativeOrder: db.chunks.length,
+          chronoOrder: db.chunks.length,
+          chronoLabel: '',
+          characterIds: [], locationIds: [], labelIds: []
+        });
+        job.added++; addedThisSlice++;
+      });
+      if (addedThisSlice) {
+        save();
+        // Show the new hops live if the user is watching this section.
+        if (db.ui.activeChapter === ch.id && currentRoute() === 'sections') renderChunkList(ch);
+      }
+      job.working = false;
+      job.pct = Math.round(((i + 1) / slices.length) * 100);
+      paintSectionImport(ch.id);
+    }
+    if (job.added) recordWritingActivity();
+    job.status = 'done'; job.working = false; job.pct = 100;
+    job.stage = job.added
+      ? 'Import complete \u2014 ' + job.added + ' hop' + (job.added === 1 ? '' : 's') + ' added'
+      : 'No hops could be built \u2014 try adjusting your instructions';
+    paintSectionImport(ch.id);
+    scheduleSectionImportCleanup(ch.id);
+  } catch (err) {
+    job.status = 'error'; job.working = false;
+    job.error = (err && err.message) ? err.message : 'Import failed';
+    paintSectionImport(ch.id);
+  }
+}
+
+// Progress strip markup for the section-import job. Reuses the project-tile
+// upload bar styles (shimmer while working, determinate fill between passes).
+function sectionImportProgressHTML(job) {
+  if (job.status === 'error') {
+    return `<div class="pc-up-bar"><div class="pc-up-fill pc-up-fill-err" style="width:100%"></div></div>
+      <div class="pc-up-stage">${esc(job.error || 'Import failed')}</div>
+      <button class="add-btn si-dismiss" data-secdismiss="${job.chapterId}">DISMISS</button>`;
+  }
+  return `<div class="pc-up-bar ${job.working ? 'is-working' : ''}"><div class="pc-up-fill" style="width:${job.pct}%"></div></div>
+    <div class="pc-up-stage">${esc(job.stage)}</div>`;
+}
+
+// Lightweight repaint of just the active section's import strip.
+function paintSectionImport(chapterId) {
+  if (currentRoute() !== 'sections' || db.ui.activeChapter !== chapterId) return;
+  const job = sectionImportJobs.get(chapterId);
+  if (!job) return;
+  const el = document.querySelector('[data-secimport="' + chapterId + '"]');
+  if (!el) { renderChunkPane(); return; }   // strip not built yet (e.g. empty list)
+  el.innerHTML = sectionImportProgressHTML(job);
+  wireSectionImportDismiss(el, chapterId);
+}
+
+function wireSectionImportDismiss(strip, chapterId) {
+  const dz = strip.querySelector('[data-secdismiss]');
+  if (dz) dz.addEventListener('click', () => { sectionImportJobs.delete(chapterId); renderChunkPane(); });
+}
+
+// Once a job finishes cleanly, fade the strip out after a beat so a completed
+// import doesn't linger. Errors stay put until the user dismisses them.
+function scheduleSectionImportCleanup(chapterId) {
+  setTimeout(() => {
+    const j = sectionImportJobs.get(chapterId);
+    if (!j || j.status !== 'done') return;
+    sectionImportJobs.delete(chapterId);
+    if (currentRoute() === 'sections' && db.ui.activeChapter === chapterId) renderChunkPane();
+  }, 4500);
 }
 
 // The project-creation upload step. Resolves with a `db`-shaped data object to
