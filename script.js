@@ -5047,16 +5047,16 @@ const uploadJobs = new Map();   // projectId -> { projectId, name, total, done, 
 async function runProjectImportBuild(projectId, file, instructions, meta, job) {
   const U = currentUser.id, P = projectId;
   try {
-    job.stage = 'Reading file'; paintUploadJobs();
+    job.stage = 'Reading file…'; paintUploadJobs();
     const text = await extractText(file, (p, n) => {
-      job.stage = 'Reading PDF — page ' + p + ' / ' + n; paintUploadJobs();
+      job.stage = 'Reading PDF — page ' + p + ' of ' + n; paintUploadJobs();
     });
     if (job.ctl.canceled) throw new Error('canceled');
     if (!text || !text.trim()) throw new Error('No readable text found in that file.');
 
     const slices = sliceText(text, IMPORT_SLICE);
     if (!slices.length) throw new Error('No readable text found in that file.');
-    job.total = slices.length; job.done = 0; paintUploadJobs();
+    job.total = slices.length; job.done = 0;
 
     const sectionId = new Map();    // section title -> chapter id (already in DB)
     const perSection = new Map();   // chapter id -> hop count so far
@@ -5080,6 +5080,12 @@ async function runProjectImportBuild(projectId, file, instructions, meta, job) {
 
     for (let i = 0; i < slices.length; i++) {
       if (job.ctl.canceled) throw new Error('canceled');
+      // Update the label before the (slow) AI call so the tile shows which pass
+      // is in flight rather than looking frozen on the previous count.
+      job.stage = 'Reading pass ' + (i + 1) + ' of ' + slices.length +
+        '  ·  ' + (job.sections || 0) + ' section' + ((job.sections || 0) === 1 ? '' : 's') +
+        ', ' + (job.hops || 0) + ' hop' + ((job.hops || 0) === 1 ? '' : 's') + ' so far';
+      paintUploadJobs();
       let res = null;
       try {
         res = await aiInvoke({
@@ -5113,8 +5119,6 @@ async function runProjectImportBuild(projectId, file, instructions, meta, job) {
         }
       }
       job.done = i + 1;
-      job.stage = (job.sections || 0) + ' section' + ((job.sections || 0) === 1 ? '' : 's') +
-        ' · ' + (job.hops || 0) + ' hop' + ((job.hops || 0) === 1 ? '' : 's');
       paintUploadJobs();
     }
 
@@ -5168,9 +5172,12 @@ async function startBackgroundImportBuild(spec) {
 
 function uploadJobProgressHTML(job) {
   if (job.status === 'error') return `<div class="pc-up-err">${esc(job.error || 'Import failed')}</div>`;
-  const pct = job.status === 'done' ? 100 : (job.total ? Math.round((job.done / job.total) * 100) : 0);
-  return `<div class="pc-up-bar"><div class="pc-up-fill" style="width:${pct}%"></div></div>
-    <div class="pc-up-stage">${esc(job.stage)} · ${pct}%</div>`;
+  const done = job.status === 'done';
+  const pct = done ? 100 : (job.total ? Math.round((job.done / job.total) * 100) : 0);
+  // The shimmer signals "working" even while a slice is in flight and the bar
+  // width hasn't moved (each AI pass can take a while on long documents).
+  return `<div class="pc-up-bar ${done ? '' : 'is-working'}"><div class="pc-up-fill" style="width:${pct}%"></div></div>
+    <div class="pc-up-stage">${esc(job.stage)}</div>`;
 }
 
 function uploadingCardHTML(p, job) {

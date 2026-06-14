@@ -282,8 +282,14 @@ button, input, textarea, select { font-family: inherit; }
 .pc-up-body { cursor: default; }
 .pc-up-body:hover { background: none; }
 .pc-up { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
-.pc-up-bar { height: 6px; background: var(--panel-2); border: 1px solid var(--line); overflow: hidden; }
+.pc-up-bar { position: relative; height: 6px; background: var(--panel-2); border: 1px solid var(--line); overflow: hidden; }
 .pc-up-fill { height: 100%; background: var(--accent); transition: width 0.3s ease; }
+.pc-up-bar.is-working::after {
+  content: ''; position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--accent) 45%, transparent), transparent);
+  transform: translateX(-100%); animation: pc-up-shimmer 1.15s linear infinite;
+}
+@keyframes pc-up-shimmer { to { transform: translateX(100%); } }
 .pc-up-stage { font-size: 10px; color: var(--muted); letter-spacing: 0.06em; }
 .pc-up-err { font-size: 11px; color: #d8746a; line-height: 1.5; }
 .project-card.new {
