@@ -1721,11 +1721,32 @@ function chunkEntities(K, c) {
 // chunk's characters/locations, each name tinted with its own entity color.
 function csTextRow(label, ents) {
   if (!ents.length) return '';
+  const kind = label === 'LOCATIONS' ? 'location' : 'character';
   const inner = ents.map(e =>
-    `<span style="color:${e.color || 'var(--accent)'}">${esc(e.name)}</span>`).join(', ');
+    `<span class="cs-ent" data-ent-kind="${kind}" data-ent-id="${e.id}" style="color:${e.color || 'var(--accent)'}">${esc(e.name)}</span>`).join(', ');
   return `<div class="cs-row"><span class="cs-label">${label}</span>`
     + `<span class="cs-vals"><span class="cs-text">${inner}</span></span></div>`;
 }
+
+// Clicking a character/location name anywhere it is surfaced jumps to that
+// entity's workbench and selects it. Bound as a capture-phase delegate (below)
+// so the jump wins over any chunk-card click handler sitting underneath.
+function gotoEntity(kind, id) {
+  const K = ENTITY_KINDS[kind];
+  if (!K || !(db[K.coll] || []).some(e => e.id === id)) return;
+  if (db.ui[K.active] !== id) expandedRefs.clear();
+  db.ui[K.active] = id;
+  save();
+  if (currentRoute() === K.coll) renderEntityList(K);
+  else location.hash = '#' + K.coll;
+}
+document.addEventListener('click', e => {
+  const chip = e.target.closest('.cs-ent');
+  if (!chip || !chip.dataset.entId) return;
+  e.preventDefault();
+  e.stopPropagation();
+  gotoEntity(chip.dataset.entKind, chip.dataset.entId);
+}, true);
 
 // Compact characters + locations line shown anywhere a chunk is surfaced
 // outside the Sections editor: timeline cards, reference rows, tag breakdown.

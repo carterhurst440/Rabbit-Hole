@@ -492,6 +492,8 @@ button, input, textarea, select { font-family: inherit; }
 }
 .cs-vals { display: flex; flex-wrap: wrap; gap: 4px; flex: 1; align-items: baseline; }
 .cs-text { color: var(--accent); font-size: 12px; line-height: 1.5; }
+.cs-ent { cursor: pointer; border-radius: 2px; }
+.cs-ent:hover { text-decoration: underline; text-underline-offset: 2px; }
 .cs-empty { color: var(--muted); font-size: 11px; }
 /* Compact characters/locations line reused on timeline cards, reference rows,
    and the tag breakdown — same accent-text styling as the chunk summary. */
