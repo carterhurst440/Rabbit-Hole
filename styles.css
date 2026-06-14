@@ -407,6 +407,16 @@ button, input, textarea, select { font-family: inherit; }
 .chapter-item .ci-count { font-size: 10px; color: var(--muted); }
 .chapter-item .ci-dot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; box-shadow: 0 0 6px rgba(0,0,0,0.4); }
 .rail-head-actions { display: flex; gap: 6px; }
+/* Desktop: pin the rail and let its list scroll inside the panel instead of
+   running the whole CAST/SECTIONS list down the page body. */
+@media (min-width: 821px) {
+  .chapter-rail {
+    position: sticky; top: calc(var(--header-h) + 16px);
+    max-height: calc(100vh - var(--header-h) - 32px);
+    display: flex; flex-direction: column;
+  }
+  .chapter-rail .chapter-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+}
 .tag-cat-group { border-bottom: 1px solid var(--line); }
 .tag-cat-group:last-child { border-bottom: none; }
 .tag-cat-head {
