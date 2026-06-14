@@ -1174,15 +1174,20 @@ function renderChunkPane() {
       <button class="icon-btn" id="delChapBtn" title="Delete chapter">✕</button>
     </div>`;
 
+  const aiKey = 'section:' + ch.id;
+  const aiMine = entitySearch.key === aiKey;
   const searchRow = chunks.length
-    ? `<input type="search" class="section-search" id="sectionSearch" placeholder="Search within ${esc(ch.title)}\u2026" value="${esc(sectionSearchQuery)}" />`
+    ? `<div class="section-search-row">
+        <input type="search" class="section-search" id="sectionSearch" placeholder="Search within ${esc(ch.title)}\u2026" value="${esc(sectionSearchQuery)}" />
+        <button class="add-btn es-run" id="sectionAiBtn" title="Ask a question about this section">${AI_STAR} RUN AI SEARCH</button>
+      </div>
+      <div class="es-block section-ai" data-es="${aiKey}">
+        <div class="es-progress">${aiMine ? entitySearchProgressHTML() : ''}</div>
+        <div class="es-results">${aiMine ? entitySearchResultsHTML() : ''}</div>
+      </div>`
     : '';
 
-  const body = chunks.length
-    ? chunks.map(renderChunkCard).join('')
-    : `<div class="pane-empty">No hops yet. Add one above.</div>`;
-
-  pane.innerHTML = head + searchRow + body;
+  pane.innerHTML = head + searchRow + `<div id="chunkList"></div>`;
 
   document.getElementById('chapTitle').addEventListener('input', e => {
     ch.title = e.target.value; save();
@@ -1220,43 +1225,79 @@ function renderChunkPane() {
   const searchEl = document.getElementById('sectionSearch');
   if (searchEl) searchEl.addEventListener('input', e => {
     sectionSearchQuery = e.target.value;
-    applySectionSearch();
+    renderChunkList(ch);
   });
+  const aiBtn = document.getElementById('sectionAiBtn');
+  const runAi = () => runScopedSearch(aiKey, searchEl ? searchEl.value : '', chunks);
+  if (aiBtn) aiBtn.addEventListener('click', runAi);
+  if (searchEl) searchEl.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); runAi(); } });
+  // Re-wire any restored AI results (stop button + open-on-click) for this section.
+  if (aiMine) paintEntitySearch(aiKey);
 
-  pane.querySelectorAll('.chunk-card').forEach(card => wireChunkCard(card));
-  enableChunkDragReorder(pane, ch.id);
+  renderChunkList(ch);
   refreshHopPostBadges();
-  applySectionSearch();
 }
 
-// Transient (not persisted): live filter for the active chapter's hop list,
-// matching hop title and body. Cleared when the active chapter changes so a
-// stale filter never hides hops in a freshly opened section.
+// Transient (not persisted): live filter for the active chapter's hop list.
+// Cleared when the active chapter changes so a stale filter never hides hops in
+// a freshly opened section.
 let sectionSearchQuery = '';
-function applySectionSearch() {
-  const pane = document.getElementById('chunkPane');
-  if (!pane) return;
+// While a text filter is active, matched hops are force-expanded so the search
+// term is visible (and highlightable) in the body, not just the title.
+let sectionForceExpandAll = false;
+
+// Render only the active chapter's hop cards into #chunkList. Kept separate from
+// renderChunkPane so live text filtering can repaint the list without recreating
+// (and unfocusing) the search box above it.
+function renderChunkList(ch) {
+  const listEl = document.getElementById('chunkList');
+  if (!listEl) return;
+  const chunks = chunksOf(ch.id).filter(isVisibleChunk);
   const q = (sectionSearchQuery || '').trim().toLowerCase();
-  let shown = 0;
-  pane.querySelectorAll('.chunk-card').forEach(card => {
-    const c = db.chunks.find(x => x.id === card.dataset.id);
-    const hit = !q || (c && ((c.title || '').toLowerCase().includes(q)
-      || (c.body || '').toLowerCase().includes(q)));
-    card.style.display = hit ? '' : 'none';
-    if (hit) shown++;
+  const matches = c => !q
+    || (c.title || '').toLowerCase().includes(q)
+    || (c.body || '').toLowerCase().includes(q);
+  const shown = q ? chunks.filter(matches) : chunks;
+
+  sectionForceExpandAll = !!q;
+  if (!chunks.length) listEl.innerHTML = `<div class="pane-empty">No hops yet. Add one above.</div>`;
+  else if (!shown.length) listEl.innerHTML = `<div class="pane-empty">No hops match your search.</div>`;
+  else listEl.innerHTML = shown.map(renderChunkCard).join('');
+  sectionForceExpandAll = false;
+
+  if (q) markSearchHits(listEl, q);
+  listEl.querySelectorAll('.chunk-card').forEach(card => wireChunkCard(card));
+  if (!q) enableChunkDragReorder(listEl, ch.id); // reorder only makes sense over the full, unfiltered list
+}
+
+// Wrap every plain-text occurrence of `q` inside hop titles and bodies in a
+// <mark.search-hit>. Walks text nodes only, so it never corrupts the entity
+// highlight spans or HTML attributes already in the rendered card.
+function markSearchHits(root, q) {
+  const needle = (q || '').toLowerCase();
+  if (!needle) return;
+  root.querySelectorAll('.chunk-disp-title, .chunk-disp-body').forEach(scope => {
+    const walker = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT, null);
+    const nodes = [];
+    let n; while ((n = walker.nextNode())) nodes.push(n);
+    nodes.forEach(node => {
+      const text = node.nodeValue;
+      const lc = text.toLowerCase();
+      if (!lc.includes(needle)) return;
+      const frag = document.createDocumentFragment();
+      let i = 0, idx;
+      while ((idx = lc.indexOf(needle, i)) !== -1) {
+        if (idx > i) frag.appendChild(document.createTextNode(text.slice(i, idx)));
+        const mark = document.createElement('mark');
+        mark.className = 'search-hit';
+        mark.textContent = text.slice(idx, idx + needle.length);
+        frag.appendChild(mark);
+        i = idx + needle.length;
+      }
+      if (i < text.length) frag.appendChild(document.createTextNode(text.slice(i)));
+      node.parentNode.replaceChild(frag, node);
+    });
   });
-  let empty = pane.querySelector('.section-search-empty');
-  if (q && shown === 0) {
-    if (!empty) {
-      empty = document.createElement('div');
-      empty.className = 'pane-empty section-search-empty';
-      empty.textContent = 'No hops match your search.';
-      pane.appendChild(empty);
-    }
-    empty.style.display = '';
-  } else if (empty) {
-    empty.style.display = 'none';
-  }
 }
 
 /* ---- drag-and-drop reorder of chunks within a chapter ---- */
@@ -1702,7 +1743,7 @@ function chunkOrdinals(c) {
 }
 
 function renderChunkCardDisplay(c) {
-  const expanded = expandedChunks.has(c.id);
+  const expanded = sectionForceExpandAll || expandedChunks.has(c.id);
   const words = (c.body || '').trim().split(/\s+/).filter(Boolean).length;
   const charCount = db.characters.filter(ch => chunkEntityPresence(ENTITY_KINDS.character, c, ch).on).length;
   const locCount = (db.locations || []).filter(l => chunkEntityPresence(ENTITY_KINDS.location, c, l).on).length;

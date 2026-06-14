@@ -504,12 +504,20 @@ button, input, textarea, select { font-family: inherit; }
   flex: 1; background: var(--panel-2); border: 1px solid var(--line); color: var(--text-bright);
   padding: 8px 10px; font-size: 13px; letter-spacing: 0.04em;
 }
+.section-search-row { display: flex; gap: 8px; align-items: center; margin: 0 0 10px; }
 .section-search {
-  display: block; width: 100%; box-sizing: border-box; margin: 0 0 14px;
+  flex: 1; min-width: 0; box-sizing: border-box;
   background: var(--panel-2); border: 1px solid var(--line); color: var(--text-bright);
   padding: 8px 10px; font-size: 12px; letter-spacing: 0.04em;
 }
 .section-search::placeholder { color: var(--muted); }
+.section-search-row .es-run { flex: 0 0 auto; white-space: nowrap; }
+.es-block.section-ai { margin: 0 0 14px; }
+.es-block.section-ai:empty { margin: 0; }
+mark.search-hit {
+  background: color-mix(in srgb, var(--accent) 38%, transparent);
+  color: var(--text-bright); border-radius: 2px; padding: 0 1px;
+}
 .chunk-body-wrap { position: relative; width: 100%; }
 .chunk-body {
   position: relative; width: 100%; background: var(--panel-2);
