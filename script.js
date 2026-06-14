@@ -2698,8 +2698,10 @@ function renderRefBody(c, chunk) {
   occ.forEach(o => {
     out += esc(raw.slice(last, o.index));
     const tint = (!o.dismissed && col) ? ` style="color:${col}"` : '';
-    const tip = o.dismissed ? 'Click to restore this mention' : 'Click to dismiss this mention';
-    out += `<span class="occ${o.dismissed ? ' occ-off' : ''}" data-chunk="${chunk.id}" data-occ="${o.ord}" title="${tip}"${tint}>${esc(o.text)}</span>`;
+    const menu = o.dismissed
+      ? `<span class="occ-menu"><button type="button" class="occ-act" data-occ-restore>RESTORE</button></span>`
+      : `<span class="occ-menu"><button type="button" class="occ-act" data-occ-reassign>REASSIGN</button><button type="button" class="occ-act danger" data-occ-remove>REMOVE</button></span>`;
+    out += `<span class="occ${o.dismissed ? ' occ-off' : ''}" data-chunk="${chunk.id}" data-occ="${o.ord}"${tint}>${esc(o.text)}${menu}</span>`;
     last = o.index + o.text.length;
   });
   out += esc(raw.slice(last));
@@ -2724,7 +2726,6 @@ function renderEntityPane(K) {
             <div class="ref-where">${esc(chapterTitle(r.chapterId))}${r.chronoLabel ? ' · ' + esc(r.chronoLabel) : ''}</div>
             ${chunkCharLocLine(r)}
           </div>
-          ${off ? '' : `<button class="add-btn ref-reassign" data-ref-reassign="${r.id}" title="Reassign this reference to a different ${K.noun}">REASSIGN</button>`}
           <button class="add-btn ref-edit" data-ref-edit="${r.id}" title="Edit this chunk">EDIT</button>
         </div>
         ${open ? `<div class="ref-body">${renderRefBody(c, r)}</div>` : ''}
@@ -2770,7 +2771,7 @@ function renderEntityPane(K) {
     </div>` : ''}
     <div class="char-block">
       <h3>REFERENCES (${refs.length})</h3>
-      <div style="color:var(--muted);font-size:11px;margin-bottom:8px">Expand a reference, then click a highlighted mention to dismiss it (click again to restore).</div>
+      <div style="color:var(--muted);font-size:11px;margin-bottom:8px">Expand a reference, then hover a highlighted mention to REMOVE it or REASSIGN it to another ${K.noun}.</div>
       <div class="char-refs">
         ${refs.length ? refs.map(r => refRow(r, false)).join('') : '<span style="color:var(--muted)">No references found.</span>'}
       </div>
@@ -2826,23 +2827,26 @@ function renderEntityPane(K) {
   pane.querySelectorAll('[data-ref-edit]').forEach(btn => {
     btn.addEventListener('click', e => { e.stopPropagation(); openChunkModal(btn.dataset.refEdit); });
   });
-  pane.querySelectorAll('[data-ref-reassign]').forEach(btn => {
-    btn.addEventListener('click', e => {
+  const setDismissed = (el, dismiss) => {
+    const occ = el.closest('.occ');
+    const key = occ.dataset.chunk + ':' + occ.dataset.occ;
+    c.dismissedRefs = c.dismissedRefs || [];
+    const i = c.dismissedRefs.indexOf(key);
+    if (dismiss && i < 0) c.dismissedRefs.push(key);
+    if (!dismiss && i >= 0) c.dismissedRefs.splice(i, 1);
+    save(); renderEntityList(K);
+  };
+  pane.querySelectorAll('[data-occ-remove]').forEach(b =>
+    b.addEventListener('click', e => { e.stopPropagation(); setDismissed(b, true); }));
+  pane.querySelectorAll('[data-occ-restore]').forEach(b =>
+    b.addEventListener('click', e => { e.stopPropagation(); setDismissed(b, false); }));
+  pane.querySelectorAll('[data-occ-reassign]').forEach(b =>
+    b.addEventListener('click', e => {
       e.stopPropagation();
-      const chunk = db.chunks.find(x => x.id === btn.dataset.refReassign);
-      if (chunk) reassignRefModal(K, c, chunk);
-    });
-  });
-  pane.querySelectorAll('.occ').forEach(span => {
-    span.addEventListener('click', e => {
-      e.stopPropagation();
-      const key = span.dataset.chunk + ':' + span.dataset.occ;
-      c.dismissedRefs = c.dismissedRefs || [];
-      const i = c.dismissedRefs.indexOf(key);
-      if (i >= 0) c.dismissedRefs.splice(i, 1); else c.dismissedRefs.push(key);
-      save(); renderEntityList(K);
-    });
-  });
+      const occ = b.closest('.occ');
+      const chunk = db.chunks.find(x => x.id === occ.dataset.chunk);
+      if (chunk) reassignOccModal(K, c, chunk, +occ.dataset.occ);
+    }));
   q('[data-f="gen"]').addEventListener('click', e => generateEntitySummary(K, c, e.currentTarget));
   q('[data-f="genarc"]')?.addEventListener('click', e => generateCharArc(K, c, e.currentTarget));
   q('[data-f="cleararc"]')?.addEventListener('click', async () => {
@@ -3093,55 +3097,67 @@ function mergeCandidatesFor(K, c) {
     .filter(x => x.reason);
 }
 
-// Reassign a single reference (chunk) from `c` to another entity: rewrite c's
-// live (non-dismissed) mentions in the chunk body to the target's primary name,
-// drop the chunk from c, and link it to the target. Lets the author pick off
-// one-off references that belong to a different entity without a full merge.
-function reassignRefToEntity(K, c, chunk, targetId) {
+// Reassign one highlighted mention (by ordinal) from `c` to another entity:
+// rewrite just that occurrence in the chunk body to the target's primary name,
+// then re-key c's dismissals so the rest stay intact. Lets the author pick off
+// individual misattributed mentions in the body without a full merge.
+function reassignOccToEntity(K, c, chunk, ord, targetId) {
   const target = db[K.coll].find(x => x.id === targetId);
   if (!target || target.id === c.id) return;
   const occ = occurrencesOf(c, chunk);
-  if (!occ.some(o => !o.dismissed)) return;
+  const hit = occ.find(o => o.ord === ord);
+  if (!hit || hit.dismissed) return;
 
   const body = String(chunk.body || '');
-  let out = '', last = 0;
-  occ.forEach(o => {
-    out += body.slice(last, o.index);
-    out += o.dismissed ? o.text : target.name;   // leave dismissed mentions alone
-    last = o.index + o.text.length;
-  });
-  out += body.slice(last);
-  chunk.body = out;
+  const editIndex = hit.index;
+  const delta = target.name.length - hit.text.length;
+  // Where the other (untouched) dismissed mentions will land after the edit.
+  const dismissedNewIdx = new Set(
+    occ.filter(o => o.dismissed)
+      .map(o => (o.index < editIndex ? o.index : o.index + delta))
+  );
+  chunk.body = body.slice(0, editIndex) + target.name + body.slice(editIndex + hit.text.length);
 
-  // This reference no longer belongs to c: drop any explicit c link, and dismiss
-  // every remaining c-match in the chunk (covers the case where the target name
-  // still contains c's name as a token, e.g. "John" -> "John Smith").
-  chunk[K.link] = (chunk[K.link] || []).filter(id => id !== c.id);
+  // Rebuild c's dismissals for this chunk: keep the previously-dismissed ones,
+  // and dismiss anything now sitting inside the rewritten span (covers a target
+  // name that still contains c's name as a token, e.g. "John" -> "John Smith").
+  const fresh = occurrencesOf(c, chunk);
   c.dismissedRefs = (c.dismissedRefs || []).filter(k => k.split(':')[0] !== chunk.id);
-  occurrencesOf(c, chunk).forEach(o => c.dismissedRefs.push(chunk.id + ':' + o.ord));
+  const dismissedOrds = new Set();
+  fresh.forEach(o => {
+    const insideReplacement = o.index >= editIndex && o.index < editIndex + target.name.length;
+    if (insideReplacement || dismissedNewIdx.has(o.index)) {
+      c.dismissedRefs.push(chunk.id + ':' + o.ord);
+      dismissedOrds.add(o.ord);
+    }
+  });
 
-  // Make the target own it explicitly, even if name-matching is imperfect.
+  // Link the target so it owns the mention; drop c's explicit link only if c has
+  // no live mentions left here.
+  chunk[K.link] = chunk[K.link] || [];
   if (!chunk[K.link].includes(target.id)) chunk[K.link].push(target.id);
+  if (!fresh.some(o => !dismissedOrds.has(o.ord))) {
+    chunk[K.link] = chunk[K.link].filter(id => id !== c.id);
+  }
 
   save();
-  renderEntityPane(K);
   renderEntityList(K);
 }
 
-// Picker for reassignRefToEntity: searchable list of other entities to move the
-// reference to. Rewrites the highlighted mentions to that entity's primary name.
-function reassignRefModal(K, c, chunk) {
+// Picker for reassignOccToEntity: searchable list of other entities to move the
+// mention to. Rewrites just this mention to that entity's primary name.
+function reassignOccModal(K, c, chunk, ord) {
   const others = db[K.coll].filter(x => x.id !== c.id)
     .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
   if (!others.length) { alertModal(`Need another ${K.noun} to reassign to.`, { title: `REASSIGN ${K.NOUN}` }); return; }
-  const liveCount = occurrencesOf(c, chunk).filter(o => !o.dismissed).length;
+  const hit = occurrencesOf(c, chunk).find(o => o.ord === ord);
 
   const overlay = document.createElement('div');
   overlay.className = 'ui-modal-overlay';
   overlay.innerHTML = `
     <div class="ui-modal merge-modal">
-      <div class="ui-modal-title">REASSIGN REFERENCE</div>
-      <div class="ui-modal-msg">Move this reference from <strong>${esc(c.name)}</strong> to another ${K.noun}. The ${liveCount} highlighted mention${liveCount === 1 ? '' : 's'} in <strong>${esc(chunk.title || 'this hop')}</strong> will be rewritten to the chosen ${K.noun}'s primary name.</div>
+      <div class="ui-modal-title">REASSIGN MENTION</div>
+      <div class="ui-modal-msg">Move the mention <strong>${esc(hit ? hit.text : c.name)}</strong> in <strong>${esc(chunk.title || 'this hop')}</strong> to another ${K.noun}. It will be rewritten to that ${K.noun}'s primary name.</div>
       <div class="merge-field">
         <label class="merge-label">Reassign to</label>
         <input type="text" class="chunk-title-input merge-search" id="reassignSearch" placeholder="Search ${K.noun}s…" autocomplete="off" />
@@ -3176,7 +3192,7 @@ function reassignRefModal(K, c, chunk) {
     const targetId = sel.value;
     if (!targetId) return;
     close();
-    reassignRefToEntity(K, c, chunk, targetId);
+    reassignOccToEntity(K, c, chunk, ord, targetId);
   });
 }
 

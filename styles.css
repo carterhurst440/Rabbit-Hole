@@ -1095,11 +1095,17 @@ select.ui-modal-input { cursor: pointer; appearance: none; -webkit-appearance: n
 .ref-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ref-row .ref-where { color: var(--muted); font-size: 10px; }
 .ref-row.ref-off .ref-title { color: var(--muted); }
-.ref-edit, .ref-reassign { flex: 0 0 auto; align-self: flex-start; }
+.ref-edit { flex: 0 0 auto; align-self: flex-start; }
 .ref-body { white-space: pre-wrap; font-size: 12px; line-height: 1.6; color: var(--text); padding: 0 10px 10px; border-top: 1px solid var(--line); margin-top: 2px; padding-top: 8px; }
-.ref-body .occ { cursor: pointer; border-radius: 2px; padding: 0 1px; }
+.ref-body .occ { position: relative; cursor: default; border-radius: 2px; padding: 0 1px; }
 .ref-body .occ:hover { outline: 1px solid var(--accent-mid); }
 .ref-body .occ.occ-off { color: var(--muted) !important; text-decoration: line-through; opacity: 0.7; }
+/* hover controls on a highlighted mention */
+.occ-menu { position: absolute; left: 0; bottom: 100%; z-index: 6; display: none; gap: 3px; padding: 3px; background: var(--panel); border: 1px solid var(--line); white-space: nowrap; box-shadow: 0 4px 14px rgba(0,0,0,0.4); }
+.ref-body .occ:hover .occ-menu { display: flex; }
+.occ-act { font-family: inherit; font-size: 9px; letter-spacing: 0.08em; padding: 2px 6px; cursor: pointer; background: var(--panel-2); color: var(--text); border: 1px solid var(--line); text-transform: uppercase; }
+.occ-act:hover { border-color: var(--accent); color: var(--accent); }
+.occ-act.danger:hover { border-color: #e07a5f; color: #e07a5f; }
 .ref-dismissed-wrap { margin-top: 10px; }
 .ref-dismissed-wrap summary { cursor: pointer; font-size: 11px; color: var(--muted); letter-spacing: 0.06em; }
 .ref-dismissed-wrap summary:hover { color: var(--accent); }
