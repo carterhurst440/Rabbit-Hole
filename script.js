@@ -2660,7 +2660,46 @@ function occurrencesOf(c, chunk) {
     ord++;
     if (re.lastIndex === m.index) re.lastIndex++;
   }
+  // A span of text belongs only to the single most-specific (longest) matching
+  // name. Drop any match that sits strictly inside a longer mention of a sibling
+  // entity, so "MARK" inside "MARK MALMGREN" does not also count for a separate
+  // character named MARK. Ords are assigned before filtering so dismissal keys
+  // (chunkId:ord) stay stable across the suppression.
+  const competing = competingSpans(c, body);
+  if (competing.length) {
+    return out.filter(o => {
+      const i = o.index, j = o.index + o.text.length;
+      return !competing.some(s => s.len > o.text.length && s.start <= i && j <= s.end);
+    });
+  }
   return out;
+}
+
+// Match spans of every other entity in c's collection, so occurrencesOf can tell
+// when one of c's matches is really part of a longer, more-specific name owned by
+// a sibling. Longest terms are tried first so the regex captures the full phrase.
+function competingSpans(c, body) {
+  const coll = (db.characters || []).includes(c) ? db.characters
+    : (db.locations || []).includes(c) ? db.locations : null;
+  if (!coll) return [];
+  const terms = [];
+  coll.forEach(x => {
+    if (x === c || x.id === c.id || x.archived) return;
+    [x.name, ...(x.aliases || [])].forEach(t => {
+      t = (t || '').trim();
+      if (t) terms.push(t);
+    });
+  });
+  if (!terms.length) return [];
+  terms.sort((a, b) => b.length - a.length);
+  const re = new RegExp('\\b(' + terms.map(escapeReg).join('|') + ')\\b', 'gi');
+  const spans = [];
+  let m;
+  while ((m = re.exec(body)) !== null) {
+    spans.push({ start: m.index, end: m.index + m[0].length, len: m[0].length });
+    if (re.lastIndex === m.index) re.lastIndex++;
+  }
+  return spans;
 }
 
 function refStatus(K, c, chunk) {
