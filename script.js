@@ -1968,12 +1968,17 @@ function inlineEditHopTitle(card, c) {
   input.placeholder = 'Untitled hop';
   titleEl.replaceWith(input);
   if (pencil) pencil.style.display = 'none';
+  // Suspend drag-and-drop so the input behaves like a normal text field
+  // (highlighting/deleting text doesn't start dragging the card).
+  const wasDraggable = card.getAttribute('draggable');
+  card.setAttribute('draggable', 'false');
   input.focus(); input.select();
 
   let settled = false;
   const settle = keep => {
     if (settled) return; settled = true;
     if (keep) { c.title = input.value.trim(); save(); }
+    if (wasDraggable !== null) card.setAttribute('draggable', wasDraggable);
     const span = document.createElement('span');
     span.className = 'chunk-disp-title';
     span.innerHTML = esc(c.title) || '<em>Untitled hop</em>';
@@ -6265,16 +6270,49 @@ async function openProject(id, opts = {}) {
     return;
   }
   if (id !== activeProjectId) {
-    await flushPersist();
-    await loadProject(id);   // swaps in the project's content and accent
-    localStorage.setItem(activeKey(), id);
+    // Loading a project is several DB round trips and takes a beat. React
+    // instantly so the switch never feels frozen: reflect the selection in the
+    // dropdown, swap the accent, and show a loading overlay right away.
+    const proj = projectsCache.find(p => p.id === id);
     document.getElementById('projectSelect').value = id;
-    renderHeaderMeta();
+    if (proj) applyProjectAccent(proj.accent);
+    showProjectLoading(proj && proj.name);
+    try {
+      await flushPersist();
+      await loadProject(id);   // swaps in the project's content and accent
+      localStorage.setItem(activeKey(), id);
+      document.getElementById('projectSelect').value = id;
+      renderHeaderMeta();
+    } finally {
+      hideProjectLoading();
+    }
   }
   // From the home grid, selecting a project orients the whole app to it
   // (accent, header, suggestions) without leaving the dashboard.
   if (opts.stayHome) { renderHome(); return; }
   go('sections');
+}
+
+// Lightweight full-screen overlay shown while a project's content loads, so the
+// switch feels responsive instead of a multi-second freeze.
+let projectLoadingEl = null;
+function showProjectLoading(name) {
+  if (!projectLoadingEl) {
+    projectLoadingEl = document.createElement('div');
+    projectLoadingEl.className = 'project-loading';
+    projectLoadingEl.innerHTML =
+      '<div class="project-loading-box"><div class="project-loading-spinner"></div>' +
+      '<div class="project-loading-label"></div></div>';
+    document.body.appendChild(projectLoadingEl);
+  }
+  projectLoadingEl.querySelector('.project-loading-label').textContent =
+    name ? 'LOADING ' + name.toUpperCase() : 'LOADING';
+  // force reflow so the fade-in transition runs each time
+  void projectLoadingEl.offsetWidth;
+  projectLoadingEl.classList.add('on');
+}
+function hideProjectLoading() {
+  if (projectLoadingEl) projectLoadingEl.classList.remove('on');
 }
 
 /* =====================================================================

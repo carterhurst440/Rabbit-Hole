@@ -555,6 +555,25 @@ mark.search-hit {
 @keyframes si-indeterminate {
   0% { margin-left: -30%; } 100% { margin-left: 100%; }
 }
+.project-loading {
+  position: fixed; inset: 0; z-index: 9000;
+  display: flex; align-items: center; justify-content: center;
+  background: color-mix(in srgb, var(--bg) 78%, transparent);
+  backdrop-filter: blur(2px);
+  opacity: 0; pointer-events: none; transition: opacity 0.14s ease;
+}
+.project-loading.on { opacity: 1; pointer-events: auto; }
+.project-loading-box { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+.project-loading-spinner {
+  width: 30px; height: 30px; border-radius: 50%;
+  border: 2px solid var(--line-2); border-top-color: var(--accent);
+  animation: project-loading-spin 0.7s linear infinite;
+}
+@keyframes project-loading-spin { to { transform: rotate(360deg); } }
+.project-loading-label {
+  font-size: 11px; letter-spacing: 0.14em; color: var(--muted);
+  text-transform: uppercase;
+}
 .chunk-body-wrap { position: relative; width: 100%; }
 .chunk-body {
   position: relative; width: 100%; background: var(--panel-2);
