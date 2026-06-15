@@ -1911,7 +1911,7 @@ function renderChunkCardDisplay(c) {
 // The single source of truth for "who/where is in this chunk".
 function chunkEntities(K, c) {
   return (db[K.coll] || []).filter(e => chunkEntityPresence(K, c, e).on)
-    .map(e => ({ name: e.name, color: e.color || '' }));
+    .map(e => ({ id: e.id, name: e.name, color: e.color || '' }));
 }
 
 // One row ("CHARACTERS  Ada, Mara") — the shared, canonical way to show a
