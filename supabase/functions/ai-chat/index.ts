@@ -31,7 +31,30 @@ const CORS = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-const MODEL = "claude-sonnet-4-6";
+// Three model tiers, chosen per user in Settings and persisted on their profile.
+// Each task carries a FLOOR (the cheapest model that still does it justice, used
+// in ECONOMY) and an OPTIMAL (the balanced default, used in STANDARD). HIGH
+// PERFORMANCE ignores both and runs the strongest model on every task.
+const HAIKU = "claude-haiku-4-5";
+const SONNET = "claude-sonnet-4-6";
+const OPUS = "claude-opus-4-7";
+const DEFAULT_MODEL = SONNET;
+
+// floor = ECONOMY model, optimal = STANDARD model. Tasks omitted here default to
+// SONNET for both (i.e. economy never weakens them below the balanced model).
+const TASK_MODELS: Record<string, { floor: string; optimal: string }> = {
+  detect_characters: { floor: HAIKU, optimal: SONNET },
+  detect_locations: { floor: HAIKU, optimal: SONNET },
+  suggest_tags: { floor: HAIKU, optimal: SONNET },
+  idea_title: { floor: HAIKU, optimal: SONNET },
+  import_outline: { floor: HAIKU, optimal: SONNET },
+};
+
+function modelFor(task: string, tier?: string): string {
+  if (tier === "high") return OPUS;
+  const m = TASK_MODELS[task] || { floor: SONNET, optimal: SONNET };
+  return tier === "economy" ? m.floor : m.optimal;
+}
 
 type Chunk = { title?: string; body?: string; section?: string };
 type Msg = { role: "user" | "assistant"; content: string };
@@ -45,6 +68,9 @@ Deno.serve(async (req) => {
 
     const body = await req.json();
     const task = body.task || "chat";
+    // Resolve the model for this task + the user's chosen tier once, and carry it
+    // on the request body so every handler's callClaude picks it up.
+    body._model = modelFor(task, body.tier);
 
     if (task === "chat") return await doChat(apiKey, body);
     if (task === "tag_summary") return await doTagSummary(apiKey, body);
@@ -74,7 +100,7 @@ async function doChat(apiKey: string, body: { messages?: Msg[]; context?: Ctx })
     .filter((m) => m && (m.role === "user" || m.role === "assistant") && m.content)
     .map((m) => ({ role: m.role, content: String(m.content) }));
   if (!clean.length) return json({ error: "No messages." }, 400);
-  const reply = await callClaude(apiKey, { system: buildSystem(body.context || {}), messages: clean, max_tokens: 1024 });
+  const reply = await callClaude(apiKey, { model: (body as any)._model, system: buildSystem(body.context || {}), messages: clean, max_tokens: 1024 });
   return json({ reply });
 }
 
@@ -87,7 +113,7 @@ async function doTagSummary(apiKey: string, body: { tagName?: string; chunks?: C
     "(3-5 sentences) that captures what this tag represents in the story — the recurring motif, " +
     "thread, or idea that binds these excerpts. Refer to concrete details. No preamble.";
   const user = `TAG: ${body.tagName || "(untitled)"}\n\nEXCERPTS:\n\n${joinChunks(chunks)}`;
-  const reply = await callClaude(apiKey, { system, messages: [{ role: "user", content: user }], max_tokens: 600 });
+  const reply = await callClaude(apiKey, { model: (body as any)._model, system, messages: [{ role: "user", content: user }], max_tokens: 600 });
   return json({ reply });
 }
 
@@ -103,7 +129,7 @@ async function doCharSummary(apiKey: string, body: { name?: string; aliases?: st
     `CHARACTER: ${body.name || "(unnamed)"}` +
     (aliases.length ? `\nALSO KNOWN AS: ${aliases.join(", ")}` : "") +
     `\n\nEXCERPTS:\n\n${joinChunks(chunks)}`;
-  const reply = await callClaude(apiKey, { system, messages: [{ role: "user", content: user }], max_tokens: 700 });
+  const reply = await callClaude(apiKey, { model: (body as any)._model, system, messages: [{ role: "user", content: user }], max_tokens: 700 });
   return json({ reply });
 }
 
@@ -152,7 +178,7 @@ async function doCharArc(apiKey: string, body: { name?: string; aliases?: string
     `CHARACTER: ${body.name || "(unnamed)"}` +
     (aliases.length ? `\nALSO KNOWN AS: ${aliases.join(", ")}` : "") +
     `\n\nSECTIONS (in narrative order):\n\n${sectionsBlock}`;
-  const raw = await callClaude(apiKey, { system, messages: [{ role: "user", content: user }], max_tokens: 2600 });
+  const raw = await callClaude(apiKey, { model: (body as any)._model, system, messages: [{ role: "user", content: user }], max_tokens: 2600 });
   const parsed = parseJsonObject(raw);
   const arc = Array.isArray(parsed?.arc)
     ? (parsed.arc as unknown[])
@@ -203,7 +229,7 @@ async function doLocSummary(apiKey: string, body: { name?: string; aliases?: str
     `LOCATION: ${body.name || "(unnamed)"}` +
     (aliases.length ? `\nALSO KNOWN AS: ${aliases.join(", ")}` : "") +
     `\n\nEXCERPTS:\n\n${joinChunks(chunks)}`;
-  const reply = await callClaude(apiKey, { system, messages: [{ role: "user", content: user }], max_tokens: 700 });
+  const reply = await callClaude(apiKey, { model: (body as any)._model, system, messages: [{ role: "user", content: user }], max_tokens: 700 });
   return json({ reply });
 }
 
@@ -224,7 +250,7 @@ async function doDetect(apiKey: string, body: { chunks?: Chunk[]; existing?: str
   const user =
     (existing.length ? `Canonical names already tracked (use these spellings for any that appear in the excerpts; do NOT list ones that are absent): ${existing.join(", ")}\n\n` : "") +
     `EXCERPTS:\n\n${joinChunks(chunks)}`;
-  const raw = await callClaude(apiKey, { system, messages: [{ role: "user", content: user }], max_tokens: 1500 });
+  const raw = await callClaude(apiKey, { model: (body as any)._model, system, messages: [{ role: "user", content: user }], max_tokens: 1500 });
   const parsed = parseJsonObject(raw);
   const characters = Array.isArray(parsed?.characters)
     ? parsed.characters
@@ -256,7 +282,7 @@ async function doDetectLocations(apiKey: string, body: { chunks?: Chunk[]; exist
   const user =
     (existing.length ? `Canonical names already tracked (use these spellings for any that appear in the excerpts; do NOT list ones that are absent): ${existing.join(", ")}\n\n` : "") +
     `EXCERPTS:\n\n${joinChunks(chunks)}`;
-  const raw = await callClaude(apiKey, { system, messages: [{ role: "user", content: user }], max_tokens: 1500 });
+  const raw = await callClaude(apiKey, { model: (body as any)._model, system, messages: [{ role: "user", content: user }], max_tokens: 1500 });
   const parsed = parseJsonObject(raw);
   const locations = Array.isArray(parsed?.locations)
     ? parsed.locations
@@ -283,7 +309,7 @@ async function doSuggestTags(apiKey: string, body: { chunk?: Chunk; existing?: s
   const user =
     `EXISTING TAGS: ${existing.length ? existing.join(", ") : "(none yet)"}\n\n` +
     `SCENE${body.chunk?.title ? `: ${body.chunk.title}` : ""}\n${body.chunk?.body || ""}`;
-  const raw = await callClaude(apiKey, { system, messages: [{ role: "user", content: user }], max_tokens: 400 });
+  const raw = await callClaude(apiKey, { model: (body as any)._model, system, messages: [{ role: "user", content: user }], max_tokens: 400 });
   const parsed = parseJsonObject(raw);
   const norm = (arr: unknown) =>
     Array.isArray(arr)
@@ -320,7 +346,7 @@ async function doSuggestIdeas(apiKey: string, body: { chunks?: Chunk[]; type?: s
     "Offer 6-10 ideas. Respond with ONLY a JSON object of the form " +
     `{"ideas":["...","..."]}. No markdown, no commentary.`;
   const user = `WORK SO FAR:\n\n${joinChunks(chunks)}`;
-  const raw = await callClaude(apiKey, { system, messages: [{ role: "user", content: user }], max_tokens: 1200 });
+  const raw = await callClaude(apiKey, { model: (body as any)._model, system, messages: [{ role: "user", content: user }], max_tokens: 1200 });
   const parsed = parseJsonObject(raw);
   const ideas = Array.isArray(parsed?.ideas)
     ? (parsed.ideas as unknown[]).filter((s) => typeof s === "string" && s.trim()).map((s) => (s as string).trim())
@@ -337,7 +363,7 @@ async function doIdeaTitle(apiKey: string, body: { body?: string }) {
     "captures the heart of the idea. Title case-ish, no surrounding quotes, no trailing punctuation, " +
     "no preamble. Respond with ONLY a JSON object of the form " +
     `{"title":"..."}. No markdown, no commentary.`;
-  const raw = await callClaude(apiKey, { system, messages: [{ role: "user", content: `IDEA:\n${text}` }], max_tokens: 80 });
+  const raw = await callClaude(apiKey, { model: (body as any)._model, system, messages: [{ role: "user", content: `IDEA:\n${text}` }], max_tokens: 80 });
   const parsed = parseJsonObject(raw);
   let title = typeof parsed?.title === "string" ? parsed.title.trim() : "";
   title = title.replace(/^["'\u201c\u2018]+|["'\u201d\u2019.]+$/g, "").trim();
@@ -381,7 +407,7 @@ async function doGenerateBody(
     (body.section ? `THIS HOP BELONGS TO SECTION: ${body.section}\n` : "") +
     (context.length ? `\n${kind === "hop" ? "SURROUNDING MANUSCRIPT" : "WORK SO FAR"} (for context only):\n\n${joinChunks(context)}\n` : "") +
     `\nTITLE:\n${title}`;
-  const raw = await callClaude(apiKey, { system, messages: [{ role: "user", content: user }], max_tokens: kind === "hop" ? 900 : 320 });
+  const raw = await callClaude(apiKey, { model: (body as any)._model, system, messages: [{ role: "user", content: user }], max_tokens: kind === "hop" ? 900 : 320 });
   const parsed = parseJsonObject(raw);
   let text = typeof parsed?.body === "string" ? parsed.body.trim() : "";
   if (!text) return json({ error: "Could not generate body text." }, 502);
@@ -439,7 +465,7 @@ async function doCharRelationships(
     (aliases.length ? `\nALSO KNOWN AS: ${aliases.join(", ")}` : "") +
     `\n\nOTHER TRACKED CHARACTERS:\n${othersBlock}` +
     `\n\nHOPS REFERENCING THE FOCUS CHARACTER (in narrative order):\n\n${sectionsBlock}`;
-  const raw = await callClaude(apiKey, { system, messages: [{ role: "user", content: user }], max_tokens: 2600 });
+  const raw = await callClaude(apiKey, { model: (body as any)._model, system, messages: [{ role: "user", content: user }], max_tokens: 2600 });
   const parsed = parseJsonObject(raw);
   const relationships = Array.isArray(parsed?.relationships)
     ? (parsed.relationships as unknown[])
@@ -490,7 +516,7 @@ async function doSuggestChunks(
     (characters.length ? `CHARACTERS: ${characters.join(", ")}\n` : "") +
     (locations.length ? `LOCATIONS: ${locations.join(", ")}\n` : "") +
     `\nWORK SO FAR:\n\n${chunks.length ? joinChunks(chunks) : "(nothing written yet — suggest strong opening scenes)"}`;
-  const raw = await callClaude(apiKey, { system, messages: [{ role: "user", content: user }], max_tokens: 1200 });
+  const raw = await callClaude(apiKey, { model: (body as any)._model, system, messages: [{ role: "user", content: user }], max_tokens: 1200 });
   const parsed = parseJsonObject(raw);
   const out = Array.isArray(parsed?.chunks)
     ? (parsed.chunks as unknown[])
@@ -543,7 +569,7 @@ async function doAnalyzeChunk(
       (locations.length ? `LOCATIONS: ${locations.join(", ")}\n` : "") +
       `\nFOCUS HOP${chunk.title ? ` — ${chunk.title}` : ""}:\n${chunk.body || "(empty)"}\n\n` +
       (context.length ? `SURROUNDING MANUSCRIPT (for context only):\n\n${joinChunks(context)}` : "(no other hops written yet)");
-  const raw = await callClaude(apiKey, { system, messages: [{ role: "user", content: user }], max_tokens: 1100 });
+  const raw = await callClaude(apiKey, { model: (body as any)._model, system, messages: [{ role: "user", content: user }], max_tokens: 1100 });
   const parsed = parseJsonObject(raw);
   const clean = (arr: unknown): string[] =>
     Array.isArray(arr)
@@ -578,7 +604,7 @@ async function doSearchHops(
     "that are not relevant; if none match, return an empty list. Respond with ONLY a JSON object of the " +
     `form {"matches":[{"index":1,"score":87,"reason":"...","quote":"..."}]}. No markdown, no commentary.`;
   const user = `QUERY: ${query}\n\nHOPS:\n\n${hopsBlock}`;
-  const raw = await callClaude(apiKey, { system, messages: [{ role: "user", content: user }], max_tokens: 1200 });
+  const raw = await callClaude(apiKey, { model: (body as any)._model, system, messages: [{ role: "user", content: user }], max_tokens: 1200 });
   const parsed = parseJsonObject(raw);
   const matches = Array.isArray(parsed?.matches)
     ? (parsed.matches as unknown[])
@@ -634,7 +660,7 @@ async function doImportOutline(
       ? `ALREADY-CREATED SECTIONS (reuse these titles when the content continues them):\n${sectionsSoFar.map((s) => `- ${s}`).join("\n")}\n\n`
       : "ALREADY-CREATED SECTIONS: (none yet — this is the first slice)\n\n") +
     `DOCUMENT SLICE:\n\n${text}`;
-  const raw = await callClaude(apiKey, { system, messages: [{ role: "user", content: user }], max_tokens: 8000 });
+  const raw = await callClaude(apiKey, { model: (body as any)._model, system, messages: [{ role: "user", content: user }], max_tokens: 8000 });
   const parsed = parseJsonObject(raw);
   const sections = Array.isArray(parsed?.sections)
     ? (parsed.sections as unknown[])
@@ -662,7 +688,7 @@ type Ctx = { project?: string | null; type?: string; genre?: string; chapters?: 
 
 async function callClaude(
   apiKey: string,
-  opts: { system: string; messages: Msg[]; max_tokens: number },
+  opts: { system: string; messages: Msg[]; max_tokens: number; model?: string },
 ): Promise<string> {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -671,7 +697,7 @@ async function callClaude(
       "x-api-key": apiKey,
       "anthropic-version": "2023-06-01",
     },
-    body: JSON.stringify({ model: MODEL, max_tokens: opts.max_tokens, system: opts.system, messages: opts.messages }),
+    body: JSON.stringify({ model: opts.model || DEFAULT_MODEL, max_tokens: opts.max_tokens, system: opts.system, messages: opts.messages }),
   });
   if (!res.ok) throw new Error(`Anthropic ${res.status}: ${await res.text()}`);
   const data = await res.json();

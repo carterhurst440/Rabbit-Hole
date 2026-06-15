@@ -86,6 +86,16 @@ button, input, textarea, select { font-family: inherit; }
 .account-label {
   font-size: 10px; letter-spacing: 0.14em; color: var(--muted); text-transform: uppercase;
 }
+.ai-tier { display: flex; gap: 0; border: 1px solid var(--line); background: var(--panel-2); }
+.ai-tier-opt {
+  flex: 1; min-width: 0; padding: 7px 4px; background: none; border: 0; cursor: pointer;
+  font: inherit; font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--muted-2); border-right: 1px solid var(--line); transition: background 0.12s, color 0.12s;
+}
+.ai-tier-opt:last-child { border-right: 0; }
+.ai-tier-opt:hover { color: var(--fg); }
+.ai-tier-opt.on { background: var(--accent); color: #0b0b0b; font-weight: 700; }
+.ai-tier-hint { margin-top: 7px; font-size: 11px; line-height: 1.4; color: var(--muted); }
 .username-view { display: flex; align-items: baseline; gap: 10px; }
 .username-view[hidden] { display: none; }
 .username-current { flex: 1; min-width: 0; font-size: 13px; font-weight: 700; color: var(--accent); letter-spacing: 0.04em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

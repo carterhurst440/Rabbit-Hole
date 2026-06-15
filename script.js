@@ -266,6 +266,39 @@ function renderSettings() {
   }
   const adminSection = document.getElementById('adminSection');
   if (adminSection) adminSection.hidden = !isAdmin();
+  paintAiTier();
+}
+
+const AI_TIER_HINTS = {
+  economy: 'Leanest models per task. Stretches tokens the furthest.',
+  standard: 'Balanced models tuned for each task. Recommended.',
+  high: 'Best model on every task. Uses the most tokens.'
+};
+
+function currentAiTier() {
+  return (currentProfile && currentProfile.ai_tier) || 'standard';
+}
+
+function paintAiTier() {
+  const tier = currentAiTier();
+  document.querySelectorAll('#aiTier .ai-tier-opt').forEach(btn => {
+    btn.classList.toggle('on', btn.dataset.tier === tier);
+  });
+  const hint = document.getElementById('aiTierHint');
+  if (hint) hint.textContent = AI_TIER_HINTS[tier] || '';
+}
+
+async function setAiTier(tier) {
+  if (!currentUser || !['economy', 'standard', 'high'].includes(tier)) return;
+  if (currentAiTier() === tier) return;
+  const prev = currentProfile ? currentProfile.ai_tier : undefined;
+  if (currentProfile) currentProfile.ai_tier = tier;
+  paintAiTier();
+  const { error } = await sb.from('profiles').update({ ai_tier: tier }).eq('id', currentUser.id);
+  if (error) {
+    if (currentProfile) currentProfile.ai_tier = prev;
+    paintAiTier();
+  }
 }
 
 // Reveal the username editor (called only after the user confirms the warning).
@@ -4910,7 +4943,9 @@ function highlightNames(raw, terms) {
 
 // Single entry point for the ai-chat edge function. Throws on error.
 async function aiInvoke(payload) {
-  const { data, error } = await sb.functions.invoke('ai-chat', { body: payload });
+  const tier = (currentProfile && currentProfile.ai_tier) || 'standard';
+  const body = Object.assign({ tier }, payload);
+  const { data, error } = await sb.functions.invoke('ai-chat', { body });
   if (error) {
     // Surface the function's JSON error body when present.
     let detail = error.message || 'request failed';
@@ -6790,6 +6825,10 @@ document.getElementById('editUsernameBtn').addEventListener('click', async () =>
   if (ok) openUsernameEditor();
 });
 document.getElementById('manageFluffleBtn').addEventListener('click', manageFluffleModal);
+document.getElementById('aiTier')?.addEventListener('click', e => {
+  const opt = e.target.closest('.ai-tier-opt');
+  if (opt) setAiTier(opt.dataset.tier);
+});
 document.getElementById('replayWelcomeBtn')?.addEventListener('click', () => { closeAccount(); showWelcomeModal(); });
 document.getElementById('usernameInput').addEventListener('keydown', e => {
   if (e.key === 'Enter') { e.preventDefault(); saveUsername(); }
