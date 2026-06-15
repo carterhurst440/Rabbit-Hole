@@ -567,6 +567,13 @@ function postToCommunityModal(chunk) {
           <span class="post-field-head">CONTEXT / ASK <span class="post-count" id="postCount">0/100</span></span>
           <textarea id="postContext" maxlength="100" rows="3" placeholder="What feedback are you after? (optional)"></textarea>
         </label>
+        <div class="post-field">
+          <span class="post-field-head">WHO CAN SEE THIS</span>
+          <div class="vis-opts" id="postVis">
+            <button type="button" class="vis-btn active" data-vis="public">FOR EVERYONE</button>
+            <button type="button" class="vis-btn" data-vis="fluffle">MY FLUFFLE ONLY</button>
+          </div>
+        </div>
         <div class="post-preview">
           <div class="post-preview-proj">${esc(projLine) || 'Untitled project'}</div>
           ${chunk.title ? `<div class="post-preview-title">${esc(chunk.title)}</div>` : ''}
@@ -583,6 +590,11 @@ function postToCommunityModal(chunk) {
   const ta = overlay.querySelector('#postContext');
   const cnt = overlay.querySelector('#postCount');
   ta.addEventListener('input', () => { cnt.textContent = ta.value.length + '/100'; });
+  let visibility = 'public';
+  overlay.querySelectorAll('#postVis .vis-btn').forEach(b => b.addEventListener('click', () => {
+    visibility = b.dataset.vis;
+    overlay.querySelectorAll('#postVis .vis-btn').forEach(x => x.classList.toggle('active', x === b));
+  }));
   const close = () => overlay.remove();
   overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
   overlay.querySelector('[data-act="cancel"]').addEventListener('click', close);
@@ -600,7 +612,8 @@ function postToCommunityModal(chunk) {
       project_type: proj.type || null,
       project_genre: proj.genre || null,
       accent: proj.accent || DEFAULT_ACCENT,
-      entities
+      entities,
+      visibility
     });
     if (error) {
       btn.disabled = false; btn.textContent = 'POST';
@@ -681,7 +694,10 @@ function renderCommunityFilters() {
     <div class="cf-selects">
       <select class="cf-select" data-filter="genre">${genreOpts}</select>
       <select class="cf-select" data-filter="type">${typeOpts}</select>
+      ${currentUser ? '<button class="cf-profile-btn" data-act="myprofile">VIEW MY PROFILE</button>' : ''}
     </div>`;
+  bar.querySelector('[data-act="myprofile"]')?.addEventListener('click', () =>
+    userProfileModal(currentUser.id, displayUsername()));
   bar.querySelectorAll('[data-scope]').forEach(b => b.addEventListener('click', () => {
     feedScope = b.dataset.scope; renderCommunityFilters(); drawFeed();
   }));
@@ -781,6 +797,12 @@ function feedCardHtml(p) {
       <button class="feed-user" data-f="user">@${esc(p.username)}</button>
       ${myFluffle.has(p.user_id) ? '<span class="feed-fluffle-tag" title="In your Fluffle">★</span>' : ''}
       <span class="feed-time">${timeAgo(p.created_at)}</span>
+      ${mine ? `<span class="feed-vis">${visibilityLabel(p.visibility)}</span>
+      <details class="hop-kebab feed-kebab"><summary>⋮</summary><div class="hop-menu">
+        <button class="add-btn" data-f="editpost">EDIT</button>
+        <button class="add-btn" data-f="archivepost">ARCHIVE</button>
+        <button class="add-btn danger" data-f="delpost">DELETE</button>
+      </div></details>` : ''}
     </div>
     ${feedProjHtml(p)}
     ${p.context ? `<div class="feed-context">${esc(p.context)}</div>` : ''}
@@ -793,7 +815,6 @@ function feedCardHtml(p) {
     <div class="feed-actions">
       <button class="feed-btn like ${p.likedByMe ? 'on' : ''}" data-f="like">♥ <span>${p.likeCount}</span></button>
       <button class="feed-btn ${p.commentsOpen ? 'on' : ''}" data-f="comments">COMMENT <span>${p.comments.length}</span></button>
-      ${mine ? '<button class="feed-btn del" data-f="delpost">DELETE</button>' : ''}
     </div>
     <div class="feed-comments" ${p.commentsOpen ? '' : 'hidden'}>
       ${comments}
@@ -820,8 +841,18 @@ function wireFeedCard(card, p) {
   card.querySelector('[data-f="comments"]').addEventListener('click', () => {
     p.commentsOpen = !p.commentsOpen; drawFeed();
   });
+  const kebab = card.querySelector('.feed-kebab');
+  if (kebab) kebab.addEventListener('toggle', () => { if (kebab.open) positionHopMenu(kebab); });
+  card.querySelector('[data-f="editpost"]')?.addEventListener('click', () => {
+    if (kebab) kebab.open = false;
+    editPostVisibilityModal(p, drawFeed);
+  });
+  card.querySelector('[data-f="archivepost"]')?.addEventListener('click', () => {
+    if (kebab) kebab.open = false;
+    archivePostFromFeed(p);
+  });
   const delBtn = card.querySelector('[data-f="delpost"]');
-  if (delBtn) delBtn.addEventListener('click', () => deletePost(p));
+  if (delBtn) delBtn.addEventListener('click', () => { if (kebab) kebab.open = false; deletePost(p); });
   const input = card.querySelector('.feed-comment-input');
   const send = card.querySelector('.feed-comment-send');
   if (send) send.addEventListener('click', () => addComment(p, input));
@@ -914,6 +945,63 @@ async function deletePost(p) {
   feedCache = feedCache.filter(x => x.id !== p.id);
   drawFeed();
 }
+
+// Change only a post's audience (FOR EVERYONE vs MY FLUFFLE). Title, body, and
+// entity snapshot are frozen at post time, so EDIT exposes nothing else.
+function editPostVisibilityModal(p, onSaved) {
+  const overlay = document.createElement('div');
+  overlay.className = 'ui-modal-overlay';
+  const cur = p.visibility === 'fluffle' ? 'fluffle' : 'public';
+  overlay.innerHTML = `
+    <div class="ui-modal">
+      <div class="ui-modal-title">EDIT POST</div>
+      <div class="ui-modal-scroll">
+        <div class="post-field">
+          <span class="post-field-head">WHO CAN SEE THIS</span>
+          <div class="vis-opts" id="editVis">
+            <button type="button" class="vis-btn ${cur === 'public' ? 'active' : ''}" data-vis="public">FOR EVERYONE</button>
+            <button type="button" class="vis-btn ${cur === 'fluffle' ? 'active' : ''}" data-vis="fluffle">MY FLUFFLE ONLY</button>
+          </div>
+        </div>
+        <p class="vis-note">Only the audience can be changed. The hop text and its characters and locations are frozen from when you posted.</p>
+      </div>
+      <div class="ui-modal-actions">
+        <button class="ui-modal-btn" data-act="cancel">Cancel</button>
+        <button class="ui-modal-btn solid" data-act="save">SAVE</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  let visibility = cur;
+  overlay.querySelectorAll('#editVis .vis-btn').forEach(b => b.addEventListener('click', () => {
+    visibility = b.dataset.vis;
+    overlay.querySelectorAll('#editVis .vis-btn').forEach(x => x.classList.toggle('active', x === b));
+  }));
+  const close = () => overlay.remove();
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  overlay.querySelector('[data-act="cancel"]').addEventListener('click', close);
+  overlay.querySelector('[data-act="save"]').addEventListener('click', async () => {
+    const btn = overlay.querySelector('[data-act="save"]');
+    btn.disabled = true; btn.textContent = 'SAVING…';
+    const { error } = await sb.from('community_posts').update({ visibility }).eq('id', p.id);
+    if (error) { btn.disabled = false; btn.textContent = 'SAVE'; alertModal('Could not update.', { title: 'EDIT POST' }); return; }
+    p.visibility = visibility;
+    close();
+    if (onSaved) onSaved();
+  });
+}
+
+// Archive (hide from the community) one of your own posts, updating the local
+// feed cache so it disappears from the feed without a full reload.
+async function archivePostFromFeed(p) {
+  if (!await confirmModal('Archive this post? It will no longer be viewable to the community, but you keep full access to it from your profile.', { title: 'ARCHIVE POST', okText: 'Archive', danger: false })) return;
+  const { error } = await sb.from('community_posts').update({ status: 'closed' }).eq('id', p.id);
+  if (error) { alertModal('Could not archive.', { title: 'ARCHIVE' }); return; }
+  feedCache = feedCache.filter(x => x.id !== p.id);
+  drawFeed(); loadHopPostCounts();
+}
+
+// Human label for a post's audience setting.
+function visibilityLabel(v) { return v === 'fluffle' ? 'MY FLUFFLE' : 'FOR EVERYONE'; }
 
 // All of a hop's community posts (open + closed), owned by the current user, with
 // per-post like/comment activity and CLOSE / REOPEN / DELETE controls. CLOSE hides
@@ -1078,9 +1166,10 @@ async function userProfileModal(userId, username) {
   const scroll = overlay.querySelector('#upScroll');
   const isSelf = currentUser && userId === currentUser.id;
 
-  const { data: posts, error } = await sb.from('community_posts')
-    .select('*').eq('user_id', userId).eq('status', 'open')
-    .order('created_at', { ascending: false });
+  let postsQuery = sb.from('community_posts')
+    .select('*').eq('user_id', userId).order('created_at', { ascending: false });
+  if (!isSelf) postsQuery = postsQuery.eq('status', 'open');
+  const { data: posts, error } = await postsQuery;
   if (error) { scroll.innerHTML = '<div class="feed-empty">Could not load this profile.</div>'; return; }
 
   const ids = posts.map(p => p.id);
@@ -1140,12 +1229,23 @@ async function userProfileModal(userId, username) {
         <div class="up-label">POSTS</div>
         ${posts.length ? posts.map(p => {
           const snippet = (p.hop_body || '').slice(0, 160) + ((p.hop_body || '').length > 160 ? '…' : '');
+          const archived = p.status === 'closed';
+          const kebab = isSelf ? `<details class="hop-kebab up-kebab"><summary>⋮</summary><div class="hop-menu">
+            <button class="add-btn" data-f="editpost">EDIT</button>
+            <button class="add-btn" data-f="${archived ? 'reactivatepost' : 'archivepost'}">${archived ? 'REACTIVATE' : 'ARCHIVE'}</button>
+            <button class="add-btn danger" data-f="delpost">DELETE</button>
+          </div></details>` : '';
+          const badges = isSelf ? `<span class="up-post-badges">
+            <span class="mp-status ${archived ? 'closed' : 'active'}">${archived ? 'ARCHIVED' : 'ACTIVE'}</span>
+            <span class="feed-vis">${visibilityLabel(p.visibility)}</span>
+          </span>` : '';
           return `<div class="up-post" data-id="${p.id}">
-            <div class="up-post-head">${p.hop_title ? `<span class="up-post-title">${esc(p.hop_title)}</span>` : '<span class="muted">Untitled hop</span>'}<span class="mp-time">${timeAgo(p.created_at)}</span></div>
+            <div class="up-post-head">${p.hop_title ? `<span class="up-post-title">${esc(p.hop_title)}</span>` : '<span class="muted">Untitled hop</span>'}<span class="up-post-meta"><span class="mp-time">${timeAgo(p.created_at)}</span>${kebab}</span></div>
+            ${badges}
             <div class="up-post-sample">${esc(snippet)}</div>
             <button class="add-btn" data-f="viewpost">VIEW POST</button>
           </div>`;
-        }).join('') : '<div class="feed-empty">No public posts.</div>'}
+        }).join('') : `<div class="feed-empty">${isSelf ? 'You have not shared any posts yet.' : 'No public posts.'}</div>`}
       </div>`;
     scroll.querySelector('[data-f="fluffle"]')?.addEventListener('click', async () => {
       if (myFluffle.has(userId)) {
@@ -1160,8 +1260,44 @@ async function userProfileModal(userId, username) {
       if (currentRoute() === 'community') { renderCommunityFilters(); drawFeed(); }
     });
     posts.forEach(p => {
-      scroll.querySelector(`.up-post[data-id="${p.id}"] [data-f="viewpost"]`)
-        ?.addEventListener('click', () => viewHopModal(p));
+      const row = scroll.querySelector(`.up-post[data-id="${p.id}"]`);
+      if (!row) return;
+      row.querySelector('[data-f="viewpost"]')
+        ?.addEventListener('click', () => (p.status === 'closed' ? viewArchivedPostModal(p) : viewHopModal(p)));
+      const kebab = row.querySelector('.up-kebab');
+      if (kebab) kebab.addEventListener('toggle', () => { if (kebab.open) positionHopMenu(kebab); });
+      row.querySelector('[data-f="editpost"]')?.addEventListener('click', () => {
+        if (kebab) kebab.open = false;
+        editPostVisibilityModal(p, () => { render(); if (currentRoute() === 'community') { feedCache = feedCache.map(x => x.id === p.id ? { ...x, visibility: p.visibility } : x); drawFeed(); } });
+      });
+      row.querySelector('[data-f="archivepost"]')?.addEventListener('click', async () => {
+        if (kebab) kebab.open = false;
+        if (!await confirmModal('Archive this post? It will no longer be viewable to the community, but you keep full access to it from your profile.', { title: 'ARCHIVE POST', okText: 'Archive', danger: false })) return;
+        const { error } = await sb.from('community_posts').update({ status: 'closed' }).eq('id', p.id);
+        if (error) { alertModal('Could not archive.', { title: 'ARCHIVE' }); return; }
+        p.status = 'closed';
+        feedCache = feedCache.filter(x => x.id !== p.id);
+        render(); loadHopPostCounts();
+        if (currentRoute() === 'community') drawFeed();
+      });
+      row.querySelector('[data-f="reactivatepost"]')?.addEventListener('click', async () => {
+        if (kebab) kebab.open = false;
+        const { error } = await sb.from('community_posts').update({ status: 'open' }).eq('id', p.id);
+        if (error) { alertModal('Could not reactivate.', { title: 'REACTIVATE' }); return; }
+        p.status = 'open';
+        render(); loadHopPostCounts();
+        if (currentRoute() === 'community') renderCommunity();
+      });
+      row.querySelector('[data-f="delpost"]')?.addEventListener('click', async () => {
+        if (kebab) kebab.open = false;
+        if (!await confirmModal('Delete this post permanently? This cannot be undone.')) return;
+        const { error } = await sb.from('community_posts').delete().eq('id', p.id);
+        if (error) { alertModal('Could not delete.', { title: 'DELETE' }); return; }
+        const i = posts.indexOf(p); if (i >= 0) posts.splice(i, 1);
+        feedCache = feedCache.filter(x => x.id !== p.id);
+        render(); loadHopPostCounts();
+        if (currentRoute() === 'community') drawFeed();
+      });
     });
   }
   render();
