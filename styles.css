@@ -538,7 +538,7 @@ button, input, textarea, select { font-family: inherit; }
   padding: 8px 10px; font-size: 12px; letter-spacing: 0.04em;
 }
 .alias-input { width: 100%; box-sizing: border-box; }
-.section-search-row { display: flex; gap: 8px; align-items: center; margin: 0; }
+.section-search-row { display: flex; gap: 8px; align-items: center; margin: 0 0 10px; }
 .section-search {
   flex: 1; min-width: 0; box-sizing: border-box;
   background: var(--panel-2); border: 1px solid var(--line); color: var(--text-bright);
