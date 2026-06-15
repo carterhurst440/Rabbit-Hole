@@ -23,6 +23,8 @@
 //                                                      -> { matches: [{ index, score, reason, quote }] }
 //   import_outline    { text, instructions, type, genre, sectionsSoFar:[string] }
 //                                                      -> { sections: [{ title }], hops: [{ section, title, body }] }
+//   journal_advice    { entries:[{title,body,when}], type, genre }
+//                                                      -> { items: [{ type:"reflection"|"prompt", title, body }] }
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
 const CORS = {
@@ -48,6 +50,7 @@ const TASK_MODELS: Record<string, { floor: string; optimal: string }> = {
   suggest_tags: { floor: HAIKU, optimal: SONNET },
   idea_title: { floor: HAIKU, optimal: SONNET },
   import_outline: { floor: HAIKU, optimal: SONNET },
+  journal_advice: { floor: HAIKU, optimal: SONNET },
 };
 
 function modelFor(task: string, tier?: string): string {
@@ -88,6 +91,7 @@ Deno.serve(async (req) => {
     if (task === "analyze_chunk") return await doAnalyzeChunk(apiKey, body);
     if (task === "search_hops") return await doSearchHops(apiKey, body);
     if (task === "import_outline") return await doImportOutline(apiKey, body);
+    if (task === "journal_advice") return await doJournalAdvice(apiKey, body);
     return json({ error: `Unknown task: ${task}` }, 400);
   } catch (e) {
     console.error("ai-chat error:", (e as Error)?.message || e);
@@ -683,6 +687,44 @@ async function doImportOutline(
   return json({ sections, hops });
 }
 
+async function doJournalAdvice(
+  apiKey: string,
+  body: { entries?: { title?: string; body?: string; when?: string }[]; type?: string; genre?: string },
+) {
+  const entries = (body.entries || []).filter((e) => e && (e.body || e.title));
+  if (!entries.length) return json({ items: [] });
+  const block = entries
+    .map((e, i) =>
+      `--- entry ${i + 1}${e.when ? ` (${e.when})` : ""}${e.title ? `: ${e.title}` : ""} ---\n${(e.body || "").trim()}`)
+    .join("\n\n");
+  const system =
+    "You are a warm, perceptive companion inside RABBIT HOLE, reflecting on someone's personal journal. " +
+    "You are given their most recent entries, oldest first. This is private journaling, NOT fiction \u2014 never " +
+    "treat it as a manuscript or give writing-craft critique. Respond with caring, grounded support based ONLY " +
+    "on what the entries actually say. Return 4-6 items of two kinds:\n" +
+    "- 'reflection': a gentle observation, encouragement, or piece of caring advice about how the writer seems " +
+    "to be doing, a pattern worth noticing, or something they might be proud of. Specific to their entries, never generic.\n" +
+    "- 'prompt': an inviting question or theme they could write about next, drawn from what is on their mind lately.\n" +
+    "Give a mix of both, leaning slightly toward reflections. Each item has a short `title` (a few words) and a " +
+    "`body` (1-2 sentences). Be human and kind, never clinical, preachy, or alarmist. Respond with ONLY a JSON " +
+    `object of the form {"items":[{"type":"reflection","title":"...","body":"..."}]}. No markdown, no commentary.`;
+  const user = `RECENT ENTRIES (oldest first):\n\n${block}`;
+  const raw = await callClaude(apiKey, { model: (body as any)._model, system, messages: [{ role: "user", content: user }], max_tokens: 1200 });
+  const parsed = parseJsonObject(raw);
+  const items = Array.isArray(parsed?.items)
+    ? (parsed.items as unknown[])
+        .filter((it): it is { type?: unknown; title?: unknown; body?: unknown } => !!it && typeof it === "object")
+        .map((it) => ({
+          type: it.type === "prompt" ? "prompt" : "reflection",
+          title: typeof it.title === "string" ? it.title.trim() : "",
+          body: typeof it.body === "string" ? it.body.trim() : "",
+        }))
+        .filter((it) => it.title || it.body)
+        .slice(0, 8)
+    : [];
+  return json({ items });
+}
+
 /* ---------------- helpers ---------------- */
 type Ctx = { project?: string | null; type?: string; genre?: string; chapters?: string[]; characters?: { name: string; summary?: string }[] };
 
@@ -714,7 +756,7 @@ function joinChunks(chunks: Chunk[]): string {
     .join("\n\n");
 }
 
-function parseJsonObject(s: string): { characters?: unknown[]; locations?: unknown[]; ideas?: unknown[]; assign?: unknown[]; suggest?: unknown[]; chunks?: unknown[]; strengths?: unknown[]; suggestions?: unknown[]; arc?: unknown[]; principles?: unknown[]; relationships?: unknown[]; matches?: unknown[]; sections?: unknown[]; hops?: unknown[]; title?: unknown; body?: unknown } | null {
+function parseJsonObject(s: string): { characters?: unknown[]; locations?: unknown[]; ideas?: unknown[]; assign?: unknown[]; suggest?: unknown[]; chunks?: unknown[]; strengths?: unknown[]; suggestions?: unknown[]; arc?: unknown[]; principles?: unknown[]; relationships?: unknown[]; matches?: unknown[]; sections?: unknown[]; hops?: unknown[]; items?: unknown[]; title?: unknown; body?: unknown } | null {
   try {
     const start = s.indexOf("{");
     const end = s.lastIndexOf("}");

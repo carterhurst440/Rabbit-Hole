@@ -6135,6 +6135,27 @@ let suggestedChunks = null;     // cached AI result for the active project
 let suggestedFor = null;        // project id the cache belongs to
 let suggestLoading = false;
 
+// Journal projects get reflective advice instead of plot-beat suggestions, so
+// the home panel reframes itself around the writer rather than the story.
+function isJournalProject() {
+  const p = projectsCache.find(x => x.id === activeProjectId);
+  return (p?.type || '').toLowerCase() === 'journal';
+}
+
+// Most recent journal entries, oldest first, capped by count and total size so
+// the advice request stays small and well under the API token limit.
+function recentJournalEntries(limit = 15, charBudget = 28000) {
+  const withBody = db.chunks.filter(c => (c.body || '').trim()).slice();
+  withBody.sort((a, b) => (a.narrativeOrder ?? 0) - (b.narrativeOrder ?? 0));
+  const recent = withBody.slice(-limit);
+  let total = recent.reduce((n, c) => n + (c.body || '').length, 0);
+  while (recent.length > 1 && total > charBudget) {
+    total -= (recent[0].body || '').length;
+    recent.shift();
+  }
+  return recent.map(c => ({ title: c.title || '', body: c.body || '', when: c.chronoLabel || '' }));
+}
+
 function renderSuggestedChunks() {
   const section = document.getElementById('suggestSection');
   if (!section) return;
@@ -6145,29 +6166,54 @@ function renderSuggestedChunks() {
   // Drop a stale cache when the active project changed.
   if (suggestedFor !== activeProjectId) { suggestedChunks = null; suggestedFor = activeProjectId; }
 
+  const journal = isJournalProject();
   const grid = document.getElementById('suggestGrid');
   const sub = document.getElementById('suggestSub');
+  const titleEl = document.getElementById('suggestTitle');
+  if (titleEl) titleEl.textContent = journal ? 'REFLECTIONS' : 'SUGGESTED NEXT HOPS';
   const refresh = document.getElementById('suggestRefreshBtn');
   refresh.disabled = suggestLoading;
   refresh.innerHTML = suggestLoading ? AI_STAR + ' THINKING…' : '↻ REFRESH';
 
   if (suggestLoading) {
-    sub.textContent = 'Reading your work so far…';
-    grid.innerHTML = `<div class="suggest-empty">Thinking through what comes next…</div>`;
+    sub.textContent = journal ? 'Reading your recent entries…' : 'Reading your work so far…';
+    grid.innerHTML = `<div class="suggest-empty">${journal ? 'Reflecting on what you have written lately…' : 'Thinking through what comes next…'}</div>`;
     return;
   }
 
   if (!suggestedChunks) {
     // Auto-generate the first time there's content to read; otherwise prompt.
     if (db.chunks.some(c => (c.body || '').trim())) { fetchSuggestedChunks(); return; }
-    sub.textContent = 'Write a little, then I can suggest where to go next.';
-    grid.innerHTML = `<div class="suggest-empty">No suggestions yet — start writing, then hit REFRESH.</div>`;
+    sub.textContent = journal ? 'Write an entry or two, then I can reflect back.' : 'Write a little, then I can suggest where to go next.';
+    grid.innerHTML = `<div class="suggest-empty">${journal ? 'Nothing to reflect on yet — write an entry, then hit REFRESH.' : 'No suggestions yet — start writing, then hit REFRESH.'}</div>`;
     return;
   }
 
   if (!suggestedChunks.length) {
-    sub.textContent = 'No suggestions came back. Try refreshing.';
+    sub.textContent = journal ? 'No reflections came back. Try refreshing.' : 'No suggestions came back. Try refreshing.';
     grid.innerHTML = `<div class="suggest-empty">Nothing came back. Hit REFRESH to try again.</div>`;
+    return;
+  }
+
+  if (journal) {
+    sub.textContent = 'Gentle reflections and prompts from your recent entries.';
+    grid.innerHTML = suggestedChunks.map((it, i) => {
+      const isPrompt = it.type === 'prompt';
+      return `
+        <div class="suggest-card ${isPrompt ? 'is-prompt' : 'is-reflection'}" data-i="${i}">
+          <div class="sc-chap" style="color:${isPrompt ? 'var(--accent)' : 'var(--muted)'}">${isPrompt ? 'PROMPT' : 'REFLECTION'}</div>
+          <div class="sc-title">${esc(it.title || (isPrompt ? 'Something to explore' : ''))}</div>
+          <div class="sc-desc">${esc(it.body || '')}</div>
+          ${isPrompt ? `<div class="sc-actions">
+            <button class="add-btn solid sc-newentry" data-i="${i}">+ NEW ENTRY</button>
+            <button class="add-btn sc-idea" data-i="${i}" title="Save this prompt for later">+ ADD IDEA</button>
+          </div>` : ''}
+        </div>`;
+    }).join('');
+    grid.querySelectorAll('.sc-newentry').forEach(b =>
+      b.addEventListener('click', () => startJournalEntryFrom(suggestedChunks[+b.dataset.i])));
+    grid.querySelectorAll('.sc-idea').forEach(b =>
+      b.addEventListener('click', () => saveSuggestedAsIdea(suggestedChunks[+b.dataset.i])));
     return;
   }
 
@@ -6208,24 +6254,37 @@ async function fetchSuggestedChunks() {
   if (!reqProject) return;
   suggestLoading = true;
   renderSuggestedChunks();
+  const journal = isJournalProject();
   let result;
   try {
     const proj = projectsCache.find(p => p.id === reqProject);
-    result = await aiInvoke({
-      task: 'suggest_chunks',
-      type: proj?.type || '',
-      genre: proj?.genre || '',
-      chapters: db.chapters.map(ch => ch.title).filter(Boolean),
-      characters: db.characters.map(c => c.name).filter(Boolean),
-      locations: (db.locations || []).map(l => l.name).filter(Boolean),
-      chunks: db.chunks.filter(c => (c.body || '').trim()).map(c => ({ title: c.title, body: c.body }))
-    });
+    if (journal) {
+      // Reflect on recent entries only — small request, and recency is what
+      // matters for journaling advice.
+      result = await aiInvoke({
+        task: 'journal_advice',
+        type: proj?.type || '',
+        genre: proj?.genre || '',
+        entries: recentJournalEntries()
+      });
+    } else {
+      result = await aiInvoke({
+        task: 'suggest_chunks',
+        type: proj?.type || '',
+        genre: proj?.genre || '',
+        chapters: db.chapters.map(ch => ch.title).filter(Boolean),
+        characters: db.characters.map(c => c.name).filter(Boolean),
+        locations: (db.locations || []).map(l => l.name).filter(Boolean),
+        chunks: db.chunks.filter(c => (c.body || '').trim()).map(c => ({ title: c.title, body: c.body }))
+      });
+    }
   } catch (err) {
     suggestLoading = false;
     if (activeProjectId === reqProject) {
       suggestedChunks = [];
       renderSuggestedChunks();
-      alertModal('Could not suggest next hops.\n\n' + (err.message || ''), { title: 'SUGGESTED NEXT HOPS' });
+      alertModal((journal ? 'Could not reflect on your entries.' : 'Could not suggest next hops.') + '\n\n' + (err.message || ''),
+        { title: journal ? 'REFLECTIONS' : 'SUGGESTED NEXT HOPS' });
     } else {
       renderSuggestedChunks();
     }
@@ -6234,7 +6293,8 @@ async function fetchSuggestedChunks() {
   suggestLoading = false;
   // Discard if the user switched projects while the request was in flight.
   if (activeProjectId !== reqProject) { renderSuggestedChunks(); return; }
-  suggestedChunks = Array.isArray(result.chunks) ? result.chunks : [];
+  const list = journal ? result.items : result.chunks;
+  suggestedChunks = Array.isArray(list) ? list : [];
   suggestedFor = reqProject;
   renderSuggestedChunks();
 }
@@ -6265,12 +6325,38 @@ function addSuggestedChunk(s) {
   openChunkModal(id);
 }
 
+// Start a fresh journal entry seeded with a reflective prompt, then open it so
+// the writer can respond right away.
+function startJournalEntryFrom(item) {
+  if (!item) return;
+  const ch = db.chapters.find(x => x.id === db.ui.activeChapter) || db.chapters[0];
+  if (!ch) { alertModal('Add a section first, then you can start an entry.', { title: 'NEW ENTRY' }); return; }
+  const id = uid();
+  db.chunks.push({
+    id, chapterId: ch.id, title: item.title || '', body: '',
+    orderInChapter: chunksOf(ch.id).length,
+    narrativeOrder: db.chunks.length,
+    chronoOrder: db.chunks.length,
+    chronoLabel: '',
+    characterIds: [],
+    locationIds: [],
+    labelIds: []
+  });
+  save();
+  recordWritingActivity();
+  if (Array.isArray(suggestedChunks)) {
+    suggestedChunks = suggestedChunks.filter(x => x !== item);
+    renderSuggestedChunks();
+  }
+  openChunkModal(id);
+}
+
 // Park a suggested scene in the Idea Backlog instead of writing it now, so it
 // isn't lost when the suggestion list refreshes.
 function saveSuggestedAsIdea(s) {
   if (!s) return;
   const title = (s.title || '').trim();
-  const desc = (s.description || '').trim();
+  const desc = (s.description || s.body || '').trim();
   if (!title && !desc) return;
   db.ideas.push({ id: uid(), title: title || desc, body: title ? desc : '', labelIds: [], ts: Date.now() });
   save();
