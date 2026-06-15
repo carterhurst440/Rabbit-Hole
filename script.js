@@ -77,29 +77,29 @@ function seed() {
     characters: [],
     locations: [],
     ideas: [],
-    labels: [],
-    ui: { activeChapter: chId, activeChar: null, activeLoc: null, activeLabel: null }
+    tags: [],
+    ui: { activeChapter: chId, activeChar: null, activeLoc: null, activeTag: null }
   };
 }
 
 // Bring older saved data up to the current shape. Idempotent + defensive.
 function migrate(d) {
-  d.labels = d.labels || [];
+  d.tags = d.tags || [];
   d.locations = d.locations || [];
   d.ui = d.ui || {};
-  (d.chunks || []).forEach(c => { if (!Array.isArray(c.labelIds)) c.labelIds = []; });
+  (d.chunks || []).forEach(c => { if (!Array.isArray(c.tagIds)) c.tagIds = []; });
   (d.chunks || []).forEach(c => { if (!Array.isArray(c.locationIds)) c.locationIds = []; });
   (d.ideas || []).forEach(i => {
-    if (!Array.isArray(i.labelIds)) {
-      i.labelIds = [];
+    if (!Array.isArray(i.tagIds)) {
+      i.tagIds = [];
       if (Array.isArray(i.labels)) {
         i.labels.forEach(name => {
-          const lab = ensureLabelIn(d, name);
-          if (lab && !i.labelIds.includes(lab.id)) i.labelIds.push(lab.id);
+          const lab = ensureTagIn(d, name);
+          if (lab && !i.tagIds.includes(lab.id)) i.tagIds.push(lab.id);
         });
       }
     }
-    delete i.labels; // replaced by labelIds
+    delete i.labels; // replaced by tagIds
   });
   return d;
 }
@@ -136,66 +136,79 @@ function chapterColor(chId) {
   return CHAPTER_PALETTE[(idx < 0 ? 0 : idx) % CHAPTER_PALETTE.length];
 }
 
-/* ---------------- LABELS ---------------- */
-function ensureLabelIn(d, rawName) {
+/* ---------------- TAGS ---------------- */
+function ensureTagIn(d, rawName) {
   // Labels are canonically uppercase so the same word never splits by case.
   const name = String(rawName || '').trim().toUpperCase();
   if (!name) return null;
-  let lab = d.labels.find(l => l.name.toUpperCase() === name);
+  let lab = d.tags.find(l => l.name.toUpperCase() === name);
   if (!lab) {
-    lab = { id: uid(), name, color: CHAPTER_PALETTE[d.labels.length % CHAPTER_PALETTE.length] };
-    d.labels.push(lab);
+    lab = { id: uid(), name, color: CHAPTER_PALETTE[d.tags.length % CHAPTER_PALETTE.length] };
+    d.tags.push(lab);
   }
   return lab;
 }
-const ensureLabel = (name) => ensureLabelIn(db, name);
-const getLabel = (id) => db.labels.find(l => l.id === id);
-const labelName = (id) => getLabel(id)?.name || '';
-const labelColor = (id) => getLabel(id)?.color || 'var(--muted)';
+const ensureTag = (name) => ensureTagIn(db, name);
+const getTag = (id) => db.tags.find(l => l.id === id);
+const tagName = (id) => getTag(id)?.name || '';
+const tagColor = (id) => getTag(id)?.color || 'var(--muted)';
 
-// Tag categories ("THEMES", "LORE", "TONE", …) are a client-side grouping layer
-// kept in the project ui blob, so no extra DB table/column is needed.
-function tagCats() { if (!Array.isArray(db.ui.tagCategories)) db.ui.tagCategories = []; return db.ui.tagCategories; }
-function tagCatMap() { if (!db.ui.tagCat || typeof db.ui.tagCat !== 'object') db.ui.tagCat = {}; return db.ui.tagCat; }
-const tagCatOf = (labelId) => tagCatMap()[labelId] || '';
-const tagCatName = (catId) => tagCats().find(c => c.id === catId)?.name || '';
-function setTagCat(labelId, catId) {
-  const m = tagCatMap();
-  if (catId) m[labelId] = catId; else delete m[labelId];
+// Tag categories ("THEMES", "LORE", "TONE", …) are just an uppercase name stored
+// on each tag (the `category` column on the tags table). The set of categories is
+// derived from whatever names the tags actually use, so a category with no tags
+// simply ceases to exist — there is no separate list or table to maintain. Here a
+// category's id IS its name, which keeps the render code (c.id / c.name) unchanged.
+function tagCats() {
+  const seen = new Map();
+  for (const l of db.tags) {
+    const nm = (l.category || '').trim();
+    if (nm && !seen.has(nm)) seen.set(nm, { id: nm, name: nm });
+  }
+  return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+const tagCatOf = (labelId) => (getTag(labelId)?.category || '');
+const tagCatName = (catId) => (catId || '');
+function setTagCat(labelId, catName) {
+  const l = getTag(labelId);
+  if (!l) return;
+  l.category = String(catName || '').trim().toUpperCase();
   save();
 }
 function addTagCat(name) {
   const nm = String(name || '').trim().toUpperCase();
-  if (!nm) return null;
-  let c = tagCats().find(x => x.name === nm);
-  if (!c) { c = { id: uid(), name: nm }; tagCats().push(c); save(); }
-  return c;
+  return nm ? { id: nm, name: nm } : null;
 }
-function deleteTagCat(catId) {
-  db.ui.tagCategories = tagCats().filter(c => c.id !== catId);
-  const m = tagCatMap();
-  Object.keys(m).forEach(lid => { if (m[lid] === catId) delete m[lid]; });
+function renameTagCat(oldName, newName) {
+  const a = String(oldName || '').trim().toUpperCase();
+  const b = String(newName || '').trim().toUpperCase();
+  if (!a || !b || a === b) return;
+  db.tags.forEach(l => { if ((l.category || '').toUpperCase() === a) l.category = b; });
+  save();
+}
+function deleteTagCat(catName) {
+  const a = String(catName || '').trim().toUpperCase();
+  db.tags.forEach(l => { if ((l.category || '').toUpperCase() === a) l.category = ''; });
   save();
 }
 
-// Reusable chip editor for any entity holding a `labelIds` array.
-function labelEditorHTML(selectedIds) {
-  const chips = db.labels.map(l =>
+// Reusable chip editor for any entity holding a `tagIds` array.
+function tagEditorHTML(selectedIds) {
+  const chips = db.tags.map(l =>
     `<span class="lbl-chip ${selectedIds.includes(l.id) ? 'on' : ''}" data-lbl="${l.id}" style="--lc:${l.color}">${esc(l.name)}</span>`
-  ).join('') || `<span class="ci-count">no labels yet</span>`;
+  ).join('') || `<span class="ci-count">no tags yet</span>`;
   return `
     <div class="label-editor">
       <div class="label-chips">${chips}</div>
-      <input class="new-label-input" placeholder="+ new label, Enter to add" />
+      <input class="new-label-input" placeholder="+ new tag, Enter to add" />
     </div>`;
 }
 
-function wireLabelEditor(container, target) {
+function wireTagEditor(container, target) {
   container.querySelectorAll('.lbl-chip[data-lbl]').forEach(chip => {
     chip.addEventListener('click', () => {
       const id = chip.dataset.lbl;
-      const i = target.labelIds.indexOf(id);
-      if (i >= 0) target.labelIds.splice(i, 1); else target.labelIds.push(id);
+      const i = target.tagIds.indexOf(id);
+      if (i >= 0) target.tagIds.splice(i, 1); else target.tagIds.push(id);
       chip.classList.toggle('on');
       save();
     });
@@ -205,21 +218,21 @@ function wireLabelEditor(container, target) {
     if (e.key !== 'Enter') return;
     e.preventDefault();
     if (!input.value.trim()) return;
-    const lab = ensureLabel(input.value);
-    if (lab && !target.labelIds.includes(lab.id)) target.labelIds.push(lab.id);
+    const lab = ensureTag(input.value);
+    if (lab && !target.tagIds.includes(lab.id)) target.tagIds.push(lab.id);
     save();
     // rebuild this editor in place (new chip appears, focus retained)
     const wrap = document.createElement('div');
-    wrap.innerHTML = labelEditorHTML(target.labelIds);
+    wrap.innerHTML = tagEditorHTML(target.tagIds);
     const fresh = wrap.firstElementChild;
     container.replaceWith(fresh);
-    wireLabelEditor(fresh, target);
+    wireTagEditor(fresh, target);
     fresh.querySelector('.new-label-input').focus();
   });
 }
 
 /* ---------------- ROUTING ---------------- */
-const ROUTES = ['home', 'search', 'sections', 'timelines', 'characters', 'locations', 'labels', 'ideas', 'community'];
+const ROUTES = ['home', 'search', 'sections', 'timelines', 'characters', 'locations', 'tags', 'ideas', 'community'];
 
 function currentRoute() {
   const h = location.hash.replace('#', '');
@@ -242,7 +255,7 @@ function route() {
   if (r === 'timelines') renderTimelines();
   if (r === 'characters') renderCharacters();
   if (r === 'locations') renderLocations();
-  if (r === 'labels') renderLabels();
+  if (r === 'tags') renderTags();
   if (r === 'ideas') renderIdeas();
   if (r === 'community') renderCommunity();
 }
@@ -1140,7 +1153,7 @@ function addHopGlobal() {
     orderInChapter: chunksOf(chapterId).length,
     narrativeOrder: db.chunks.length,
     chronoOrder: db.chunks.length,
-    chronoLabel: '', characterIds: [], locationIds: [], labelIds: []
+    chronoLabel: '', characterIds: [], locationIds: [], tagIds: []
   };
   openChunkModal(id);
 }
@@ -1266,7 +1279,7 @@ function renderChunkPane() {
       chronoLabel: '',
       characterIds: [],
       locationIds: [],
-      labelIds: []
+      tagIds: []
     };
     openChunkModal(id);
   });
@@ -1509,7 +1522,7 @@ async function generateChunkTags(chunk, btn) {
     const result = await aiInvoke({
       task: 'suggest_tags',
       chunk: { title: chunk.title, body: chunk.body },
-      existing: db.labels.map(l => l.name)
+      existing: db.tags.map(l => l.name)
     });
     aiBtnDone(btn, original);
     const assign = (result.assign || []).filter(Boolean);
@@ -1517,15 +1530,15 @@ async function generateChunkTags(chunk, btn) {
     if (!assign.length && !suggest.length) { alertModal('No tags suggested for this scene.', { title: 'DETECT TAGS' }); return; }
     const chosen = await tagReviewModal(assign, suggest);
     if (!chosen || !chosen.length) return;
-    if (!Array.isArray(chunk.labelIds)) chunk.labelIds = [];
+    if (!Array.isArray(chunk.tagIds)) chunk.tagIds = [];
     chosen.forEach(name => {
-      const lab = ensureLabel(name);
-      if (lab && !chunk.labelIds.includes(lab.id)) chunk.labelIds.push(lab.id);
+      const lab = ensureTag(name);
+      if (lab && !chunk.tagIds.includes(lab.id)) chunk.tagIds.push(lab.id);
     });
     save(); renderSections();
     if (modalChunkId === chunk.id) {
-      const lw = document.getElementById('chunkModalLabels');
-      if (lw) { lw.innerHTML = labelEditorHTML(chunk.labelIds || []); const le = lw.querySelector('.label-editor'); if (le) wireLabelEditor(le, chunk); }
+      const lw = document.getElementById('chunkModalTags');
+      if (lw) { lw.innerHTML = tagEditorHTML(chunk.tagIds || []); const le = lw.querySelector('.label-editor'); if (le) wireTagEditor(le, chunk); }
     }
   } catch (err) {
     aiBtnDone(btn, original);
@@ -1900,8 +1913,8 @@ function chunkCharLocLine(c) {
 // locations attached to this scene (explicit links plus auto-detected mentions).
 // Tags are chips; characters and locations are plain accent-colored text.
 function chunkSummaryHeader(c) {
-  const tags = (c.labelIds || []).map(id =>
-    `<span class="tag" style="--lc:${labelColor(id)}">${esc(labelName(id))}</span>`).join('');
+  const tags = (c.tagIds || []).map(id =>
+    `<span class="tag" style="--lc:${tagColor(id)}">${esc(tagName(id))}</span>`).join('');
   const tagRow = `<div class="cs-row"><span class="cs-label">TAGS</span>`
     + `<span class="cs-vals">${tags || '<span class="cs-empty">—</span>'}</span></div>`;
   const chars = chunkEntities(ENTITY_KINDS.character, c);
@@ -2064,7 +2077,7 @@ document.getElementById('importSectionBtn')?.addEventListener('click', () => {
   openSectionImportModal(ch);
 });
 
-// SHOW/HIDE ARCHIVED: shared toggle across sections, timelines, characters, labels.
+// SHOW/HIDE ARCHIVED: shared toggle across sections, timelines, characters, tags.
 document.querySelectorAll('[data-arch]').forEach(btn => {
   btn.addEventListener('click', () => {
     db.ui.showArchived = !db.ui.showArchived;
@@ -2090,10 +2103,10 @@ function renderTimelines() {
   const filterChar = sel.value;
 
   // populate label filter
-  const lsel = document.getElementById('timelineLabelFilter');
+  const lsel = document.getElementById('timelineTagFilter');
   const lprev = lsel.value;
   lsel.innerHTML = `<option value="">— all —</option>` +
-    db.labels.map(l => `<option value="${l.id}">${esc(l.name)}</option>`).join('');
+    db.tags.map(l => `<option value="${l.id}">${esc(l.name)}</option>`).join('');
   lsel.value = lprev;
   lsel.onchange = renderTimelines;
   const filterLabel = lsel.value;
@@ -2108,7 +2121,7 @@ function renderTimelines() {
 function tlDimmed(c, filterChar, filterLabel) {
   const charEnt = filterChar ? db.characters.find(x => x.id === filterChar) : null;
   const hideChar = charEnt && !chunkEntityPresence(ENTITY_KINDS.character, c, charEnt).on;
-  const hideLabel = filterLabel && !(c.labelIds || []).includes(filterLabel);
+  const hideLabel = filterLabel && !(c.tagIds || []).includes(filterLabel);
   return hideChar || hideLabel;
 }
 
@@ -2340,10 +2353,10 @@ function openChunkModal(chunkId) {
   renderEntityListInto(document.getElementById('chunkModalChars'), ENTITY_KINDS.character, c);
   renderEntityListInto(document.getElementById('chunkModalLocs'), ENTITY_KINDS.location, c);
 
-  const labelsWrap = document.getElementById('chunkModalLabels');
-  labelsWrap.innerHTML = labelEditorHTML(c.labelIds || []);
-  const le = labelsWrap.querySelector('.label-editor');
-  if (le) wireLabelEditor(le, c);
+  const tagsWrap = document.getElementById('chunkModalTags');
+  tagsWrap.innerHTML = tagEditorHTML(c.tagIds || []);
+  const le = tagsWrap.querySelector('.label-editor');
+  if (le) wireTagEditor(le, c);
 
   const gt = document.getElementById('chunkModalGenTags');
   gt.onclick = () => generateChunkTags(c, gt);
@@ -2415,7 +2428,7 @@ function rerenderActiveView() {
   else if (r === 'timelines') renderTimelines();
   else if (r === 'characters') renderCharacters();
   else if (r === 'locations') renderLocations();
-  else if (r === 'labels') renderLabels();
+  else if (r === 'tags') renderTags();
   else if (r === 'ideas') renderIdeas();
 }
 
@@ -2463,9 +2476,9 @@ function rerenderActiveView() {
   // Label toggles and new-label typing also count as edits (character/location
   // add/remove mark dirty directly in renderEntityListInto). This container is
   // static, so wire once.
-  const labelsWrap = document.getElementById('chunkModalLabels');
-  labelsWrap.addEventListener('click', e => { if (e.target.closest('.lbl-chip')) markChunkDirty(); });
-  labelsWrap.addEventListener('input', () => markChunkDirty());
+  const tagsWrap = document.getElementById('chunkModalTags');
+  tagsWrap.addEventListener('click', e => { if (e.target.closest('.lbl-chip')) markChunkDirty(); });
+  tagsWrap.addEventListener('input', () => markChunkDirty());
   const bodyEl = document.getElementById('chunkModalBody');
   bodyEl.addEventListener('compositionstart', () => { imeComposing = true; });
   bodyEl.addEventListener('compositionend', () => { imeComposing = false; scheduleRehighlight(); });
@@ -4158,45 +4171,45 @@ function detectScopeModal(K, newCount, allCount) {
 }
 
 /* =====================================================================
-   LABELS
+   TAGS
    ===================================================================== */
-function labelUsage(id) {
-  const chunks = db.chunks.filter(isVisibleChunk).filter(c => (c.labelIds || []).includes(id));
-  const ideas = db.ideas.filter(i => (i.labelIds || []).includes(id));
+function tagUsage(id) {
+  const chunks = db.chunks.filter(isVisibleChunk).filter(c => (c.tagIds || []).includes(id));
+  const ideas = db.ideas.filter(i => (i.tagIds || []).includes(id));
   return { chunks, ideas, count: chunks.length + ideas.length };
 }
 
-function labelRowHTML(l) {
-  return `<div class="chapter-item ${l.id === db.ui.activeLabel ? 'active' : ''}" data-id="${l.id}">
+function tagRowHTML(l) {
+  return `<div class="chapter-item ${l.id === db.ui.activeTag ? 'active' : ''}" data-id="${l.id}">
     <span class="ci-dot" style="background:${l.color}"></span>
     <span class="ci-title">${esc(l.name)}</span>
-    <span class="ci-count">${labelUsage(l.id).count}</span>
+    <span class="ci-count">${tagUsage(l.id).count}</span>
   </div>`;
 }
 
-function renderLabels() {
-  const list = document.getElementById('labelList');
-  if (!db.labels.length) {
+function renderTags() {
+  const list = document.getElementById('tagList');
+  if (!db.tags.length) {
     list.innerHTML = `<div class="pane-empty" style="border:none">No tags yet. Add tags to hops and ideas, or create one here.</div>`;
-    renderLabelPane();
+    renderTagPane();
     return;
   }
   const cats = tagCats();
   if (!cats.length) {
-    list.innerHTML = db.labels.map(labelRowHTML).join('');
+    list.innerHTML = db.tags.map(tagRowHTML).join('');
     list.querySelectorAll('.chapter-item').forEach(el =>
-      el.addEventListener('click', () => { db.ui.activeLabel = el.dataset.id; save(); renderLabels(); }));
-    renderLabelPane();
+      el.addEventListener('click', () => { db.ui.activeTag = el.dataset.id; save(); renderTags(); }));
+    renderTagPane();
     return;
   }
   const groups = cats.map(c => ({
     id: c.id, name: c.name,
-    labels: db.labels.filter(l => tagCatOf(l.id) === c.id)
+    tags: db.tags.filter(l => tagCatOf(l.id) === c.id)
   }));
-  const uncategorized = db.labels.filter(l => !tagCatName(tagCatOf(l.id)));
-  groups.push({ id: '', name: 'UNCATEGORIZED', labels: uncategorized });
+  const uncategorized = db.tags.filter(l => !tagCatName(tagCatOf(l.id)));
+  groups.push({ id: '', name: 'UNCATEGORIZED', tags: uncategorized });
   list.innerHTML = groups
-    .filter(g => g.id || g.labels.length)
+    .filter(g => g.id || g.tags.length)
     .map(g => `
       <div class="tag-cat-group" data-cat="${g.id}">
         <div class="tag-cat-head">
@@ -4206,43 +4219,42 @@ function renderLabels() {
             <button class="tcc-btn" data-cat-del="${g.id}" title="Delete category">✕</button>
           </span>` : ''}
         </div>
-        ${g.labels.map(labelRowHTML).join('') || '<div class="tag-cat-empty">No tags</div>'}
+        ${g.tags.map(tagRowHTML).join('') || '<div class="tag-cat-empty">No tags</div>'}
       </div>`).join('');
   list.querySelectorAll('.chapter-item').forEach(el =>
-    el.addEventListener('click', () => { db.ui.activeLabel = el.dataset.id; save(); renderLabels(); }));
+    el.addEventListener('click', () => { db.ui.activeTag = el.dataset.id; save(); renderTags(); }));
   list.querySelectorAll('[data-cat-rename]').forEach(btn =>
     btn.addEventListener('click', async e => {
       e.stopPropagation();
-      const cat = tagCats().find(c => c.id === btn.dataset.catRename);
-      if (!cat) return;
-      const next = await promptModal('Category name:', cat.name, { title: 'RENAME CATEGORY', okText: 'Save' });
-      if (next && next.trim()) { cat.name = next.trim().toUpperCase(); save(); renderLabels(); }
+      const cur = btn.dataset.catRename;
+      const next = await promptModal('Category name:', cur, { title: 'RENAME CATEGORY', okText: 'Save' });
+      if (next && next.trim()) { renameTagCat(cur, next); renderTags(); }
     }));
   list.querySelectorAll('[data-cat-del]').forEach(btn =>
     btn.addEventListener('click', async e => {
       e.stopPropagation();
       if (!await confirmModal('Delete this category? Tags inside move to Uncategorized.')) return;
       deleteTagCat(btn.dataset.catDel);
-      renderLabels();
+      renderTags();
     }));
-  renderLabelPane();
+  renderTagPane();
 }
 
-function renderLabelPane() {
-  const pane = document.getElementById('labelPane');
-  const l = db.labels.find(x => x.id === db.ui.activeLabel);
-  if (!l) { pane.innerHTML = `<div class="pane-empty">Select or add a label.</div>`; return; }
+function renderTagPane() {
+  const pane = document.getElementById('tagPane');
+  const l = db.tags.find(x => x.id === db.ui.activeTag);
+  if (!l) { pane.innerHTML = `<div class="pane-empty">Select or add a tag.</div>`; return; }
 
-  const { chunks, ideas } = labelUsage(l.id);
+  const { chunks, ideas } = tagUsage(l.id);
   const curCat = tagCatOf(l.id);
   const catOpts = `<option value="">Uncategorized</option>`
-    + tagCats().map(c => `<option value="${c.id}" ${c.id === curCat ? 'selected' : ''}>${esc(c.name)}</option>`).join('')
+    + tagCats().map(c => `<option value="${esc(c.id)}" ${c.id === curCat ? 'selected' : ''}>${esc(c.name)}</option>`).join('')
     + `<option value="__new">＋ New category…</option>`;
   pane.innerHTML = `
     <div class="chunk-card-head">
-      <input type="color" class="chap-color" id="labelColor" value="${l.color}" title="Label color" />
-      <input class="chunk-title-input" id="labelName" value="${esc(l.name)}" />
-      <button class="icon-btn" id="delLabelBtn" title="Delete label">✕</button>
+      <input type="color" class="chap-color" id="tagColor" value="${l.color}" title="Tag color" />
+      <input class="chunk-title-input" id="tagName" value="${esc(l.name)}" />
+      <button class="icon-btn" id="delTagBtn" title="Delete tag">✕</button>
     </div>
     <div class="meta-field" style="margin:0 0 14px">CATEGORY
       <select id="tagCatSel">${catOpts}</select>
@@ -4281,42 +4293,40 @@ function renderLabelPane() {
       </div>
     </div>`;
 
-  document.getElementById('labelName').addEventListener('input', e => {
+  document.getElementById('tagName').addEventListener('input', e => {
     const caret = e.target.selectionStart;
     e.target.value = e.target.value.toUpperCase();
     e.target.setSelectionRange(caret, caret);
     l.name = e.target.value; save();
-    const t = document.querySelector(`#labelList .chapter-item[data-id="${l.id}"] .ci-title`);
+    const t = document.querySelector(`#tagList .chapter-item[data-id="${l.id}"] .ci-title`);
     if (t) t.textContent = l.name;
   });
-  document.getElementById('labelColor').addEventListener('input', e => {
+  document.getElementById('tagColor').addEventListener('input', e => {
     l.color = e.target.value; save();
-    const d = document.querySelector(`#labelList .chapter-item[data-id="${l.id}"] .ci-dot`);
+    const d = document.querySelector(`#tagList .chapter-item[data-id="${l.id}"] .ci-dot`);
     if (d) d.style.background = l.color;
   });
   document.getElementById('tagCatSel').addEventListener('change', async e => {
     if (e.target.value === '__new') {
       const name = await promptModal('New category name:', '', { title: 'NEW CATEGORY', okText: 'Create' });
-      const cat = name && name.trim() ? addTagCat(name) : null;
-      setTagCat(l.id, cat ? cat.id : '');
+      setTagCat(l.id, name && name.trim() ? name : '');
     } else {
       setTagCat(l.id, e.target.value);
     }
-    renderLabels();
+    renderTags();
   });
-  document.getElementById('delLabelBtn').addEventListener('click', async () => {
-    if (!await confirmModal('Delete this label? It will be removed from all hops and ideas.')) return;
-    db.chunks.forEach(c => { if (c.labelIds) c.labelIds = c.labelIds.filter(id => id !== l.id); });
-    db.ideas.forEach(i => { if (i.labelIds) i.labelIds = i.labelIds.filter(id => id !== l.id); });
-    delete tagCatMap()[l.id];
-    db.labels = db.labels.filter(x => x.id !== l.id);
-    db.ui.activeLabel = db.labels[0]?.id || null;
-    save(); renderLabels();
+  document.getElementById('delTagBtn').addEventListener('click', async () => {
+    if (!await confirmModal('Delete this tag? It will be removed from all hops and ideas.')) return;
+    db.chunks.forEach(c => { if (c.tagIds) c.tagIds = c.tagIds.filter(id => id !== l.id); });
+    db.ideas.forEach(i => { if (i.tagIds) i.tagIds = i.tagIds.filter(id => id !== l.id); });
+    db.tags = db.tags.filter(x => x.id !== l.id);
+    db.ui.activeTag = db.tags[0]?.id || null;
+    save(); renderTags();
   });
   document.getElementById('genTagSummaryBtn').addEventListener('click', e => generateTagSummary(l, e.currentTarget));
   document.getElementById('editTagSummaryBtn').addEventListener('click', async () => {
     const next = await promptModal('Tag summary:', l.summary || '', { title: 'TAG SUMMARY', okText: 'Save' });
-    if (next !== null) { l.summary = next; save(); renderLabelPane(); }
+    if (next !== null) { l.summary = next; save(); renderTagPane(); }
   });
   pane.querySelectorAll('[data-chunk-edit]').forEach(btn =>
     btn.addEventListener('click', () => openChunkModal(btn.dataset.chunkEdit)));
@@ -4324,7 +4334,7 @@ function renderLabelPane() {
 }
 
 async function generateTagSummary(l, btn) {
-  const chunks = labelUsage(l.id).chunks;
+  const chunks = tagUsage(l.id).chunks;
   if (!chunks.length) { alertModal('No hops use this tag yet.', { title: 'TAG SUMMARY' }); return; }
   const original = aiBtnStart(btn, IC_GENERATE, 'THINKING…');
   try {
@@ -4333,29 +4343,24 @@ async function generateTagSummary(l, btn) {
       tagName: l.name,
       chunks: chunks.map(c => ({ title: c.title, body: c.body }))
     });
-    l.summary = reply || ''; save(); renderLabelPane();
+    l.summary = reply || ''; save(); renderTagPane();
   } catch (err) {
     aiBtnDone(btn, original);
     alertModal('Could not generate summary.\n\n' + (err.message || ''), { title: 'TAG SUMMARY' });
   }
 }
 
-document.getElementById('addLabelBtn').addEventListener('click', () => {
-  const lab = { id: uid(), name: 'NEW LABEL', color: CHAPTER_PALETTE[db.labels.length % CHAPTER_PALETTE.length] };
-  db.labels.push(lab);
-  db.ui.activeLabel = lab.id;
-  save(); renderLabels();
-});
-
-document.getElementById('addTagCatBtn').addEventListener('click', async () => {
-  const name = await promptModal('Category name (e.g. THEMES, LORE, TONE):', '', { title: 'NEW CATEGORY', okText: 'Create' });
-  if (name && name.trim()) { addTagCat(name); renderLabels(); }
+document.getElementById('addTagBtn').addEventListener('click', () => {
+  const lab = { id: uid(), name: 'NEW TAG', color: CHAPTER_PALETTE[db.tags.length % CHAPTER_PALETTE.length] };
+  db.tags.push(lab);
+  db.ui.activeTag = lab.id;
+  save(); renderTags();
 });
 
 /* =====================================================================
    IDEA BACKLOG
    ===================================================================== */
-let ideaFilterLabel = ''; // label id ('' = all)
+let ideaFilterTag = ''; // label id ('' = all)
 let draggingIdeaId = null;
 
 const DEFAULT_IDEA_LANES = [
@@ -4406,21 +4411,21 @@ function moveIdeaToLane(id, laneId, beforeId) {
 }
 
 function renderIdeas() {
-  const filterWrap = document.getElementById('ideaLabelFilter');
-  const usedIds = [...new Set(db.ideas.flatMap(i => i.labelIds || []))]
-    .filter(id => getLabel(id))
-    .sort((a, b) => labelName(a).localeCompare(labelName(b)));
+  const filterWrap = document.getElementById('ideaTagFilter');
+  const usedIds = [...new Set(db.ideas.flatMap(i => i.tagIds || []))]
+    .filter(id => getTag(id))
+    .sort((a, b) => tagName(a).localeCompare(tagName(b)));
   filterWrap.innerHTML = usedIds.length
-    ? `<span class="tag clickable ${ideaFilterLabel === '' ? 'on' : ''}" data-l="">ALL</span>` +
-      usedIds.map(id => `<span class="tag clickable ${ideaFilterLabel === id ? 'on' : ''}" data-l="${id}" style="--lc:${labelColor(id)}">${esc(labelName(id))}</span>`).join('')
+    ? `<span class="tag clickable ${ideaFilterTag === '' ? 'on' : ''}" data-l="">ALL</span>` +
+      usedIds.map(id => `<span class="tag clickable ${ideaFilterTag === id ? 'on' : ''}" data-l="${id}" style="--lc:${tagColor(id)}">${esc(tagName(id))}</span>`).join('')
     : '';
   filterWrap.querySelectorAll('.tag').forEach(t =>
-    t.addEventListener('click', () => { ideaFilterLabel = t.dataset.l; renderIdeas(); }));
+    t.addEventListener('click', () => { ideaFilterTag = t.dataset.l; renderIdeas(); }));
 
   const board = document.getElementById('ideaGrid');
   const lanes = ideaLanes();
   const grouped = ideasByLane();
-  const matches = i => !ideaFilterLabel || (i.labelIds || []).includes(ideaFilterLabel);
+  const matches = i => !ideaFilterTag || (i.tagIds || []).includes(ideaFilterTag);
   board.innerHTML = `<div class="kanban">` + lanes.map(l => {
     const items = (grouped.get(l.id) || []).filter(matches);
     const cards = items.map(renderIdeaCard).join('') || `<div class="lane-empty">Drop ideas here</div>`;
@@ -4445,8 +4450,8 @@ function renderIdeas() {
 }
 
 function renderIdeaCard(i) {
-  const tags = (i.labelIds || []).map(id =>
-    `<span class="tag" style="--lc:${labelColor(id)}">${esc(labelName(id))}</span>`).join('');
+  const tags = (i.tagIds || []).map(id =>
+    `<span class="tag" style="--lc:${tagColor(id)}">${esc(tagName(id))}</span>`).join('');
   const name = i.title || '';
   const body = i.body || '';
   const nameHTML = name ? `<div class="idea-name">${esc(name)}</div>` : '';
@@ -4564,7 +4569,7 @@ function deleteLane(laneId) {
 }
 
 document.getElementById('addIdeaBtn').addEventListener('click', () => {
-  ideaEditModal({ id: uid(), title: '', body: '', labelIds: [], ts: Date.now() }, { isNew: true });
+  ideaEditModal({ id: uid(), title: '', body: '', tagIds: [], ts: Date.now() }, { isNew: true });
 });
 
 document.getElementById('suggestIdeasBtn').addEventListener('click', generateIdeaSuggestions);
@@ -4589,7 +4594,7 @@ async function generateIdeaSuggestions() {
     const chosen = await ideaReviewModal(ideas);
     if (!chosen || !chosen.length) return;
     const now = Date.now();
-    chosen.forEach((text, i) => db.ideas.push({ id: uid(), title: text, body: '', labelIds: [], ts: now + i }));
+    chosen.forEach((text, i) => db.ideas.push({ id: uid(), title: text, body: '', tagIds: [], ts: now + i }));
     save(); renderIdeas();
     chosen.forEach(() => recordWritingActivity());
   } catch (err) {
@@ -4629,11 +4634,11 @@ function ideaReviewModal(suggestions) {
   });
 }
 
-// Edit an idea in a focused modal: NAME, GENERATE-from-body, BODY, labels.
+// Edit an idea in a focused modal: NAME, GENERATE-from-body, BODY, tags.
 // Works on a copy so CANCEL reverts; SAVE commits back to the live idea.
 function ideaEditModal(idea, opts = {}) {
   const isNew = !!opts.isNew;
-  const work = { labelIds: [...(idea.labelIds || [])] };
+  const work = { tagIds: [...(idea.tagIds || [])] };
   const overlay = document.createElement('div');
   overlay.className = 'ui-modal-overlay';
   overlay.innerHTML = `
@@ -4655,7 +4660,7 @@ function ideaEditModal(idea, opts = {}) {
       </div>
       <div class="ie-field">
         <span class="ie-label">TAGS</span>
-        ${labelEditorHTML(work.labelIds)}
+        ${tagEditorHTML(work.tagIds)}
       </div>
       <div class="ui-modal-actions ie-actions">
         ${isNew ? '' : '<button class="ui-modal-btn danger ghost" data-act="del">Delete</button>'}
@@ -4671,7 +4676,7 @@ function ideaEditModal(idea, opts = {}) {
   const genBtn = overlay.querySelector('[data-act="gen"]');
   nameInput.value = idea.title || '';
   bodyInput.value = idea.body || '';
-  wireLabelEditor(overlay.querySelector('.label-editor'), work);
+  wireTagEditor(overlay.querySelector('.label-editor'), work);
 
   const close = () => overlay.remove();
   overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
@@ -4683,7 +4688,7 @@ function ideaEditModal(idea, opts = {}) {
     if (isNew && !title && !body.trim()) { close(); return; }
     idea.title = title;
     idea.body = body;
-    idea.labelIds = work.labelIds;
+    idea.tagIds = work.tagIds;
     if (isNew) {
       db.ideas.push(idea);
       const lanes = ideaLanes(), order = ideaOrder();
@@ -4754,7 +4759,7 @@ document.getElementById('exportBtn').addEventListener('click', () => {
 // The active project lives in `db`; for any other project we pull just the
 // fields markdown needs (no join tables), without disturbing the open one.
 async function fetchProjectExport(projectId) {
-  const [chapters, chunks, characters, locations, labels] = await Promise.all([
+  const [chapters, chunks, characters, locations, tags] = await Promise.all([
     sb.from('chapters').select('*').eq('project_id', projectId),
     sb.from('chunks').select('*').eq('project_id', projectId),
     sb.from('characters').select('*').eq('project_id', projectId),
@@ -4766,7 +4771,7 @@ async function fetchProjectExport(projectId) {
     chunks: (chunks.data || []).map(r => ({ id: r.id, chapterId: r.chapter_id, title: r.title, body: r.body, orderInChapter: r.order_in_chapter, archived: !!r.archived })),
     characters: (characters.data || []).map(r => ({ name: r.name, aliases: r.aliases || [], summary: r.summary || '' })),
     locations: (locations.data || []).map(r => ({ name: r.name, aliases: r.aliases || [], summary: r.summary || '' })),
-    labels: (labels.data || []).map(r => ({ name: (r.name || '').toUpperCase(), summary: r.summary || '' }))
+    tags: (tags.data || []).map(r => ({ name: (r.name || '').toUpperCase(), summary: r.summary || '' }))
   };
 }
 
@@ -4800,10 +4805,10 @@ function projectMarkdown(project, source, opts) {
   if (opts.chars) appendEntities('CHARACTERS', source.characters);
   if (opts.locs) appendEntities('LOCATIONS', source.locations);
   if (opts.tags) {
-    const labels = source.labels || [];
-    if (labels.length) {
+    const tags = source.tags || [];
+    if (tags.length) {
       lines.push('## TAGS', '');
-      labels.forEach(l => { lines.push(`### ${l.name}`, ''); lines.push((l.summary || '').trim() || '_No summary yet._', ''); });
+      tags.forEach(l => { lines.push(`### ${l.name}`, ''); lines.push((l.summary || '').trim() || '_No summary yet._', ''); });
     }
   }
   return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim() + '\n';
@@ -4839,7 +4844,7 @@ function showDownloadModal(project, source) {
   const chapters = [...(source.chapters || [])].sort((a, b) => (a.order || 0) - (b.order || 0));
   const nChars = (source.characters || []).length;
   const nLocs = (source.locations || []).length;
-  const nTags = (source.labels || []).length;
+  const nTags = (source.tags || []).length;
   const overlay = document.createElement('div');
   overlay.className = 'ui-modal-overlay';
   overlay.innerHTML = `
@@ -5563,17 +5568,17 @@ function remapSeedData(data) {
     chunks: (data.chunks || []).map(c => ({
       ...c, id: rid(c.id),
       chapterId: c.chapterId ? rid(c.chapterId) : null,
-      labelIds: (c.labelIds || []).map(rid),
+      tagIds: (c.tagIds || []).map(rid),
       characterIds: (c.characterIds || []).map(rid),
       locationIds: (c.locationIds || []).map(rid)
     })),
     characters: (data.characters || []).map(c => ({ ...c, id: rid(c.id) })),
     locations: (data.locations || []).map(c => ({ ...c, id: rid(c.id) })),
-    labels: (data.labels || []).map(l => ({ ...l, id: rid(l.id) })),
-    ideas: (data.ideas || []).map(i => ({ ...i, id: rid(i.id), title: i.title || '', body: (i.body != null ? i.body : (i.text || '')), labelIds: (i.labelIds || []).map(rid) })),
+    tags: (data.tags || data.labels || []).map(l => ({ ...l, id: rid(l.id) })),
+    ideas: (data.ideas || []).map(i => ({ ...i, id: rid(i.id), title: i.title || '', body: (i.body != null ? i.body : (i.text || '')), tagIds: (i.tagIds || []).map(rid) })),
     ui: {}
   };
-  d.ui = { activeChapter: d.chapters[0]?.id || null, activeChar: null, activeLoc: null, activeLabel: null };
+  d.ui = { activeChapter: d.chapters[0]?.id || null, activeChar: null, activeLoc: null, activeTag: null };
   return d;
 }
 
@@ -5589,7 +5594,7 @@ async function seedProjectContent(projectId, data) {
 
 async function loadProject(projectId) {
   activeProjectId = projectId;
-  const [proj, chapters, chunks, characters, locations, labels, ideas] = await Promise.all([
+  const [proj, chapters, chunks, characters, locations, tags, ideas] = await Promise.all([
     sb.from('projects').select('*').eq('id', projectId).single(),
     sb.from('chapters').select('*').eq('project_id', projectId),
     sb.from('chunks').select('*').eq('project_id', projectId),
@@ -5600,13 +5605,13 @@ async function loadProject(projectId) {
   ]);
   const chunkIds = (chunks.data || []).map(r => r.id);
   const ideaIds = (ideas.data || []).map(r => r.id);
-  const [cLabels, cChars, cLocs, iLabels] = await Promise.all([
-    chunkIds.length ? sb.from('chunk_labels').select('*').in('chunk_id', chunkIds) : { data: [] },
+  const [cTags, cChars, cLocs, iTags] = await Promise.all([
+    chunkIds.length ? sb.from('chunk_tags').select('*').in('chunk_id', chunkIds) : { data: [] },
     chunkIds.length ? sb.from('chunk_chars').select('*').in('chunk_id', chunkIds) : { data: [] },
     chunkIds.length ? sb.from('chunk_locations').select('*').in('chunk_id', chunkIds) : { data: [] },
-    ideaIds.length ? sb.from('idea_labels').select('*').in('idea_id', ideaIds) : { data: [] }
+    ideaIds.length ? sb.from('idea_tags').select('*').in('idea_id', ideaIds) : { data: [] }
   ]);
-  const cl = cLabels.data || [], cc = cChars.data || [], clo = cLocs.data || [], il = iLabels.data || [];
+  const cl = cTags.data || [], cc = cChars.data || [], clo = cLocs.data || [], il = iTags.data || [];
   db = {
     chapters: (chapters.data || []).map(r => ({ id: r.id, title: r.title, color: r.color, order: r.position })),
     chunks: (chunks.data || []).map(r => ({
@@ -5616,14 +5621,29 @@ async function loadProject(projectId) {
       archived: !!r.archived, analysis: r.analysis || null,
       characterIds: cc.filter(j => j.chunk_id === r.id).map(j => j.character_id),
       locationIds: clo.filter(j => j.chunk_id === r.id).map(j => j.location_id),
-      labelIds: cl.filter(j => j.chunk_id === r.id).map(j => j.label_id)
+      tagIds: cl.filter(j => j.chunk_id === r.id).map(j => j.tag_id)
     })),
     characters: (characters.data || []).map(r => ({ id: r.id, name: r.name, aliases: r.aliases || [], summary: r.summary || '', notes: r.notes || [], color: r.color || '', dismissedRefs: r.dismissed_refs || [], arc: r.arc || [], principles: r.principles || [], relationships: r.relationships || [] })),
     locations: (locations.data || []).map(r => ({ id: r.id, name: r.name, aliases: r.aliases || [], summary: r.summary || '', notes: r.notes || [], color: r.color || '', dismissedRefs: r.dismissed_refs || [] })),
-    labels: (labels.data || []).map(r => ({ id: r.id, name: (r.name || '').toUpperCase(), color: r.color, summary: r.summary || '' })),
-    ideas: (ideas.data || []).map(r => ({ id: r.id, title: r.title || '', body: (r.body != null ? r.body : (r.text || '')), ts: r.ts || Date.parse(r.created_at), labelIds: il.filter(j => j.idea_id === r.id).map(j => j.label_id) })),
+    tags: (tags.data || []).map(r => ({ id: r.id, name: (r.name || '').toUpperCase(), color: r.color, summary: r.summary || '', category: (r.category || '').toUpperCase() })),
+    ideas: (ideas.data || []).map(r => ({ id: r.id, title: r.title || '', body: (r.body != null ? r.body : (r.text || '')), ts: r.ts || Date.parse(r.created_at), tagIds: il.filter(j => j.idea_id === r.id).map(j => j.tag_id) })),
     ui: (proj.data && proj.data.ui) || {}
   };
+  // One-time migration: tag categories used to live in the project ui blob
+  // (ui.tagCategories + ui.tagCat map). Fold any of those onto the tags
+  // themselves, then drop the blob so it never re-applies. New saves write the
+  // tags.category column instead.
+  if (db.ui.tagCat && db.ui.tagCategories) {
+    const nameById = new Map((db.ui.tagCategories || []).map(c => [c.id, (c.name || '').toUpperCase()]));
+    db.tags.forEach(l => {
+      if (!l.category) {
+        const nm = nameById.get(db.ui.tagCat[l.id]);
+        if (nm) l.category = nm;
+      }
+    });
+  }
+  delete db.ui.tagCat;
+  delete db.ui.tagCategories;
   if (!db.ui.activeChapter) db.ui.activeChapter = db.chapters[0]?.id || null;
   applyProjectAccent(proj.data && proj.data.accent);
   localStorage.setItem(activeKey(), projectId);
@@ -5678,26 +5698,26 @@ async function persistProject() {
     const chunks = db.chunks.map((c, i) => ({ id: c.id, user_id: U, project_id: P, chapter_id: c.chapterId || null, title: c.title, body: c.body, chrono_label: c.chronoLabel || null, narrative_pos: c.narrativeOrder ?? i, chrono_pos: c.chronoOrder ?? i, order_in_chapter: c.orderInChapter ?? 0, archived: !!c.archived, analysis: c.analysis || null }));
     const characters = db.characters.map(c => ({ id: c.id, user_id: U, project_id: P, name: c.name, aliases: c.aliases || [], summary: c.summary || '', notes: c.notes || [], color: c.color || null, dismissed_refs: c.dismissedRefs || [], arc: c.arc || [], principles: c.principles || [], relationships: c.relationships || [] }));
     const locations = (db.locations || []).map(c => ({ id: c.id, user_id: U, project_id: P, name: c.name, aliases: c.aliases || [], summary: c.summary || '', notes: c.notes || [], color: c.color || null, dismissed_refs: c.dismissedRefs || [] }));
-    const labels = db.labels.map(l => ({ id: l.id, user_id: U, project_id: P, name: l.name, color: l.color, summary: l.summary || null }));
+    const tags = db.tags.map(l => ({ id: l.id, user_id: U, project_id: P, name: l.name, color: l.color, summary: l.summary || null, category: l.category || null }));
     const ideas = db.ideas.map(i => ({ id: i.id, user_id: U, project_id: P, title: i.title || null, body: i.body || null, text: (i.body || i.title || ''), ts: i.ts || Date.now() }));
 
     await upsertSync('chapters', chapters, P);
-    await Promise.all([upsertSync('tags', labels, P), upsertSync('characters', characters, P), upsertSync('locations', locations, P)]);
+    await Promise.all([upsertSync('tags', tags, P), upsertSync('characters', characters, P), upsertSync('locations', locations, P)]);
     await Promise.all([upsertSync('chunks', chunks, P), upsertSync('ideas', ideas, P)]);
 
-    const chunkLabels = [], chunkChars = [], chunkLocs = [], ideaLabels = [];
+    const chunkTags = [], chunkChars = [], chunkLocs = [], ideaTags = [];
     db.chunks.forEach(c => {
-      (c.labelIds || []).forEach(lid => chunkLabels.push({ chunk_id: c.id, label_id: lid, user_id: U }));
+      (c.tagIds || []).forEach(lid => chunkTags.push({ chunk_id: c.id, tag_id: lid, user_id: U }));
       (c.characterIds || []).forEach(chid => chunkChars.push({ chunk_id: c.id, character_id: chid, user_id: U }));
       (c.locationIds || []).forEach(lid => chunkLocs.push({ chunk_id: c.id, location_id: lid, user_id: U }));
     });
-    db.ideas.forEach(i => (i.labelIds || []).forEach(lid => ideaLabels.push({ idea_id: i.id, label_id: lid, user_id: U })));
+    db.ideas.forEach(i => (i.tagIds || []).forEach(lid => ideaTags.push({ idea_id: i.id, tag_id: lid, user_id: U })));
     const chunkIds = db.chunks.map(c => c.id), ideaIds = db.ideas.map(i => i.id);
     await Promise.all([
-      clearAndInsert('chunk_labels', 'chunk_id', chunkIds, chunkLabels),
+      clearAndInsert('chunk_tags', 'chunk_id', chunkIds, chunkTags),
       clearAndInsert('chunk_chars', 'chunk_id', chunkIds, chunkChars),
       clearAndInsert('chunk_locations', 'chunk_id', chunkIds, chunkLocs),
-      clearAndInsert('idea_labels', 'idea_id', ideaIds, ideaLabels)
+      clearAndInsert('idea_tags', 'idea_id', ideaIds, ideaTags)
     ]);
     await sb.from('projects').update({ ui: db.ui, updated_at: new Date().toISOString() }).eq('id', P);
   } catch (e) {
@@ -5804,7 +5824,7 @@ async function runProjectImportBuild(projectId, file, instructions, meta, job) {
 
     const firstId = [...sectionId.values()][0] || null;
     await sb.from('projects').update({
-      ui: { activeChapter: firstId, activeChar: null, activeLoc: null, activeLabel: null },
+      ui: { activeChapter: firstId, activeChar: null, activeLoc: null, activeTag: null },
       updated_at: new Date().toISOString()
     }).eq('id', P);
 
@@ -6314,7 +6334,7 @@ function addSuggestedChunk(s) {
     chronoLabel: '',
     characterIds: [],
     locationIds: [],
-    labelIds: []
+    tagIds: []
   });
   save();
   recordWritingActivity();
@@ -6340,7 +6360,7 @@ function startJournalEntryFrom(item) {
     chronoLabel: '',
     characterIds: [],
     locationIds: [],
-    labelIds: []
+    tagIds: []
   });
   save();
   recordWritingActivity();
@@ -6358,7 +6378,7 @@ function saveSuggestedAsIdea(s) {
   const title = (s.title || '').trim();
   const desc = (s.description || s.body || '').trim();
   if (!title && !desc) return;
-  db.ideas.push({ id: uid(), title: title || desc, body: title ? desc : '', labelIds: [], ts: Date.now() });
+  db.ideas.push({ id: uid(), title: title || desc, body: title ? desc : '', tagIds: [], ts: Date.now() });
   save();
   recordWritingActivity();
   if (Array.isArray(suggestedChunks)) {
@@ -6679,7 +6699,7 @@ async function runSectionImportJob(ch, text, instructions, job) {
           narrativeOrder: db.chunks.length,
           chronoOrder: db.chunks.length,
           chronoLabel: '',
-          characterIds: [], locationIds: [], labelIds: []
+          characterIds: [], locationIds: [], tagIds: []
         });
         job.added++; addedThisSlice++;
       });

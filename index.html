@@ -202,7 +202,7 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-6-5.3-6-10a6 6 0 0 1 12 0c0 4.7-6 10-6 10z"/><circle cx="12" cy="11" r="2.2"/></svg>
       <span>LOCATIONS</span>
     </a>
-    <a href="#labels" class="nav-icon" data-route="labels" title="Tags">
+    <a href="#tags" class="nav-icon" data-route="tags" title="Tags">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12l8-8 9 9-8 8z"/><circle cx="8.5" cy="8.5" r="1.2"/></svg>
       <span>TAGS</span>
     </a>
@@ -288,7 +288,7 @@
           <select id="timelineCharFilter"><option value="">— all —</option></select>
         </label>
         <label>FILTER BY TAG
-          <select id="timelineLabelFilter"><option value="">— all —</option></select>
+          <select id="timelineTagFilter"><option value="">— all —</option></select>
         </label>
       </div>
       <div class="tl-axis-tabs" id="tlAxisTabs">
@@ -356,8 +356,8 @@
       </div>
     </section>
 
-    <!-- ============ LABELS ============ -->
-    <section class="view" id="view-labels" hidden>
+    <!-- ============ TAGS ============ -->
+    <section class="view" id="view-tags" hidden>
       <div class="view-head">
         <h1>TAGS</h1>
         <p class="sub">Manual tags. Rename here and it updates everywhere; see every hop and idea using each one.</p>
@@ -368,13 +368,12 @@
           <div class="rail-head">
             <span>TAGS</span>
             <span class="rail-head-actions">
-              <button class="add-btn" id="addTagCatBtn" title="Add a tag category">+ CATEGORY</button>
-              <button class="add-btn" id="addLabelBtn">+ ADD</button>
+              <button class="add-btn" id="addTagBtn">+ ADD</button>
             </span>
           </div>
-          <div class="chapter-list" id="labelList"></div>
+          <div class="chapter-list" id="tagList"></div>
         </aside>
-        <div class="chunk-pane" id="labelPane"></div>
+        <div class="chunk-pane" id="tagPane"></div>
       </div>
     </section>
 
@@ -388,7 +387,7 @@
           <button class="add-btn" id="suggestIdeasBtn" title="AI: read every hop and propose ideas for what comes next"><svg class="aifn-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.7 5.3L19 10l-5.3 1.7L12 17l-1.7-5.3L5 10l5.3-1.7L12 3Z"/><path d="M18.5 15l.6 1.9 1.9.6-1.9.6-.6 1.9-.6-1.9-1.9-.6 1.9-.6Z"/></svg> GENERATE IDEAS</button>
         </div>
       </div>
-      <div class="idea-filter" id="ideaLabelFilter"></div>
+      <div class="idea-filter" id="ideaTagFilter"></div>
       <div class="idea-board" id="ideaGrid"></div>
     </section>
 
@@ -454,7 +453,7 @@
       </div>
       <div class="meta-field" style="margin-top:12px">
         <div class="meta-field-head">TAGS</div>
-        <div id="chunkModalLabels"></div>
+        <div id="chunkModalTags"></div>
       </div>
       </div>
     </div>
