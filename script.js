@@ -191,6 +191,38 @@ function deleteTagCat(catName) {
   save();
 }
 
+// Characters and locations get the same name-on-the-row category model as tags:
+// a `category` column holding an uppercase name, with the category list derived
+// from whatever names the rows actually use. These helpers take a collection key
+// ('characters' | 'locations') so one set covers both entity kinds.
+function collCats(coll) {
+  const seen = new Map();
+  for (const e of (db[coll] || [])) {
+    const nm = (e.category || '').trim();
+    if (nm && !seen.has(nm)) seen.set(nm, { id: nm, name: nm });
+  }
+  return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+const collCatOf = (coll, id) => ((db[coll] || []).find(e => e.id === id)?.category || '');
+function setCollCat(coll, id, catName) {
+  const e = (db[coll] || []).find(x => x.id === id);
+  if (!e) return;
+  e.category = String(catName || '').trim().toUpperCase();
+  save();
+}
+function renameCollCat(coll, oldName, newName) {
+  const a = String(oldName || '').trim().toUpperCase();
+  const b = String(newName || '').trim().toUpperCase();
+  if (!a || !b || a === b) return;
+  (db[coll] || []).forEach(e => { if ((e.category || '').toUpperCase() === a) e.category = b; });
+  save();
+}
+function deleteCollCat(coll, catName) {
+  const a = String(catName || '').trim().toUpperCase();
+  (db[coll] || []).forEach(e => { if ((e.category || '').toUpperCase() === a) e.category = ''; });
+  save();
+}
+
 // Reusable chip editor for any entity holding a `tagIds` array.
 function tagEditorHTML(selectedIds) {
   const chips = db.tags.map(l =>
@@ -2817,14 +2849,53 @@ function renderEntityList(K) {
   const coll = db[K.coll];
   const list = document.getElementById(K.listId);
   if (!list) return;
-  list.innerHTML = coll.length
-    ? coll.map(c => `
+  const rowHTML = c => `
         <div class="chapter-item ${c.id === db.ui[K.active] ? 'active' : ''}" data-id="${c.id}">
           <span class="ci-dot" style="background:${c.color || 'var(--accent)'}"></span>
           <span class="ci-title">${esc(c.name)}</span>
           <span class="ci-count">${refsFor(K, c).length}</span>
-        </div>`).join('')
-    : `<div class="pane-empty" style="border:none">No ${K.noun}s yet.</div>`;
+        </div>`;
+  if (!coll.length) {
+    list.innerHTML = `<div class="pane-empty" style="border:none">No ${K.noun}s yet.</div>`;
+  } else {
+    const cats = collCats(K.coll);
+    if (!cats.length) {
+      list.innerHTML = coll.map(rowHTML).join('');
+    } else {
+      const groups = cats.map(cat => ({
+        id: cat.id, name: cat.name,
+        items: coll.filter(e => collCatOf(K.coll, e.id) === cat.id)
+      }));
+      groups.push({ id: '', name: 'UNCATEGORIZED', items: coll.filter(e => !collCatOf(K.coll, e.id)) });
+      list.innerHTML = groups
+        .filter(g => g.id || g.items.length)
+        .map(g => `
+          <div class="tag-cat-group" data-cat="${esc(g.id)}">
+            <div class="tag-cat-head">
+              <span class="tcc-name">${esc(g.name)}</span>
+              ${g.id ? `<span class="tcc-actions">
+                <button class="tcc-btn" data-cat-rename="${esc(g.id)}" title="Rename category">✎</button>
+                <button class="tcc-btn" data-cat-del="${esc(g.id)}" title="Delete category">✕</button>
+              </span>` : ''}
+            </div>
+            ${g.items.map(rowHTML).join('') || `<div class="tag-cat-empty">No ${K.noun}s</div>`}
+          </div>`).join('');
+      list.querySelectorAll('[data-cat-rename]').forEach(btn =>
+        btn.addEventListener('click', async e => {
+          e.stopPropagation();
+          const cur = btn.dataset.catRename;
+          const next = await promptModal('Category name:', cur, { title: 'RENAME CATEGORY', okText: 'Save' });
+          if (next && next.trim()) { renameCollCat(K.coll, cur, next); renderEntityList(K); }
+        }));
+      list.querySelectorAll('[data-cat-del]').forEach(btn =>
+        btn.addEventListener('click', async e => {
+          e.stopPropagation();
+          if (!await confirmModal(`Delete this category? ${K.NOUNS} inside move to Uncategorized.`)) return;
+          deleteCollCat(K.coll, btn.dataset.catDel);
+          renderEntityList(K);
+        }));
+    }
+  }
   list.querySelectorAll('.chapter-item').forEach(el => {
     el.addEventListener('click', () => {
       if (db.ui[K.active] !== el.dataset.id) expandedRefs.clear();
@@ -2865,6 +2936,10 @@ function applyRailSearch(K) {
   document.querySelectorAll(`#${K.listId} .chapter-item`).forEach(el => {
     const name = (el.querySelector('.ci-title')?.textContent || '').toLowerCase();
     el.style.display = (!q || name.includes(q)) ? '' : 'none';
+  });
+  document.querySelectorAll(`#${K.listId} .tag-cat-group`).forEach(g => {
+    const anyVisible = [...g.querySelectorAll('.chapter-item')].some(el => el.style.display !== 'none');
+    g.style.display = anyVisible ? '' : 'none';
   });
 }
 
@@ -3006,6 +3081,10 @@ function renderEntityPane(K) {
 
   const refs = refsFor(K, c);
   const dismissedRefs = dismissedRefsFor(K, c);
+  const curCat = collCatOf(K.coll, c.id);
+  const catOpts = `<option value="">Uncategorized</option>`
+    + collCats(K.coll).map(cat => `<option value="${esc(cat.id)}" ${cat.id === curCat ? 'selected' : ''}>${esc(cat.name)}</option>`).join('')
+    + `<option value="__new">＋ New category…</option>`;
   const refRow = (r, off) => {
     const open = expandedRefs.has(r.id);
     return `
@@ -3028,6 +3107,9 @@ function renderEntityPane(K) {
       <input class="chunk-title-input" data-f="name" value="${esc(c.name)}" />
       <button class="add-btn" data-f="merge" title="Merge another ${K.noun} into this one">MERGE</button>
       <button class="add-btn danger" data-f="del" title="Delete this ${K.noun}">DELETE</button>
+    </div>
+    <div class="meta-field" style="margin:0 0 14px">CATEGORY
+      <select data-f="catSel">${catOpts}</select>
     </div>
     <div class="char-block">
       <h3>ALIASES <span style="color:var(--muted);font-weight:400">(comma separated — used to find references)</span></h3>
@@ -3100,6 +3182,15 @@ function renderEntityPane(K) {
     c.aliases = e.target.value.split(',').map(s => s.trim()).filter(Boolean); save();
   });
   q('[data-f="aliases"]').addEventListener('change', () => renderEntityList(K));
+  q('[data-f="catSel"]').addEventListener('change', async e => {
+    if (e.target.value === '__new') {
+      const name = await promptModal('New category name:', '', { title: 'NEW CATEGORY', okText: 'Create' });
+      setCollCat(K.coll, c.id, name && name.trim() ? name : '');
+    } else {
+      setCollCat(K.coll, c.id, e.target.value);
+    }
+    renderEntityList(K);
+  });
   q('[data-f="del"]').addEventListener('click', async () => {
     if (!await confirmModal(`Delete this ${K.noun}?`)) return;
     db.chunks.forEach(ch => { ch[K.link] = (ch[K.link] || []).filter(id => id !== c.id); });
@@ -5623,8 +5714,8 @@ async function loadProject(projectId) {
       locationIds: clo.filter(j => j.chunk_id === r.id).map(j => j.location_id),
       tagIds: cl.filter(j => j.chunk_id === r.id).map(j => j.tag_id)
     })),
-    characters: (characters.data || []).map(r => ({ id: r.id, name: r.name, aliases: r.aliases || [], summary: r.summary || '', notes: r.notes || [], color: r.color || '', dismissedRefs: r.dismissed_refs || [], arc: r.arc || [], principles: r.principles || [], relationships: r.relationships || [] })),
-    locations: (locations.data || []).map(r => ({ id: r.id, name: r.name, aliases: r.aliases || [], summary: r.summary || '', notes: r.notes || [], color: r.color || '', dismissedRefs: r.dismissed_refs || [] })),
+    characters: (characters.data || []).map(r => ({ id: r.id, name: r.name, aliases: r.aliases || [], summary: r.summary || '', notes: r.notes || [], color: r.color || '', category: (r.category || '').toUpperCase(), dismissedRefs: r.dismissed_refs || [], arc: r.arc || [], principles: r.principles || [], relationships: r.relationships || [] })),
+    locations: (locations.data || []).map(r => ({ id: r.id, name: r.name, aliases: r.aliases || [], summary: r.summary || '', notes: r.notes || [], color: r.color || '', category: (r.category || '').toUpperCase(), dismissedRefs: r.dismissed_refs || [] })),
     tags: (tags.data || []).map(r => ({ id: r.id, name: (r.name || '').toUpperCase(), color: r.color, summary: r.summary || '', category: (r.category || '').toUpperCase() })),
     ideas: (ideas.data || []).map(r => ({ id: r.id, title: r.title || '', body: (r.body != null ? r.body : (r.text || '')), ts: r.ts || Date.parse(r.created_at), tagIds: il.filter(j => j.idea_id === r.id).map(j => j.tag_id) })),
     ui: (proj.data && proj.data.ui) || {}
@@ -5696,8 +5787,8 @@ async function persistProject() {
   try {
     const chapters = db.chapters.map((c, i) => ({ id: c.id, user_id: U, project_id: P, title: c.title, color: c.color, position: c.order ?? i }));
     const chunks = db.chunks.map((c, i) => ({ id: c.id, user_id: U, project_id: P, chapter_id: c.chapterId || null, title: c.title, body: c.body, chrono_label: c.chronoLabel || null, narrative_pos: c.narrativeOrder ?? i, chrono_pos: c.chronoOrder ?? i, order_in_chapter: c.orderInChapter ?? 0, archived: !!c.archived, analysis: c.analysis || null }));
-    const characters = db.characters.map(c => ({ id: c.id, user_id: U, project_id: P, name: c.name, aliases: c.aliases || [], summary: c.summary || '', notes: c.notes || [], color: c.color || null, dismissed_refs: c.dismissedRefs || [], arc: c.arc || [], principles: c.principles || [], relationships: c.relationships || [] }));
-    const locations = (db.locations || []).map(c => ({ id: c.id, user_id: U, project_id: P, name: c.name, aliases: c.aliases || [], summary: c.summary || '', notes: c.notes || [], color: c.color || null, dismissed_refs: c.dismissedRefs || [] }));
+    const characters = db.characters.map(c => ({ id: c.id, user_id: U, project_id: P, name: c.name, aliases: c.aliases || [], summary: c.summary || '', notes: c.notes || [], color: c.color || null, category: c.category || null, dismissed_refs: c.dismissedRefs || [], arc: c.arc || [], principles: c.principles || [], relationships: c.relationships || [] }));
+    const locations = (db.locations || []).map(c => ({ id: c.id, user_id: U, project_id: P, name: c.name, aliases: c.aliases || [], summary: c.summary || '', notes: c.notes || [], color: c.color || null, category: c.category || null, dismissed_refs: c.dismissedRefs || [] }));
     const tags = db.tags.map(l => ({ id: l.id, user_id: U, project_id: P, name: l.name, color: l.color, summary: l.summary || null, category: l.category || null }));
     const ideas = db.ideas.map(i => ({ id: i.id, user_id: U, project_id: P, title: i.title || null, body: i.body || null, text: (i.body || i.title || ''), ts: i.ts || Date.now() }));
 
