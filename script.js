@@ -398,7 +398,7 @@ let feedCache = [];
 let hopPostCounts = {};      // chunk_id -> { active, total }
 let myFluffle = new Set();    // user_ids the current user has favorited
 let fluffleNames = new Map(); // user_id -> username for Fluffle members
-let feedScope = 'all';        // 'all' | 'fluffle'
+let feedScope = 'all';        // 'all' | 'fluffle' | 'mine'
 let feedGenre = '';           // '' = all genres, else a project_genre
 let feedType = '';            // '' = all types, else a project_type
 let pendingFeedFocus = null;  // post id to scroll to after the feed draws
@@ -676,6 +676,7 @@ function renderCommunityFilters() {
     <div class="cf-scope">
       <button class="cf-scope-btn ${feedScope === 'all' ? 'active' : ''}" data-scope="all">ALL</button>
       <button class="cf-scope-btn ${feedScope === 'fluffle' ? 'active' : ''}" data-scope="fluffle">MY FLUFFLE <span class="cf-fluffle-count">${myFluffle.size}</span></button>
+      <button class="cf-scope-btn ${feedScope === 'mine' ? 'active' : ''}" data-scope="mine">MY POSTS</button>
     </div>
     <div class="cf-selects">
       <select class="cf-select" data-filter="genre">${genreOpts}</select>
@@ -693,8 +694,12 @@ function renderCommunityFilters() {
 }
 
 function visibleFeed() {
+  const me = currentUser && currentUser.id;
+  const scopeOk = p => feedScope === 'fluffle' ? myFluffle.has(p.user_id)
+    : feedScope === 'mine' ? p.user_id === me
+    : true;
   return feedCache.filter(p =>
-    (feedScope !== 'fluffle' || myFluffle.has(p.user_id)) &&
+    scopeOk(p) &&
     (!feedGenre || p.project_genre === feedGenre) &&
     (!feedType || p.project_type === feedType));
 }
@@ -706,6 +711,8 @@ function drawFeed() {
   if (!list.length) {
     const msg = feedScope === 'fluffle'
       ? 'No posts from your Fluffle yet. Add members from their profile.'
+      : feedScope === 'mine'
+      ? 'You have not shared any posts yet. Share a hop from its menu.'
       : ((feedGenre || feedType) ? 'No posts match these filters yet.' : 'No posts yet. Share a hop from its menu.');
     el.innerHTML = `<div class="feed-empty">${msg}</div>`;
     return;
