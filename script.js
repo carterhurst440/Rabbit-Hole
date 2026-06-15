@@ -4946,6 +4946,27 @@ function highlightNames(raw, terms) {
   return out;
 }
 
+// Turn a raw Anthropic/edge error string into a short, human message. The API
+// returns a wall of JSON for things like rate limits; surface the gist instead.
+function friendlyAiError(raw) {
+  const s = String(raw || '');
+  if (/\b429\b|rate_limit/i.test(s)) {
+    return 'The AI hit its token rate limit for this minute. This usually means the ' +
+      'request was large — a big project sends a lot of text at once. Wait a minute and ' +
+      'try again; if it keeps failing, the project may be too large for a single request.';
+  }
+  if (/\b529\b|overloaded/i.test(s)) {
+    return 'The AI is temporarily overloaded. Give it a moment and try again.';
+  }
+  if (/\b401\b|authentication|invalid x-api-key/i.test(s)) {
+    return 'The AI key was rejected. The server-side API key may need attention.';
+  }
+  if (/\b500\b|\b502\b|\b503\b|\b504\b/.test(s)) {
+    return 'The AI service hit a temporary error. Please try again.';
+  }
+  return s || 'request failed';
+}
+
 // Single entry point for the ai-chat edge function. Throws on error.
 async function aiInvoke(payload) {
   const tier = (currentProfile && currentProfile.ai_tier) || 'standard';
@@ -4955,9 +4976,9 @@ async function aiInvoke(payload) {
     // Surface the function's JSON error body when present.
     let detail = error.message || 'request failed';
     try { const ctx = await error.context?.json?.(); if (ctx?.error) detail = ctx.error; } catch (_) {}
-    throw new Error(detail);
+    throw new Error(friendlyAiError(detail));
   }
-  if (data && data.error) throw new Error(data.error);
+  if (data && data.error) throw new Error(friendlyAiError(data.error));
   return data || {};
 }
 
