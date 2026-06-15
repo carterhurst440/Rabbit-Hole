@@ -1084,15 +1084,17 @@ async function userProfileModal(userId, username) {
   if (error) { scroll.innerHTML = '<div class="feed-empty">Could not load this profile.</div>'; return; }
 
   const ids = posts.map(p => p.id);
-  let likeTotal = 0, commentTotal = 0;
+  let likeTotal = 0, commentTotal = 0, allComments = [];
   if (ids.length) {
     const [lr, cr] = await Promise.all([
       sb.from('community_likes').select('post_id').in('post_id', ids),
-      sb.from('community_comments').select('post_id').in('post_id', ids)
+      sb.from('community_comments').select('*').in('post_id', ids).order('created_at', { ascending: true })
     ]);
     likeTotal = (lr.data || []).length;
-    commentTotal = (cr.data || []).length;
+    allComments = cr.data || [];
+    commentTotal = allComments.length;
   }
+  posts.forEach(p => { p.comments = allComments.filter(c => c.post_id === p.id); });
   const projects = [...new Map(posts
     .filter(p => p.project_name)
     .map(p => [p.project_name, { name: p.project_name, meta: [p.project_type, p.project_genre].filter(Boolean).join(' · ') }]))
