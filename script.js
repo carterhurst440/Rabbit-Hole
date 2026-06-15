@@ -1505,7 +1505,7 @@ function entityListHTML(K, chunk) {
         const { auto, linked } = chunkEntityPresence(K, chunk, ent);
         const removable = linked && !auto;
         return `<span class="ent-item" style="--cc:${ent.color || 'var(--accent)'}">
-          <span class="ent-dot"></span>${esc(ent.name)}${auto ? '<span class="chip-auto" title="Named in this hop\u2019s text">auto</span>' : ''}${removable ? `<button class="ent-x" data-ent-rm="${ent.id}" title="Remove from this hop">✕</button>` : ''}
+          <span class="ent-dot"></span><span class="ent-name-link" data-ent-goto="${ent.id}" title="Open ${esc(ent.name)}">${esc(ent.name)}</span>${auto ? '<span class="chip-auto" title="Named in this hop\u2019s text">auto</span>' : ''}${removable ? `<button class="ent-x" data-ent-rm="${ent.id}" title="Remove from this hop">✕</button>` : ''}
         </span>`;
       }).join('')
     : `<span class="ci-count">No ${K.noun}s in this hop yet.</span>`;
@@ -1526,6 +1526,12 @@ function entityListHTML(K, chunk) {
 // button so they persist. Re-renders in place after each change.
 function renderEntityListInto(container, K, chunk) {
   container.innerHTML = entityListHTML(K, chunk);
+  container.querySelectorAll('[data-ent-goto]').forEach(el => {
+    el.addEventListener('click', () => {
+      closeChunkModal();
+      gotoEntity(K.noun, el.dataset.entGoto);
+    });
+  });
   container.querySelectorAll('[data-ent-rm]').forEach(btn => {
     btn.addEventListener('click', () => {
       const arr = chunk[K.link] || (chunk[K.link] = []);

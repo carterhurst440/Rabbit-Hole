@@ -654,6 +654,8 @@ mark.search-hit {
   letter-spacing: 0.02em; color: var(--text); text-transform: none;
 }
 .ent-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--cc, var(--accent)); flex-shrink: 0; }
+.ent-name-link { cursor: pointer; border-radius: 2px; }
+.ent-name-link:hover { color: var(--cc, var(--accent)); text-decoration: underline; text-underline-offset: 2px; }
 .ent-item .chip-auto {
   font-size: 8px; letter-spacing: 0.12em; text-transform: uppercase;
   color: var(--cc, var(--accent)); opacity: 0.7;
