@@ -1816,7 +1816,7 @@ function renderChunkCardDisplay(c) {
     ? `${chunkSummaryHeader(c)}<div class="chunk-disp-body">${c.body ? highlightNames(c.body, entityHighlightTerms()) : '<span class="muted">(no content yet)</span>'}</div>`
     : '';
   return `
-  <div class="chunk-card collapsed ${expanded ? 'is-expanded' : ''} ${c.archived ? 'archived' : ''}" data-id="${c.id}" draggable="true">
+  <div class="chunk-card collapsed ${expanded ? 'is-expanded' : ''} ${c.archived ? 'archived' : ''}" data-id="${c.id}" draggable="${expanded ? 'false' : 'true'}">
     <div class="chunk-display" data-f="open">
       <span class="chunk-grip" data-f="grip" title="Drag to reorder">⠿</span>
       <span class="chunk-chevron">${expanded ? '▾' : '▸'}</span>
