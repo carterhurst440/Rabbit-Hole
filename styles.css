@@ -538,7 +538,7 @@ button, input, textarea, select { font-family: inherit; }
   padding: 8px 10px; font-size: 12px; letter-spacing: 0.04em;
 }
 .alias-input { width: 100%; box-sizing: border-box; }
-.section-search-row { display: flex; gap: 8px; align-items: center; margin: 0 0 10px; }
+.section-search-row { display: flex; gap: 8px; align-items: center; margin: 0; }
 .section-search {
   flex: 1; min-width: 0; box-sizing: border-box;
   background: var(--panel-2); border: 1px solid var(--line); color: var(--text-bright);
@@ -546,8 +546,8 @@ button, input, textarea, select { font-family: inherit; }
 }
 .section-search::placeholder { color: var(--muted); }
 .section-search-row .es-run { flex: 0 0 auto; white-space: nowrap; }
-.es-block.section-ai { margin: 0 0 14px; }
-.es-block.section-ai:empty { margin: 0; }
+.es-block.section-ai { margin: 0; }
+.es-block.section-ai:not(:has(.es-progress:not(:empty), .es-results:not(:empty))) { display: none; }
 mark.search-hit {
   background: color-mix(in srgb, var(--accent) 38%, transparent);
   color: var(--text-bright); border-radius: 2px; padding: 0 1px;
