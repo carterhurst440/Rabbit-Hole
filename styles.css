@@ -531,6 +531,13 @@ button, input, textarea, select { font-family: inherit; }
   flex: 1; background: var(--panel-2); border: 1px solid var(--line); color: var(--text-bright);
   padding: 8px 10px; font-size: 13px; letter-spacing: 0.04em;
 }
+.chunk-card-head .head-name { flex: 1 1 auto; min-width: 0; }
+.head-cat-sel {
+  flex: 0 0 auto; min-width: 150px;
+  background: var(--panel-2); border: 1px solid var(--line); color: var(--text-bright);
+  padding: 8px 10px; font-size: 12px; letter-spacing: 0.04em;
+}
+.alias-input { width: 100%; box-sizing: border-box; }
 .section-search-row { display: flex; gap: 8px; align-items: center; margin: 0 0 10px; }
 .section-search {
   flex: 1; min-width: 0; box-sizing: border-box;
