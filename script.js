@@ -822,7 +822,6 @@ function feedCardHtml(p) {
       ${p.hop_title ? `<div class="feed-hop-title">${esc(p.hop_title)}</div>` : ''}
       <div class="feed-hop-body clamp">${esc(p.hop_body)}</div>
       <button class="feed-view" data-f="viewhop" hidden>VIEW FULL HOP →</button>
-      ${entitySnapshotHtml(p.entities)}
     </div>
     <div class="feed-actions">
       <button class="feed-btn like ${p.likedByMe ? 'on' : ''}" data-f="like">♥ <span>${p.likeCount}</span></button>
