@@ -1216,6 +1216,7 @@ async function userProfileModal(userId, username) {
   overlay.className = 'ui-modal-overlay';
   overlay.innerHTML = `
     <div class="ui-modal up-modal">
+      <button class="ui-modal-x" data-act="close" title="Close">✕</button>
       <div class="ui-modal-title">@${esc(username || '')}</div>
       <div class="ui-modal-scroll" id="upScroll"><div class="feed-empty">Loading…</div></div>
       <div class="ui-modal-actions">
@@ -1225,7 +1226,7 @@ async function userProfileModal(userId, username) {
   document.body.appendChild(overlay);
   const close = () => overlay.remove();
   overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
-  overlay.querySelector('[data-act="close"]').addEventListener('click', close);
+  overlay.querySelectorAll('[data-act="close"]').forEach(b => b.addEventListener('click', close));
   const scroll = overlay.querySelector('#upScroll');
   const isSelf = currentUser && userId === currentUser.id;
 
