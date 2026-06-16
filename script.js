@@ -774,6 +774,7 @@ function entitySnapshotHtml(entities) {
 }
 
 // Prominent project header for a post: name on its own line, type · genre beneath.
+// Used by the focused single-post modals (VIEW FULL HOP / archived view).
 function feedProjHtml(p) {
   const name = p.project_name || '';
   const meta = [p.project_type, p.project_genre].filter(Boolean).join(' · ');
@@ -784,8 +785,15 @@ function feedProjHtml(p) {
   </div>`;
 }
 
+// Compact project identity as chips for a feed card head: the project name
+// (accented), then its type and genre as muted chips.
+function feedChipsHtml(p) {
+  return `${p.project_name ? `<span class="feed-chip feed-chip-proj">${esc(p.project_name)}</span>` : ''}${p.project_type ? `<span class="feed-chip">${esc(p.project_type)}</span>` : ''}${p.project_genre ? `<span class="feed-chip">${esc(p.project_genre)}</span>` : ''}`;
+}
+
 function feedCardHtml(p) {
   const mine = currentUser && p.user_id === currentUser.id;
+  const archived = p.status === 'closed';
   const comments = p.comments.map(c =>
     `<div class="feed-comment">${c.user_id
       ? `<button class="feed-comment-user" data-uid="${esc(c.user_id)}" data-uname="${esc(c.username)}">@${esc(c.username)}</button>`
@@ -794,17 +802,21 @@ function feedCardHtml(p) {
   return `
   <article class="feed-card"${accentStyle} data-id="${p.id}">
     <div class="feed-head">
-      <button class="feed-user" data-f="user">@${esc(p.username)}</button>
-      ${myFluffle.has(p.user_id) ? '<span class="feed-fluffle-tag" title="In your Fluffle">★</span>' : ''}
-      <span class="feed-time">${timeAgo(p.created_at)}</span>
-      ${mine ? `<span class="feed-vis">${visibilityLabel(p.visibility)}</span>
-      <details class="hop-kebab feed-kebab"><summary>⋮</summary><div class="hop-menu">
-        <button class="add-btn" data-f="editpost">EDIT</button>
-        <button class="add-btn" data-f="archivepost">ARCHIVE</button>
-        <button class="add-btn danger" data-f="delpost">DELETE</button>
-      </div></details>` : ''}
+      <div class="feed-head-l">
+        <button class="feed-user" data-f="user">@${esc(p.username)}</button>
+        ${myFluffle.has(p.user_id) ? '<span class="feed-fluffle-tag" title="In your Fluffle">★</span>' : ''}
+        <span class="feed-time">${timeAgo(p.created_at)}</span>
+      </div>
+      <div class="feed-head-r">
+        ${feedChipsHtml(p)}
+        ${mine ? `${archived ? '<span class="mp-status closed">ARCHIVED</span>' : ''}<span class="feed-vis">${visibilityLabel(p.visibility)}</span>
+        <details class="hop-kebab feed-kebab"><summary>⋮</summary><div class="hop-menu">
+          <button class="add-btn" data-f="editpost">EDIT</button>
+          <button class="add-btn" data-f="${archived ? 'reactivatepost' : 'archivepost'}">${archived ? 'REACTIVATE' : 'ARCHIVE'}</button>
+          <button class="add-btn danger" data-f="delpost">DELETE</button>
+        </div></details>` : ''}
+      </div>
     </div>
-    ${feedProjHtml(p)}
     ${p.context ? `<div class="feed-context">${esc(p.context)}</div>` : ''}
     <div class="feed-hop">
       ${p.hop_title ? `<div class="feed-hop-title">${esc(p.hop_title)}</div>` : ''}
@@ -861,18 +873,18 @@ function wireFeedCard(card, p) {
   });
 }
 
-async function toggleLike(p) {
+async function toggleLike(p, redraw = drawFeed) {
   if (!currentUser) return;
   if (p.likedByMe) {
-    p.likedByMe = false; p.likeCount = Math.max(0, p.likeCount - 1); drawFeed();
+    p.likedByMe = false; p.likeCount = Math.max(0, p.likeCount - 1); redraw();
     await sb.from('community_likes').delete().eq('post_id', p.id).eq('user_id', currentUser.id);
   } else {
-    p.likedByMe = true; p.likeCount += 1; drawFeed();
+    p.likedByMe = true; p.likeCount += 1; redraw();
     await sb.from('community_likes').insert({ post_id: p.id, user_id: currentUser.id });
   }
 }
 
-async function addComment(p, input) {
+async function addComment(p, input, redraw = drawFeed) {
   if (!currentUser || !input) return;
   const body = input.value.trim();
   if (!body) return;
@@ -882,7 +894,7 @@ async function addComment(p, input) {
   const { data, error } = await sb.from('community_comments')
     .insert({ post_id: p.id, user_id: currentUser.id, username, body }).select().single();
   if (error) { alertModal('Could not comment.', { title: 'COMMENT' }); return; }
-  p.comments.push(data); p.commentsOpen = true; drawFeed();
+  p.comments.push(data); p.commentsOpen = true; redraw();
 }
 
 // Full, un-clamped view of a post's hop opened from the feed's VIEW button.
@@ -1173,17 +1185,26 @@ async function userProfileModal(userId, username) {
   if (error) { scroll.innerHTML = '<div class="feed-empty">Could not load this profile.</div>'; return; }
 
   const ids = posts.map(p => p.id);
-  let likeTotal = 0, commentTotal = 0, allComments = [];
+  let likeTotal = 0, commentTotal = 0, allComments = [], likeRows = [];
   if (ids.length) {
     const [lr, cr] = await Promise.all([
-      sb.from('community_likes').select('post_id').in('post_id', ids),
+      sb.from('community_likes').select('post_id, user_id').in('post_id', ids),
       sb.from('community_comments').select('*').in('post_id', ids).order('created_at', { ascending: true })
     ]);
-    likeTotal = (lr.data || []).length;
+    likeRows = lr.data || [];
+    likeTotal = likeRows.length;
     allComments = cr.data || [];
     commentTotal = allComments.length;
   }
-  posts.forEach(p => { p.comments = allComments.filter(c => c.post_id === p.id); });
+  const liveAccent = await resolveLivePostAccents(posts);
+  const meId = currentUser && currentUser.id;
+  posts.forEach(p => {
+    p.comments = allComments.filter(c => c.post_id === p.id);
+    p.accent = liveAccent[p.chunk_id] || p.accent || DEFAULT_ACCENT;
+    p.likeCount = likeRows.filter(l => l.post_id === p.id).length;
+    p.likedByMe = likeRows.some(l => l.post_id === p.id && l.user_id === meId);
+    p.commentsOpen = false;
+  });
   const projects = [...new Map(posts
     .filter(p => p.project_name)
     .map(p => [p.project_name, { name: p.project_name, meta: [p.project_type, p.project_genre].filter(Boolean).join(' · ') }]))
@@ -1227,25 +1248,7 @@ async function userProfileModal(userId, username) {
       </div>` : ''}
       <div class="up-section">
         <div class="up-label">POSTS</div>
-        ${posts.length ? posts.map(p => {
-          const snippet = (p.hop_body || '').slice(0, 160) + ((p.hop_body || '').length > 160 ? '…' : '');
-          const archived = p.status === 'closed';
-          const kebab = isSelf ? `<details class="hop-kebab up-kebab"><summary>⋮</summary><div class="hop-menu">
-            <button class="add-btn" data-f="editpost">EDIT</button>
-            <button class="add-btn" data-f="${archived ? 'reactivatepost' : 'archivepost'}">${archived ? 'REACTIVATE' : 'ARCHIVE'}</button>
-            <button class="add-btn danger" data-f="delpost">DELETE</button>
-          </div></details>` : '';
-          const badges = isSelf ? `<span class="up-post-badges">
-            <span class="mp-status ${archived ? 'closed' : 'active'}">${archived ? 'ARCHIVED' : 'ACTIVE'}</span>
-            <span class="feed-vis">${visibilityLabel(p.visibility)}</span>
-          </span>` : '';
-          return `<div class="up-post" data-id="${p.id}">
-            <div class="up-post-head">${p.hop_title ? `<span class="up-post-title">${esc(p.hop_title)}</span>` : '<span class="muted">Untitled hop</span>'}<span class="up-post-meta"><span class="mp-time">${timeAgo(p.created_at)}</span>${kebab}</span></div>
-            ${badges}
-            <div class="up-post-sample">${esc(snippet)}</div>
-            <button class="add-btn" data-f="viewpost">VIEW POST</button>
-          </div>`;
-        }).join('') : `<div class="feed-empty">${isSelf ? 'You have not shared any posts yet.' : 'No public posts.'}</div>`}
+        <div class="up-feed" id="upFeed"></div>
       </div>`;
     scroll.querySelector('[data-f="fluffle"]')?.addEventListener('click', async () => {
       if (myFluffle.has(userId)) {
@@ -1259,46 +1262,77 @@ async function userProfileModal(userId, username) {
       render();
       if (currentRoute() === 'community') { renderCommunityFilters(); drawFeed(); }
     });
-    posts.forEach(p => {
-      const row = scroll.querySelector(`.up-post[data-id="${p.id}"]`);
-      if (!row) return;
-      row.querySelector('[data-f="viewpost"]')
-        ?.addEventListener('click', () => (p.status === 'closed' ? viewArchivedPostModal(p) : viewHopModal(p)));
-      const kebab = row.querySelector('.up-kebab');
-      if (kebab) kebab.addEventListener('toggle', () => { if (kebab.open) positionHopMenu(kebab); });
-      row.querySelector('[data-f="editpost"]')?.addEventListener('click', () => {
-        if (kebab) kebab.open = false;
-        editPostVisibilityModal(p, () => { render(); if (currentRoute() === 'community') { feedCache = feedCache.map(x => x.id === p.id ? { ...x, visibility: p.visibility } : x); drawFeed(); } });
-      });
-      row.querySelector('[data-f="archivepost"]')?.addEventListener('click', async () => {
-        if (kebab) kebab.open = false;
-        if (!await confirmModal('Archive this post? It will no longer be viewable to the community, but you keep full access to it from your profile.', { title: 'ARCHIVE POST', okText: 'Archive', danger: false })) return;
-        const { error } = await sb.from('community_posts').update({ status: 'closed' }).eq('id', p.id);
-        if (error) { alertModal('Could not archive.', { title: 'ARCHIVE' }); return; }
-        p.status = 'closed';
-        feedCache = feedCache.filter(x => x.id !== p.id);
-        render(); loadHopPostCounts();
-        if (currentRoute() === 'community') drawFeed();
-      });
-      row.querySelector('[data-f="reactivatepost"]')?.addEventListener('click', async () => {
-        if (kebab) kebab.open = false;
-        const { error } = await sb.from('community_posts').update({ status: 'open' }).eq('id', p.id);
-        if (error) { alertModal('Could not reactivate.', { title: 'REACTIVATE' }); return; }
-        p.status = 'open';
-        render(); loadHopPostCounts();
-        if (currentRoute() === 'community') renderCommunity();
-      });
-      row.querySelector('[data-f="delpost"]')?.addEventListener('click', async () => {
-        if (kebab) kebab.open = false;
-        if (!await confirmModal('Delete this post permanently? This cannot be undone.')) return;
-        const { error } = await sb.from('community_posts').delete().eq('id', p.id);
-        if (error) { alertModal('Could not delete.', { title: 'DELETE' }); return; }
-        const i = posts.indexOf(p); if (i >= 0) posts.splice(i, 1);
-        feedCache = feedCache.filter(x => x.id !== p.id);
-        render(); loadHopPostCounts();
-        if (currentRoute() === 'community') drawFeed();
+    drawUpFeed();
+  }
+
+  // Render the profile's posts exactly as they appear in the community feed,
+  // wired to a profile-local redraw so likes/comments and own-post management
+  // update inside the modal instead of the page behind it.
+  function drawUpFeed() {
+    const feedEl = scroll.querySelector('#upFeed');
+    if (!feedEl) return;
+    if (!posts.length) {
+      feedEl.innerHTML = `<div class="feed-empty">${isSelf ? 'You have not shared any posts yet.' : 'No public posts.'}</div>`;
+      return;
+    }
+    feedEl.innerHTML = posts.map(feedCardHtml).join('');
+    posts.forEach(p => wireUpCard(feedEl.querySelector(`.feed-card[data-id="${p.id}"]`), p));
+  }
+
+  function wireUpCard(card, p) {
+    if (!card) return;
+    const bodyEl = card.querySelector('.feed-hop-body');
+    const viewBtn = card.querySelector('[data-f="viewhop"]');
+    if (bodyEl && viewBtn && bodyEl.scrollHeight - bodyEl.clientHeight > 4) {
+      viewBtn.hidden = false;
+      viewBtn.addEventListener('click', () => (p.status === 'closed' ? viewArchivedPostModal(p) : viewHopModal(p)));
+    }
+    card.querySelector('[data-f="user"]')?.addEventListener('click', () => userProfileModal(p.user_id, p.username));
+    card.querySelectorAll('button.feed-comment-user').forEach(b =>
+      b.addEventListener('click', () => userProfileModal(b.dataset.uid, b.dataset.uname)));
+    card.querySelector('[data-f="like"]').addEventListener('click', () => toggleLike(p, drawUpFeed));
+    card.querySelector('[data-f="comments"]').addEventListener('click', () => { p.commentsOpen = !p.commentsOpen; drawUpFeed(); });
+    const kebab = card.querySelector('.feed-kebab');
+    if (kebab) kebab.addEventListener('toggle', () => { if (kebab.open) positionHopMenu(kebab); });
+    card.querySelector('[data-f="editpost"]')?.addEventListener('click', () => {
+      if (kebab) kebab.open = false;
+      editPostVisibilityModal(p, () => {
+        drawUpFeed();
+        if (currentRoute() === 'community') { feedCache = feedCache.map(x => x.id === p.id ? { ...x, visibility: p.visibility } : x); drawFeed(); }
       });
     });
+    card.querySelector('[data-f="archivepost"]')?.addEventListener('click', async () => {
+      if (kebab) kebab.open = false;
+      if (!await confirmModal('Archive this post? It will no longer be viewable to the community, but you keep full access to it from your profile.', { title: 'ARCHIVE POST', okText: 'Archive', danger: false })) return;
+      const { error } = await sb.from('community_posts').update({ status: 'closed' }).eq('id', p.id);
+      if (error) { alertModal('Could not archive.', { title: 'ARCHIVE' }); return; }
+      p.status = 'closed';
+      feedCache = feedCache.filter(x => x.id !== p.id);
+      drawUpFeed(); loadHopPostCounts();
+      if (currentRoute() === 'community') drawFeed();
+    });
+    card.querySelector('[data-f="reactivatepost"]')?.addEventListener('click', async () => {
+      if (kebab) kebab.open = false;
+      const { error } = await sb.from('community_posts').update({ status: 'open' }).eq('id', p.id);
+      if (error) { alertModal('Could not reactivate.', { title: 'REACTIVATE' }); return; }
+      p.status = 'open';
+      drawUpFeed(); loadHopPostCounts();
+      if (currentRoute() === 'community') renderCommunity();
+    });
+    card.querySelector('[data-f="delpost"]')?.addEventListener('click', async () => {
+      if (kebab) kebab.open = false;
+      if (!await confirmModal('Delete this post permanently? This cannot be undone.')) return;
+      const { error } = await sb.from('community_posts').delete().eq('id', p.id);
+      if (error) { alertModal('Could not delete.', { title: 'DELETE' }); return; }
+      const i = posts.indexOf(p); if (i >= 0) posts.splice(i, 1);
+      feedCache = feedCache.filter(x => x.id !== p.id);
+      drawUpFeed(); loadHopPostCounts();
+      if (currentRoute() === 'community') drawFeed();
+    });
+    const input = card.querySelector('.feed-comment-input');
+    const send = card.querySelector('.feed-comment-send');
+    if (send) send.addEventListener('click', () => addComment(p, input, drawUpFeed));
+    if (input) input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addComment(p, input, drawUpFeed); } });
   }
   render();
 }
