@@ -773,6 +773,20 @@ function entitySnapshotHtml(entities) {
   return body ? `<div class="ent-snap">${body}</div>` : '';
 }
 
+// Compact character / location chips shown inside a feed card hop box.
+function feedEntityChipsHtml(entities) {
+  if (!entities || !entities.length) return '';
+  const group = (label, kind) => {
+    const items = entities.filter(e => e.kind === kind);
+    if (!items.length) return '';
+    const chips = items.map(e =>
+      `<span class="feed-ent-chip" style="--ec:${e.color || 'var(--accent)'}"><span class="dot"></span>${esc(e.name)}</span>`).join('');
+    return `<div class="feed-ent-group"><div class="feed-ent-label">${label}</div><div class="feed-ent-chips">${chips}</div></div>`;
+  };
+  const body = group('CHARACTERS', 'character') + group('LOCATIONS', 'location');
+  return body ? `<div class="feed-ent-sep"></div>${body}` : '';
+}
+
 // Prominent project header for a post: name on its own line, type · genre beneath.
 // Used by the focused single-post modals (VIEW FULL HOP / archived view).
 function feedProjHtml(p) {
@@ -855,6 +869,7 @@ function feedCardHtml(p) {
       ${p.hop_title ? `<div class="feed-hop-title">${esc(p.hop_title)}</div>` : ''}
       <div class="feed-hop-body clamp">${esc(p.hop_body)}</div>
       <button class="feed-view" data-f="viewhop" hidden>VIEW FULL HOP <span>→</span></button>
+      ${feedEntityChipsHtml(p.entities)}
     </div>
     <div class="feed-actions">
       <button class="feed-btn like ${p.likedByMe ? 'on' : ''}" data-f="like">
