@@ -785,10 +785,39 @@ function feedProjHtml(p) {
   </div>`;
 }
 
-// Compact project identity as chips for a feed card head: the project name
-// (accented), then its type and genre as muted chips.
-function feedChipsHtml(p) {
-  return `${p.project_name ? `<span class="feed-chip feed-chip-proj">${esc(p.project_name)}</span>` : ''}${p.project_type ? `<span class="feed-chip">${esc(p.project_type)}</span>` : ''}${p.project_genre ? `<span class="feed-chip">${esc(p.project_genre)}</span>` : ''}`;
+// Inline line icon for a project type, shown in the avatar slot so each post
+// reads as a BOOK / MOVIE / JOURNAL etc. at a glance instead of a generic face.
+function projectTypeIcon(type) {
+  const P = {
+    book: '<path d="M8 4.3C6.7 3.5 5 3.1 3.2 3.1H2.3v8.9h1c1.7 0 3.4.4 4.7 1.2M8 4.3c1.3-.8 3-1.2 4.8-1.2h.9v8.9h-1c-1.7 0-3.4.4-4.7 1.2M8 4.3v8.9"/>',
+    movie: '<rect x="2.4" y="3" width="11.2" height="10"/><path d="M5.2 3v10M10.8 3v10M2.4 6.3h2.8M2.4 9.6h2.8M10.8 6.3h2.8M10.8 9.6h2.8"/>',
+    play: '<path d="M2.8 3.3c0 6 2.1 8.7 5.2 8.7s5.2-2.7 5.2-8.7z"/><circle cx="6" cy="6" r=".55"/><circle cx="10" cy="6" r=".55"/><path d="M6.2 8.6c1 1 2.6 1 3.6 0"/>',
+    show: '<rect x="2.3" y="3.6" width="11.4" height="8"/><path d="M6 13.4h4M8 11.6v1.8"/>',
+    'short story': '<path d="M4 2.4h5l3 3v8.2H4z"/><path d="M9 2.4v3h3M6 8h4M6 10.4h4"/>',
+    journal: '<rect x="4" y="2.4" width="8.4" height="11.2"/><path d="M4 5.2H2.6M4 8H2.6M4 10.8H2.6M6.8 5.6h3.2M6.8 8h3.2"/>',
+    other: '<rect x="3.4" y="2.5" width="9.2" height="11"/><path d="M5.5 5.8h5M5.5 8.2h5M5.5 10.6h3"/>'
+  };
+  const paths = P[(type || '').toLowerCase()] || P.other;
+  return `<svg viewBox="0 0 16 16" aria-hidden="true">${paths}</svg>`;
+}
+
+// Audience pill with a globe (public) or lock (fluffle) glyph.
+function feedVisHtml(p) {
+  const fluffle = p.visibility === 'fluffle';
+  const icon = fluffle
+    ? '<svg viewBox="0 0 16 16"><rect x="3.5" y="7" width="9" height="6.3"/><path d="M5.6 7V5a2.4 2.4 0 0 1 4.8 0v2"/></svg>'
+    : '<svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.2"/><path d="M1.8 8H14.2M8 1.8C10 4 10 12 8 14.2 6 12 6 4 8 1.8"/></svg>';
+  return `<span class="feed-vis" title="${fluffle ? 'Visible to your Fluffle' : 'Visible to everyone'}">${icon}<span>${visibilityLabel(p.visibility)}</span></span>`;
+}
+
+// Quiet source breadcrumb: PROJECT / TYPE / GENRE.
+function feedCrumbHtml(p) {
+  const segs = [];
+  if (p.project_name) segs.push(`<span class="proj">${esc(p.project_name)}</span>`);
+  if (p.project_type) segs.push(`<span class="seg">${esc(p.project_type.toUpperCase())}</span>`);
+  if (p.project_genre) segs.push(`<span class="seg">${esc(p.project_genre.toUpperCase())}</span>`);
+  if (!segs.length) return '';
+  return `<div class="feed-crumb">${segs.join('<span class="div">/</span>')}</div>`;
 }
 
 function feedCardHtml(p) {
@@ -802,14 +831,18 @@ function feedCardHtml(p) {
   return `
   <article class="feed-card"${accentStyle} data-id="${p.id}">
     <div class="feed-head">
-      <div class="feed-head-l">
-        <button class="feed-user" data-f="user">@${esc(p.username)}</button>
-        ${myFluffle.has(p.user_id) ? '<span class="feed-fluffle-tag" title="In your Fluffle">★</span>' : ''}
-        <span class="feed-time">${timeAgo(p.created_at)}</span>
+      <div class="feed-avatar" title="${esc(p.project_type || 'Project')}">${projectTypeIcon(p.project_type)}</div>
+      <div class="feed-who">
+        <div class="feed-who-line">
+          <button class="feed-user" data-f="user"><span class="at">@</span>${esc(p.username)}</button>
+          ${myFluffle.has(p.user_id) ? '<span class="feed-fluffle-tag" title="In your Fluffle">★</span>' : ''}
+          <span class="feed-dotsep"></span>
+          <span class="feed-time">${timeAgo(p.created_at)}</span>
+        </div>
+        ${feedCrumbHtml(p)}
       </div>
       <div class="feed-head-r">
-        ${feedChipsHtml(p)}
-        ${mine ? `${archived ? '<span class="mp-status closed">ARCHIVED</span>' : ''}<span class="feed-vis">${visibilityLabel(p.visibility)}</span>
+        ${mine ? `${archived ? '<span class="mp-status closed">ARCHIVED</span>' : ''}${feedVisHtml(p)}
         <details class="hop-kebab feed-kebab"><summary>⋮</summary><div class="hop-menu">
           <button class="add-btn" data-f="editpost">EDIT</button>
           <button class="add-btn" data-f="${archived ? 'reactivatepost' : 'archivepost'}">${archived ? 'REACTIVATE' : 'ARCHIVE'}</button>
@@ -817,15 +850,21 @@ function feedCardHtml(p) {
         </div></details>` : ''}
       </div>
     </div>
-    ${p.context ? `<div class="feed-context">${esc(p.context)}</div>` : ''}
-    <div class="feed-hop">
+    ${p.context ? `<p class="feed-context">${esc(p.context)}</p>` : ''}
+    <div class="feed-hop" data-f="hopbox">
       ${p.hop_title ? `<div class="feed-hop-title">${esc(p.hop_title)}</div>` : ''}
       <div class="feed-hop-body clamp">${esc(p.hop_body)}</div>
-      <button class="feed-view" data-f="viewhop" hidden>VIEW FULL HOP →</button>
+      <button class="feed-view" data-f="viewhop" hidden>VIEW FULL HOP <span>→</span></button>
     </div>
     <div class="feed-actions">
-      <button class="feed-btn like ${p.likedByMe ? 'on' : ''}" data-f="like">♥ <span>${p.likeCount}</span></button>
-      <button class="feed-btn ${p.commentsOpen ? 'on' : ''}" data-f="comments">COMMENT <span>${p.comments.length}</span></button>
+      <button class="feed-btn like ${p.likedByMe ? 'on' : ''}" data-f="like">
+        <svg class="fa-ic" viewBox="0 0 20 20"><path class="fa-heart" d="M10,17 C10,17 2.5,12.2 2.5,7.2 C2.5,4.6 4.5,3 6.6,3 C8.2,3 9.4,4 10,5.2 C10.6,4 11.8,3 13.4,3 C15.5,3 17.5,4.6 17.5,7.2 C17.5,12.2 10,17 10,17 Z"/></svg>
+        <span class="n">${p.likeCount}</span>
+      </button>
+      <button class="feed-btn cmt ${p.commentsOpen ? 'on' : ''}" data-f="comments">
+        <svg class="fa-ic" viewBox="0 0 20 20"><path class="fa-bubble" d="M3,4 H17 V14 H8 L4,17.5 V14 H3 Z"/></svg>
+        <span>COMMENT</span> <span class="n">${p.comments.length}</span>
+      </button>
     </div>
     <div class="feed-comments" ${p.commentsOpen ? '' : 'hidden'}>
       ${comments}
@@ -841,10 +880,8 @@ function wireFeedCard(card, p) {
   if (!card) return;
   const bodyEl = card.querySelector('.feed-hop-body');
   const viewBtn = card.querySelector('[data-f="viewhop"]');
-  if (bodyEl && viewBtn && bodyEl.scrollHeight - bodyEl.clientHeight > 4) {
-    viewBtn.hidden = false;
-    viewBtn.addEventListener('click', () => viewHopModal(p));
-  }
+  if (bodyEl && viewBtn && bodyEl.scrollHeight - bodyEl.clientHeight > 4) viewBtn.hidden = false;
+  card.querySelector('[data-f="hopbox"]')?.addEventListener('click', () => viewHopModal(p));
   card.querySelector('[data-f="user"]')?.addEventListener('click', () => userProfileModal(p.user_id, p.username));
   card.querySelectorAll('button.feed-comment-user').forEach(b =>
     b.addEventListener('click', () => userProfileModal(b.dataset.uid, b.dataset.uname)));
@@ -1282,10 +1319,9 @@ async function userProfileModal(userId, username) {
     if (!card) return;
     const bodyEl = card.querySelector('.feed-hop-body');
     const viewBtn = card.querySelector('[data-f="viewhop"]');
-    if (bodyEl && viewBtn && bodyEl.scrollHeight - bodyEl.clientHeight > 4) {
-      viewBtn.hidden = false;
-      viewBtn.addEventListener('click', () => (p.status === 'closed' ? viewArchivedPostModal(p) : viewHopModal(p)));
-    }
+    if (bodyEl && viewBtn && bodyEl.scrollHeight - bodyEl.clientHeight > 4) viewBtn.hidden = false;
+    const openHop = () => (p.status === 'closed' ? viewArchivedPostModal(p) : viewHopModal(p));
+    card.querySelector('[data-f="hopbox"]')?.addEventListener('click', openHop);
     card.querySelector('[data-f="user"]')?.addEventListener('click', () => userProfileModal(p.user_id, p.username));
     card.querySelectorAll('button.feed-comment-user').forEach(b =>
       b.addEventListener('click', () => userProfileModal(b.dataset.uid, b.dataset.uname)));
