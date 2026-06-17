@@ -283,6 +283,12 @@ function route() {
   });
   closeDrawer();
   updateArchiveToggles();
+  // The + HOP button adds to the open project; on PRACTICE it becomes + PRACTICE HOP.
+  const onPractice = r === 'practice';
+  const addHop = document.getElementById('addHopBtn');
+  const addPr = document.getElementById('addPracticeHopBtn');
+  if (addHop) addHop.hidden = onPractice;
+  if (addPr) addPr.hidden = !onPractice;
   if (r === 'home') { renderHome(); playHomeReveal(); fetchWordsChart().then(renderWordsChart); }
   if (r === 'search') renderSearch();
   if (r === 'sections') renderSections();
@@ -1578,6 +1584,7 @@ function addHopGlobal() {
   openChunkModal(id);
 }
 document.getElementById('addHopBtn').addEventListener('click', addHopGlobal);
+document.getElementById('addPracticeHopBtn')?.addEventListener('click', addPracticeHopFlow);
 
 /* ---------------- HEADER META ---------------- */
 function renderHeaderMeta() {
@@ -7834,13 +7841,44 @@ const PRACTICE_DEFS = {
   THORN: 'n. a sharp woody spine on a stem; a persistent source of pain.',
 };
 
+// Opening lines for the FIRST LINE game — original prompts to write onward from.
+const PRACTICE_FIRST_LINES = [
+  'The last train had already gone when she found the ticket was for yesterday.',
+  'Nobody in the house would admit to turning off the lights.',
+  'He had kept the letter sealed for three years, and tonight he finally opened it.',
+  'They told us the road ended at the river, but the river had moved.',
+  'The phone rang once at 3 a.m., and that was somehow worse than twice.',
+  'My grandmother left me the house, the debts, and a key that fit nothing.',
+  'On the morning the statues went missing, no one thought to look up.',
+  'She practiced saying goodbye in the mirror until the word stopped meaning anything.',
+  'The map was perfect except for the town that should not have been there.',
+  'It was the kind of quiet that arrives only after something has been decided.',
+  'He counted the exits first, the way his father had taught him.',
+  'The garden had grown over the gate, sealing us in with whatever we had buried.',
+  'We agreed never to speak of the third night, so of course it was all I thought about.',
+  'The new neighbors moved in at midnight and unpacked nothing.',
+  'There were forty-one names on the list, and mine had been crossed out and rewritten.',
+  'The clock in the station had been stopped at 8:14 for as long as anyone remembered.',
+  'She inherited her mother is fear of the ocean and her father is need to test it.',
+  'The dog came home without the boy, and stood at the door, and waited.',
+  'Every photograph in the album had the same stranger standing just behind us.',
+  'I was three steps onto the bridge when it began to remember my weight.',
+  'They handed me the uniform and told me the previous wearer had simply not come back.',
+  'The town held one festival a year, and attendance was not optional.',
+  'He woke to find the furniture rearranged and the front door locked from outside.',
+  'The radio only worked after dark, and it only played warnings.',
+];
+
 const PRACTICE_TOTAL = 20 * 60;   // 20 minutes, in seconds
 const PR_ROW_H = 64;              // reel row height, must match CSS .pr-reel-window/.pr-reel-row
 const PR_SESSION_KEY = 'rh.practice.session.v1';
 
 // ---- game state ----
+let prGame = 'word';             // word | line | three — which practice game is active
 let prState = 'idle';            // idle | spinning | armed | writing | done
-let prWord = '';
+let prWord = '';                 // word game: the spun word
+let prPrompt = '';               // line/three games: the opening line or the three words joined
+let prTitle = '';                // backlog title to file under
 let prStartEpoch = 0;
 let prTimerId = null;
 let prLastFinished = null;       // last entry we saved, for READ THIS HOP
@@ -7889,6 +7927,14 @@ function practiceInit() {
   practiceInited = true;
   prEl('prSpinBtn')?.addEventListener('click', () => prSpin());
   prEl('prReroll')?.addEventListener('click', () => prReroll());
+  prEl('prLineBtn')?.addEventListener('click', () => prDrawLine());
+  prEl('prLineReroll')?.addEventListener('click', () => prRerollLine());
+  prEl('prThreeBtn')?.addEventListener('click', () => prDealThree());
+  prEl('prThreeReroll')?.addEventListener('click', () => prRerollThree());
+  prEl('prTabs')?.addEventListener('click', e => {
+    const tab = e.target.closest('.pr-tab');
+    if (tab) prSetGame(tab.dataset.game);
+  });
   prEl('prEndBtn')?.addEventListener('click', () => prFinish(true));
   prEl('prAgainBtn')?.addEventListener('click', () => prReset());
   prEl('prReadBtn')?.addEventListener('click', () => {
@@ -7969,24 +8015,117 @@ function prLand(word) {
   prArm(word);
 }
 
-function prArm(word) {
-  prWord = word;
+// Shared: arm the editor + timer once a game has produced its prompt. Each game
+// supplies the editor heading and (optionally) text to seed the editor with.
+function prBeginWriting({ kindHTML, note, seedText, caretAtEnd }) {
   prSetState('armed');
-  prShowDef(word);
-  prEl('prReroll').hidden = false;
-  prEl('prSpinBtn').disabled = true;
   const ed = prEl('prEditor');
   ed.disabled = false;
-  ed.value = '';
-  prEl('prEdKind').innerHTML = `PRACTICE HOP <span class="pr-muted">· write about</span> "${esc(word)}"`;
+  ed.value = seedText || '';
+  prEl('prEdKind').innerHTML = kindHTML;
   ed.placeholder = "Begin. Keep your hand moving — don't stop to think.";
   prEl('prEndBtn').disabled = false;
-  const note = prEl('prEdNote');
-  if (note) note.textContent = "Keep your hand moving. It auto-files when the timer ends.";
+  const noteEl = prEl('prEdNote');
+  if (noteEl) noteEl.textContent = note || 'Keep your hand moving. It auto-files when the timer ends.';
   prUpdateCounts();
   prRenderClock(PRACTICE_TOTAL, 'READY');
   prStartTimer();
-  setTimeout(() => ed.focus(), 80);
+  setTimeout(() => {
+    ed.focus();
+    if (caretAtEnd) { const n = ed.value.length; ed.setSelectionRange(n, n); }
+  }, 80);
+}
+
+// ---- GAME 1: WORD SPIN ----
+function prArm(word) {
+  prWord = word;
+  prPrompt = '';
+  prTitle = word;
+  prShowDef(word);
+  prEl('prReroll').hidden = false;
+  prEl('prSpinBtn').disabled = true;
+  prBeginWriting({
+    kindHTML: `PRACTICE HOP <span class="pr-muted">· write about</span> "${esc(word)}"`,
+  });
+}
+
+// ---- GAME 2: FIRST LINE ----
+async function prRerollLine() {
+  if (prState === 'writing' && (prEl('prEditor')?.value || '').trim()) {
+    const ok = await confirmModal('Draw a new opening line? This discards your current writing without saving.', { title: 'DRAW ANOTHER' });
+    if (!ok) return;
+  }
+  clearInterval(prTimerId); prTimerId = null; prClearSession();
+  prDrawLine();
+}
+function prDrawLine() {
+  if (prState === 'spinning') return;
+  clearInterval(prTimerId); prTimerId = null;
+  const line = prRand(PRACTICE_FIRST_LINES);
+  const card = prEl('prLineCard');
+  if (card) { card.textContent = '“' + line + '”'; card.classList.remove('empty'); }
+  prEl('prLineBtn').disabled = true;
+  prEl('prLineReroll').hidden = false;
+  prWord = '';
+  prPrompt = line;
+  prTitle = prTitleFromLine(line);
+  prBeginWriting({
+    kindHTML: `FIRST LINE <span class="pr-muted">· carry it forward</span>`,
+    note: 'Continue straight from the line. It auto-files when the timer ends.',
+    seedText: line + ' ',
+    caretAtEnd: true,
+  });
+}
+function prTitleFromLine(line) {
+  const words = line.replace(/[“”"]/g, '').trim().split(/\s+/).slice(0, 6).join(' ');
+  return words + (line.split(/\s+/).length > 6 ? '…' : '');
+}
+
+// ---- GAME 3: THREE WORDS ----
+async function prRerollThree() {
+  if (prState === 'writing' && (prEl('prEditor')?.value || '').trim()) {
+    const ok = await confirmModal('Deal three new words? This discards your current writing without saving.', { title: 'RE-DEAL' });
+    if (!ok) return;
+  }
+  clearInterval(prTimerId); prTimerId = null; prClearSession();
+  prDealThree();
+}
+function prDealThree() {
+  if (prState === 'spinning') return;
+  clearInterval(prTimerId); prTimerId = null;
+  // Three distinct words.
+  const pool = PRACTICE_WORDS.slice();
+  const picks = [];
+  while (picks.length < 3 && pool.length) {
+    const i = Math.floor(Math.random() * pool.length);
+    picks.push(pool.splice(i, 1)[0]);
+  }
+  const wrap = prEl('prThreeWrap');
+  if (wrap) wrap.innerHTML = picks.map(w => `<span class="pr-threechip">${esc(w)}</span>`).join('');
+  prEl('prThreeBtn').disabled = true;
+  prEl('prThreeReroll').hidden = false;
+  prWord = '';
+  prPrompt = picks.join(' · ');
+  prTitle = picks.join(' · ');
+  prBeginWriting({
+    kindHTML: `THREE WORDS <span class="pr-muted">· work all three in</span>`,
+    note: 'Weave in all three. It auto-files when the timer ends.',
+  });
+}
+
+// Switch games from the tab bar. Mid-write with text → confirm a discard first.
+async function prSetGame(game) {
+  if (!game || game === prGame) return;
+  if (prState === 'spinning') return;   // let an in-flight spin land first
+  if ((prState === 'writing' || prState === 'armed') && (prEl('prEditor')?.value || '').trim()) {
+    const ok = await confirmModal('Switch games? This discards your current writing without saving.', { title: 'SWITCH GAME' });
+    if (!ok) return;
+  }
+  prGame = game;
+  const arena = prEl('prArena');
+  if (arena) arena.dataset.pgame = game;
+  prEl('prTabs')?.querySelectorAll('.pr-tab').forEach(t => t.classList.toggle('active', t.dataset.game === game));
+  prReset();
 }
 
 // ---- the timer ----
@@ -8040,21 +8179,29 @@ async function prFinish(early) {
   prTimerId = null;
   const text = (prEl('prEditor').value || '').trim();
   const elapsed = early ? Math.min(PRACTICE_TOTAL, PRACTICE_TOTAL - prRemaining()) : PRACTICE_TOTAL;
-  const word = prWord;
+  // Resolve what to file under, per game.
+  const saveWord = prGame === 'word' ? prWord : null;
+  const savePrompt = prGame === 'word' ? null : prPrompt;
+  const saveTitle = prTitle || prWord || 'Practice hop';
   prSetState('done');
   prRenderClock(0, 'DONE');
   if (!early) prBuzz();   // only the natural timer end gets the flash + buzzer
   prClearSession();
 
   const words = practiceWordCount(text);
+  const seed = prGame === 'word' ? `on <b>${esc(saveWord)}</b>`
+    : prGame === 'line' ? 'from your opening line'
+    : `weaving <b>${esc(savePrompt)}</b>`;
   prEl('prDoneSum').innerHTML =
-    `<b>${words}</b> ${words === 1 ? 'word' : 'words'} on <b>${esc(word)}</b> in ${prMMSS(elapsed)}. Filed to your backlog below.`;
+    `<b>${words}</b> ${words === 1 ? 'word' : 'words'} ${seed} in ${prMMSS(elapsed)}. Filed to your backlog below.`;
+  const again = prEl('prAgainBtn');
+  if (again) again.textContent = prGame === 'word' ? 'SPIN AGAIN' : prGame === 'line' ? 'NEW LINE' : 'DEAL AGAIN';
 
   // Persist to Supabase; optimistic local prepend so the backlog updates instantly.
   const nowIso = new Date().toISOString();
   const optimistic = {
     id: 'local-' + Date.now(), user_id: currentUser?.id,
-    title: word, body: text, prompt: null, word, seconds: elapsed,
+    title: saveTitle, body: text, prompt: savePrompt, word: saveWord, seconds: elapsed,
     created_at: nowIso, updated_at: nowIso,
   };
   practiceHops.unshift(optimistic);
@@ -8062,8 +8209,8 @@ async function prFinish(early) {
   renderPracticeList();
   try {
     const { data, error } = await sb.from('practice_hops').insert({
-      user_id: currentUser.id, title: word, body: text,
-      prompt: null, word, seconds: elapsed,
+      user_id: currentUser.id, title: saveTitle, body: text,
+      prompt: savePrompt, word: saveWord, seconds: elapsed,
     }).select().single();
     if (error) throw error;
     const i = practiceHops.findIndex(h => h.id === optimistic.id);
@@ -8077,27 +8224,49 @@ async function prFinish(early) {
   }
 }
 
+// Reset every game's starter pane back to its idle prompt-less state.
+function prResetStarters() {
+  // word
+  prHideDef();
+  prEl('prReroll').hidden = true;
+  const spin = prEl('prSpinBtn');
+  if (spin) { spin.disabled = false; spin.hidden = false; }
+  const reel = prEl('prReel');
+  if (reel) {
+    reel.style.transition = 'none';
+    reel.style.transform = 'translateY(0)';
+    reel.innerHTML = '<div class="pr-reel-row idle">SPIN TO BEGIN</div>';
+  }
+  // line
+  prEl('prLineReroll').hidden = true;
+  const lb = prEl('prLineBtn'); if (lb) lb.disabled = false;
+  const card = prEl('prLineCard');
+  if (card) { card.textContent = 'Draw a line, then keep writing from it.'; card.classList.add('empty'); }
+  // three
+  prEl('prThreeReroll').hidden = true;
+  const tb = prEl('prThreeBtn'); if (tb) tb.disabled = false;
+  const wrap = prEl('prThreeWrap');
+  if (wrap) wrap.innerHTML = '<span class="pr-threechip empty">—</span><span class="pr-threechip empty">—</span><span class="pr-threechip empty">—</span>';
+}
+
 function prReset() {
   clearInterval(prTimerId);
   prTimerId = null;
   prWord = '';
+  prPrompt = '';
+  prTitle = '';
   prStartEpoch = 0;
   prSetState('idle');
   prClearSession();
-  prHideDef();
-  prEl('prReroll').hidden = true;
-  const spin = prEl('prSpinBtn');
-  spin.disabled = false; spin.hidden = false;
-  const reel = prEl('prReel');
-  reel.style.transition = 'none';
-  reel.style.transform = 'translateY(0)';
-  reel.innerHTML = '<div class="pr-reel-row idle">SPIN TO BEGIN</div>';
+  prResetStarters();
   const ed = prEl('prEditor');
-  ed.value = ''; ed.disabled = true; ed.placeholder = 'Spin a word to begin.';
+  ed.value = ''; ed.disabled = true;
+  ed.placeholder = prGame === 'word' ? 'Spin a word to begin.'
+    : prGame === 'line' ? 'Draw a line to begin.' : 'Deal three words to begin.';
   prEl('prEdKind').textContent = 'PRACTICE HOP';
   prEl('prEndBtn').disabled = true;
   const note = prEl('prEdNote');
-  if (note) note.textContent = 'Spin to start your twenty minutes.';
+  if (note) note.textContent = 'Start your twenty minutes above.';
   prUpdateCounts();
   prRenderClock(PRACTICE_TOTAL, 'READY');
 }
@@ -8131,7 +8300,8 @@ function prSaveSession() {
   if (prState !== 'writing') return;
   try {
     localStorage.setItem(PR_SESSION_KEY, JSON.stringify({
-      word: prWord, startEpoch: prStartEpoch, text: prEl('prEditor')?.value || '',
+      game: prGame, word: prWord, prompt: prPrompt, title: prTitle,
+      startEpoch: prStartEpoch, text: prEl('prEditor')?.value || '',
     }));
   } catch (_) {}
 }
@@ -8143,19 +8313,44 @@ function prTryResume() {
   try { raw = localStorage.getItem(PR_SESSION_KEY); } catch (_) {}
   if (!raw) return;
   let s; try { s = JSON.parse(raw); } catch (_) { return; }
-  if (!s || !s.startEpoch || !s.word) { prClearSession(); return; }
-  prWord = s.word;
-  prShowDef(s.word);
-  prEl('prReroll').hidden = false;
-  prEl('prSpinBtn').disabled = true;
-  const reel = prEl('prReel');
-  reel.style.transition = 'none';
-  reel.style.transform = 'translateY(0)';
-  reel.innerHTML = `<div class="pr-reel-row landed">${esc(s.word)}</div>`;
+  if (!s || !s.startEpoch) { prClearSession(); return; }
+  const game = s.game || 'word';
+  // A resumable session may belong to any game — only word-game sessions need a word.
+  if (game === 'word' && !s.word) { prClearSession(); return; }
+  prGame = game;
+  prWord = s.word || '';
+  prPrompt = s.prompt || '';
+  prTitle = s.title || '';
+  const arena = prEl('prArena');
+  if (arena) arena.dataset.pgame = game;
+  prEl('prTabs')?.querySelectorAll('.pr-tab').forEach(t => t.classList.toggle('active', t.dataset.game === game));
+
+  let kindHTML = 'PRACTICE HOP';
+  if (game === 'word') {
+    prShowDef(s.word);
+    prEl('prReroll').hidden = false;
+    prEl('prSpinBtn').disabled = true;
+    const reel = prEl('prReel');
+    reel.style.transition = 'none'; reel.style.transform = 'translateY(0)';
+    reel.innerHTML = `<div class="pr-reel-row landed">${esc(s.word)}</div>`;
+    kindHTML = `PRACTICE HOP <span class="pr-muted">· write about</span> "${esc(s.word)}"`;
+  } else if (game === 'line') {
+    prEl('prLineReroll').hidden = false;
+    prEl('prLineBtn').disabled = true;
+    const card = prEl('prLineCard');
+    if (card) { card.textContent = '“' + (s.prompt || '') + '”'; card.classList.remove('empty'); }
+    kindHTML = `FIRST LINE <span class="pr-muted">· carry it forward</span>`;
+  } else {
+    prEl('prThreeReroll').hidden = false;
+    prEl('prThreeBtn').disabled = true;
+    const wrap = prEl('prThreeWrap');
+    if (wrap) wrap.innerHTML = (s.prompt || '').split(' · ').map(w => `<span class="pr-threechip">${esc(w)}</span>`).join('');
+    kindHTML = `THREE WORDS <span class="pr-muted">· work all three in</span>`;
+  }
   const ed = prEl('prEditor');
   ed.disabled = false;
   ed.value = s.text || '';
-  prEl('prEdKind').innerHTML = `PRACTICE HOP <span class="pr-muted">· write about</span> "${esc(s.word)}"`;
+  prEl('prEdKind').innerHTML = kindHTML;
   prEl('prEndBtn').disabled = false;
   prUpdateCounts();
   const elapsed = Math.floor((Date.now() - s.startEpoch) / 1000);
@@ -8215,13 +8410,18 @@ function prEntryHTML(h) {
   const text = (h.body || '');
   const snippet = text.replace(/\s+/g, ' ').trim().slice(0, 240);
   const words = practiceWordCount(text);
-  const dur = prMMSS(h.seconds || 0);
+  const heading = h.word || h.title || 'UNTITLED';
+  // Word-game hops show the word as the heading; line/three games carry their
+  // prompt separately, so surface it as a sub-line.
+  const prompt = (!h.word && h.prompt) ? h.prompt : '';
+  const durBit = h.seconds ? `<span class="pr-dot"></span><span>${esc(prMMSS(h.seconds))}</span>` : '';
   return `
     <article class="pr-pentry" data-id="${esc(h.id)}">
-      <div class="pr-pe-word">${esc(h.word || h.title || 'UNTITLED')}</div>
+      <div class="pr-pe-word">${esc(heading)}</div>
+      ${prompt ? `<div class="pr-pe-prompt">${esc(prompt)}</div>` : ''}
       <div class="pr-pe-meta">
         <span>${esc(prFmtDate(h.created_at))}</span>
-        <span class="pr-dot"></span><span>${esc(dur)}</span>
+        ${durBit}
         <span class="pr-dot"></span><span>${words} ${words === 1 ? 'word' : 'words'}</span>
       </div>
       <div class="pr-pe-snip">${esc(snippet)}${text.length > 240 ? '…' : ''}</div>
@@ -8257,6 +8457,66 @@ async function practiceDeleteHop(hop) {
   }
   practiceHops = practiceHops.filter(h => h.id !== hop.id);
   renderPracticeList();
+}
+
+// Freeform practice hop: no game, no timer — just a title (optional) and the
+// writing. Reachable from the + PRACTICE HOP header button on the practice view.
+function addPracticeHopFlow() {
+  if (!currentUser) return;
+  const overlay = document.createElement('div');
+  overlay.className = 'ui-modal-overlay';
+  overlay.innerHTML = `
+    <div class="ui-modal pr-freeform" role="dialog" aria-modal="true">
+      <button class="ui-modal-x" data-act="close" aria-label="Close">✕</button>
+      <div class="ui-modal-title">ADD PRACTICE HOP</div>
+      <div class="ui-modal-msg">A freeform hop. Give it a title if you like, then write.</div>
+      <input type="text" class="pr-ff-title" id="prFfTitle" placeholder="Title (optional)" maxlength="120" autocomplete="off" />
+      <textarea class="pr-ff-body" id="prFfBody" placeholder="Write your hop…" spellcheck="true"></textarea>
+      <div class="pr-ff-counts"><b id="prFfWc">0</b> words</div>
+      <div class="ui-modal-actions">
+        <button class="ui-modal-btn" data-act="cancel">Cancel</button>
+        <button class="ui-modal-btn solid" data-act="save">Save hop</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const titleEl = overlay.querySelector('#prFfTitle');
+  const bodyEl = overlay.querySelector('#prFfBody');
+  const wcEl = overlay.querySelector('#prFfWc');
+  const close = () => { document.removeEventListener('keydown', onKey); overlay.remove(); };
+  function onKey(e) { if (e.key === 'Escape') { e.preventDefault(); close(); } }
+  document.addEventListener('keydown', onKey);
+  overlay.addEventListener('mousedown', e => { if (e.target === overlay) close(); });
+  overlay.querySelector('[data-act="close"]').addEventListener('click', close);
+  overlay.querySelector('[data-act="cancel"]').addEventListener('click', close);
+  bodyEl.addEventListener('input', () => { wcEl.textContent = practiceWordCount(bodyEl.value); });
+  overlay.querySelector('[data-act="save"]').addEventListener('click', async () => {
+    const body = (bodyEl.value || '').trim();
+    if (!body) { bodyEl.focus(); return; }
+    const title = (titleEl.value || '').trim() || 'Freeform hop';
+    close();
+    if (!practiceLoaded) await loadPracticeHops();
+    const nowIso = new Date().toISOString();
+    const optimistic = {
+      id: 'local-' + Date.now(), user_id: currentUser.id,
+      title, body, prompt: null, word: null, seconds: 0,
+      created_at: nowIso, updated_at: nowIso,
+    };
+    practiceHops.unshift(optimistic);
+    renderPracticeList();
+    try {
+      const { data, error } = await sb.from('practice_hops').insert({
+        user_id: currentUser.id, title, body, prompt: null, word: null, seconds: 0,
+      }).select().single();
+      if (error) throw error;
+      const i = practiceHops.findIndex(h => h.id === optimistic.id);
+      if (i >= 0) practiceHops[i] = data;
+      recordWritingActivity();
+      renderPracticeList();
+    } catch (e) {
+      alertModal('Saved locally, but the warren did not confirm: ' + (e.message || 'request failed'), { title: 'PRACTICE' });
+    }
+  });
+  setTimeout(() => bodyEl.focus(), 60);
 }
 
 // Copy a practice hop into a real project as a new hop, then open it in the

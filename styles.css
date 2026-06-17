@@ -2150,11 +2150,43 @@ button.feed-comment-user:hover { text-decoration: underline; }
   display: grid; grid-template-columns: 1fr 150px; gap: 18px; align-items: stretch;
 }
 
-/* reel (left) */
-.pr-reelpane {
-  border-left: 2px solid var(--accent); padding-left: 14px;
-  display: flex; flex-direction: column; gap: 10px;
+/* game tabs */
+.pr-tabs { display: flex; gap: 6px; margin-bottom: 14px; flex-wrap: wrap; }
+.pr-tab {
+  background: var(--panel-2); border: 1px solid var(--line-2); color: var(--muted);
+  font-family: inherit; font-size: 10px; font-weight: 700; letter-spacing: 0.14em;
+  padding: 9px 16px; cursor: pointer; text-transform: uppercase;
+  transition: border-color 0.14s, color 0.14s, background 0.14s;
 }
+.pr-tab:hover { color: var(--accent); border-color: var(--accent-mid); }
+.pr-tab.active { color: #1a1206; background: var(--accent); border-color: var(--accent); }
+
+/* starter panes (left) — one visible per active game */
+.pr-startwrap { min-width: 0; }
+.pr-startpane {
+  border-left: 2px solid var(--accent); padding-left: 14px;
+  display: none; flex-direction: column; gap: 10px; height: 100%;
+}
+#prArena[data-pgame="word"] .pr-pane-word,
+#prArena[data-pgame="line"] .pr-pane-line,
+#prArena[data-pgame="three"] .pr-pane-three { display: flex; }
+
+/* first-line card */
+.pr-linecard {
+  font-size: clamp(15px, 2.2vw, 19px); line-height: 1.5; font-style: italic;
+  color: var(--accent); font-weight: 600; letter-spacing: 0.01em;
+  display: flex; align-items: center; min-height: 64px;
+}
+.pr-linecard.empty { color: var(--muted); font-style: normal; font-weight: 400; }
+
+/* three-words chips */
+.pr-threewrap { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; min-height: 64px; }
+.pr-threechip {
+  font-size: clamp(15px, 2.4vw, 22px); font-weight: 800; letter-spacing: 0.04em;
+  text-transform: uppercase; color: var(--accent);
+  border: 1px solid var(--accent-mid); padding: 7px 14px; line-height: 1;
+}
+.pr-threechip.empty { color: var(--muted); border-color: var(--line-2); }
 .pr-reel-label {
   font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted);
 }
@@ -2303,6 +2335,7 @@ button.feed-comment-user:hover { text-decoration: underline; }
 .pr-pentry:hover { border-color: var(--line-2); }
 .pr-pentry.open { border-color: var(--accent); }
 .pr-pe-word { font-size: 12px; font-weight: 700; letter-spacing: 0.1em; color: var(--accent); text-transform: uppercase; }
+.pr-pe-prompt { font-size: 11px; font-style: italic; color: var(--muted); margin-top: 3px; line-height: 1.4; }
 .pr-pe-meta {
   display: flex; align-items: center; gap: 6px; margin: 3px 0 6px;
   font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted-2);
@@ -2347,9 +2380,28 @@ button.feed-comment-user:hover { text-decoration: underline; }
 .practice-proj-cur { color: var(--muted); font-size: 10px; letter-spacing: 0.1em; }
 .practice-proj-empty { color: var(--muted); font-size: 12px; padding: 8px 0; }
 
+/* freeform practice-hop modal */
+.pr-freeform { max-width: 560px; width: 100%; }
+.pr-ff-title {
+  width: 100%; background: var(--panel-2); border: 1px solid var(--line-2); color: var(--text-bright);
+  padding: 10px 12px; font-size: 14px; font-family: inherit; margin: 4px 0 10px;
+}
+.pr-ff-title:focus { outline: none; border-color: var(--accent); }
+.pr-ff-body {
+  width: 100%; min-height: 220px; resize: vertical;
+  background: var(--panel-2); border: 1px solid var(--line-2); color: var(--text);
+  padding: 12px 14px; font-size: 14px; line-height: 1.7; font-family: inherit;
+}
+.pr-ff-body:focus { outline: none; border-color: var(--accent); }
+.pr-ff-counts { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin-top: 6px; }
+.pr-ff-counts b { color: var(--accent); font-weight: 700; }
+
 @media (max-width: 720px) {
-  .pr-arena-top { grid-template-columns: 1fr; }
-  .pr-timerpane { order: -1; }
+  /* keep the starter pane and timer side by side, just smaller */
+  .pr-arena-top { grid-template-columns: 1fr 104px; gap: 12px; }
+  .pr-dial { width: 96px; height: 96px; }
+  .pr-dial svg { width: 96px; height: 96px; }
+  .pr-clock b { font-size: 20px; }
   .pr-pe-actions { flex-wrap: wrap; }
   .pr-pe-mini { margin-left: 0; }
 }

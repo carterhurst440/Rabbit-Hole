@@ -108,6 +108,7 @@
     </div>
     <div class="header-spacer"></div>
     <button class="add-btn solid header-add-hop" id="addHopBtn" title="Add a new hop">+ HOP</button>
+    <button class="add-btn solid header-add-hop" id="addPracticeHopBtn" title="Add a freeform practice hop" hidden>+ PRACTICE HOP</button>
     <div class="header-meta" id="headerMeta">—</div>
     <button class="ai-toggle" id="aiToggle" title="AI assistant" aria-label="AI assistant">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H8l-4 4V6a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2z"/><path d="M9 10h6M9 13h4"/></svg>
@@ -421,22 +422,53 @@
     <section class="view" id="view-practice" hidden>
       <div class="view-head">
         <h1>PRACTICE</h1>
-        <p class="sub">Spin for a word. Write for twenty minutes without stopping. When the timer ends, your hop files itself to the warren.</p>
+        <p class="sub">Pick a game, then write for twenty minutes without stopping. When the timer ends, your hop files itself to the warren.</p>
       </div>
 
-      <div class="pr-arena" id="prArena" data-pstate="idle">
+      <div class="pr-tabs" id="prTabs" role="tablist">
+        <button class="pr-tab active" data-game="word" role="tab">WORD SPIN</button>
+        <button class="pr-tab" data-game="line" role="tab">FIRST LINE</button>
+        <button class="pr-tab" data-game="three" role="tab">THREE WORDS</button>
+      </div>
+
+      <div class="pr-arena" id="prArena" data-pstate="idle" data-pgame="word">
         <div class="pr-arena-top">
-          <div class="pr-reelpane">
-            <div class="pr-reel-label">YOUR WORD</div>
-            <div class="pr-reel-window" id="prReelWindow">
-              <div class="pr-reel" id="prReel">
-                <div class="pr-reel-row idle">SPIN TO BEGIN</div>
+          <div class="pr-startwrap">
+            <!-- GAME 1: WORD SPIN -->
+            <div class="pr-startpane pr-pane-word">
+              <div class="pr-reel-label">YOUR WORD</div>
+              <div class="pr-reel-window" id="prReelWindow">
+                <div class="pr-reel" id="prReel">
+                  <div class="pr-reel-row idle">SPIN TO BEGIN</div>
+                </div>
+              </div>
+              <div class="pr-reel-def" id="prReelDef" hidden></div>
+              <div class="pr-spinrow">
+                <button class="pr-spinbtn" id="prSpinBtn">SPIN</button>
+                <button class="pr-reroll" id="prReroll" hidden>RE-SPIN</button>
               </div>
             </div>
-            <div class="pr-reel-def" id="prReelDef" hidden></div>
-            <div class="pr-spinrow">
-              <button class="pr-spinbtn" id="prSpinBtn">SPIN</button>
-              <button class="pr-reroll" id="prReroll" hidden>RE-SPIN</button>
+            <!-- GAME 2: FIRST LINE -->
+            <div class="pr-startpane pr-pane-line">
+              <div class="pr-reel-label">YOUR OPENING LINE</div>
+              <div class="pr-linecard empty" id="prLineCard">Draw a line, then keep writing from it.</div>
+              <div class="pr-spinrow">
+                <button class="pr-spinbtn" id="prLineBtn">DRAW A LINE</button>
+                <button class="pr-reroll" id="prLineReroll" hidden>DRAW ANOTHER</button>
+              </div>
+            </div>
+            <!-- GAME 3: THREE WORDS -->
+            <div class="pr-startpane pr-pane-three">
+              <div class="pr-reel-label">WORK ALL THREE IN</div>
+              <div class="pr-threewrap" id="prThreeWrap">
+                <span class="pr-threechip empty">—</span>
+                <span class="pr-threechip empty">—</span>
+                <span class="pr-threechip empty">—</span>
+              </div>
+              <div class="pr-spinrow">
+                <button class="pr-spinbtn" id="prThreeBtn">DEAL THREE</button>
+                <button class="pr-reroll" id="prThreeReroll" hidden>RE-DEAL</button>
+              </div>
             </div>
           </div>
           <div class="pr-timerpane">
