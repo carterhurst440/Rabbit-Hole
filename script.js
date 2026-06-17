@@ -113,7 +113,7 @@ let projectsCache = [];
 let writingDaysCache = new Map();
 let dayStatsCache = new Map();   // day key -> { hops, words }, for heatmap tooltips
 let wordsChartCache = new Map(); // day key -> Map(sourceKey -> words); sourceKey = project_id | 'practice'
-const PRACTICE_BAR_COLOR = '#8f97a3';  // neutral grey for the practice stack segment
+const PRACTICE_BAR_COLOR = DEFAULT_ACCENT;  // practice stacks in the app default accent
 
 // Pull any legacy localStorage data so it can become the user's first project.
 function importableLocalData() {
