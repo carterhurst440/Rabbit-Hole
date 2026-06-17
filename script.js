@@ -6883,6 +6883,7 @@ function renderHome() {
           <span class="pc-meta">${active ? 'open · ' : ''}updated ${esc(when)}</span>
         </button>
         <div class="pc-actions">
+          <button class="pc-btn" data-preview="${p.id}">PREVIEW</button>
           <button class="pc-btn" data-download="${p.id}">DOWNLOAD</button>
           <button class="pc-btn" data-edit="${p.id}">EDIT</button>
           <button class="pc-btn danger" data-del="${p.id}">DELETE</button>
@@ -6896,6 +6897,8 @@ function renderHome() {
     </button>`;
   grid.querySelectorAll('[data-open]').forEach(el =>
     el.addEventListener('click', () => openProject(el.dataset.open, { stayHome: true })));
+  grid.querySelectorAll('[data-preview]').forEach(b =>
+    b.addEventListener('click', () => previewProjectFlow(b.dataset.preview)));
   grid.querySelectorAll('[data-download]').forEach(b =>
     b.addEventListener('click', () => downloadProjectFlow(b.dataset.download, b)));
   grid.querySelectorAll('[data-edit]').forEach(b =>
@@ -7191,6 +7194,16 @@ async function openProject(id, opts = {}) {
   // (accent, header, suggestions) without leaving the dashboard.
   if (opts.stayHome) { renderHome(); return; }
   go('sections');
+}
+
+// From the dashboard card: load the project (if it is not already open) and
+// show its whole story in the full-preview modal without leaving home.
+async function previewProjectFlow(id) {
+  if (uploadJobs.has(id)) return;
+  if (id !== activeProjectId) {
+    await openProject(id, { stayHome: true });
+  }
+  sectionPreviewModal();
 }
 
 // Lightweight full-screen overlay shown while a project's content loads, so the
