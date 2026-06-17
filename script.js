@@ -7892,6 +7892,39 @@ let prTimerId = null;
 let prLastFinished = null;       // last entry we saved, for READ THIS HOP
 
 const prRand = a => a[Math.floor(Math.random() * a.length)];
+
+// Per-user record of words the spinner has already surfaced, so a given user
+// never gets the same spun word twice. Backed by localStorage (covers words
+// that were rerolled away without writing) and seeded from already-filed hops.
+function prSeenKey() { return 'rh_pr_seen_words_' + (currentUser ? currentUser.id : 'anon'); }
+function prSeenStored() {
+  try { return new Set(JSON.parse(localStorage.getItem(prSeenKey()) || '[]')); }
+  catch (e) { return new Set(); }
+}
+function prSeenSet() {
+  const set = prSeenStored();
+  if (Array.isArray(practiceHops)) {
+    for (const h of practiceHops) { if (h && h.word) set.add(h.word); }
+  }
+  return set;
+}
+function prMarkSeen(word) {
+  if (!word) return;
+  const set = prSeenStored();
+  set.add(word);
+  try { localStorage.setItem(prSeenKey(), JSON.stringify([...set])); } catch (e) {}
+}
+// Pick a word the user has not seen yet. Once the pool is exhausted, clear the
+// stored set and start a fresh cycle so the spinner keeps working.
+function prPickWord() {
+  const seen = prSeenSet();
+  let pool = PRACTICE_WORDS.filter(w => !seen.has(w));
+  if (!pool.length) {
+    try { localStorage.removeItem(prSeenKey()); } catch (e) {}
+    pool = PRACTICE_WORDS.slice();
+  }
+  return prRand(pool);
+}
 function practiceWordCount(s) {
   const m = (s || '').trim().match(/\S+/g);
   return m ? m.length : 0;
@@ -7990,7 +8023,8 @@ function prSpin() {
   prTimerId = null;
   prSetState('spinning');
   const reel = prEl('prReel');
-  const target = prRand(PRACTICE_WORDS);
+  const target = prPickWord();
+  prMarkSeen(target);
   prEl('prReroll').hidden = true;
   prEl('prSpinBtn').disabled = true;
   prHideDef();
