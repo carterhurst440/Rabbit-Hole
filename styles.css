@@ -2,16 +2,16 @@
   --bg: #0a0a0a;
   --panel: #111110;
   --panel-2: #151514;
-  --line: #33322c;
-  --line-2: #423f37;
+  --line: #3d3c34;
+  --line-2: #4e4b41;
   --accent: #e0a96d;
   /* dim/mid derive from --accent so a single per-project swap re-themes the app */
   --accent-dim: color-mix(in srgb, var(--accent) 15%, transparent);
   --accent-mid: color-mix(in srgb, var(--accent) 40%, transparent);
   --text: #c8c0a8;
   --text-bright: #ece4cc;
-  --muted: #8e8970;
-  --muted-2: #6a6650;
+  --muted: #a09a7e;
+  --muted-2: #7d7860;
   --danger: #c0563f;
   --font: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
   --header-h: 52px;
