@@ -5831,7 +5831,7 @@ function playTransition() {
   authStage.classList.add('dissolving');   // CSS retracts every .auth-card .rl + fades text
   runDive(() => {
     authScreen.classList.add('fading');
-    setTimeout(() => { authWhooshPending = false; hideAuthUI(); }, 400);
+    setTimeout(() => { authWhooshPending = false; revealApp(); }, 400);
   });
 }
 
@@ -5908,10 +5908,16 @@ function showApp(session) {
   userEl.textContent = initials;
   document.getElementById('profileBtn').title = who + ' · ' + currentUser.email;
   renderSettings();
-  // App mounts underneath; the auth screen (z-index 100) stays on top during the whoosh.
-  document.body.classList.remove('locked');
+  // Keep the app hidden (body stays .locked) until boot finishes applying the
+  // project accent and routing, so the user never sees a flash of the default
+  // accent or the wrong view. revealApp() uncovers it once everything is ready.
   bootApp();
-  // If a dive is in flight, leave the login on top — its `signin` event hides it.
+}
+
+// Uncover the app once it is fully loaded (accent applied, route resolved).
+// During a sign-in dive the auth screen stays on top and runs its own fade.
+function revealApp() {
+  document.body.classList.remove('locked');
   if (!authWhooshPending) hideAuthUI();
 }
 
@@ -5923,12 +5929,14 @@ async function bootApp() {
     await loadProfile();
     await applyPendingUsername();
     await loadFluffle();
-    await initProjects();
+    await initProjects();   // applies the project accent and resolves the route
+    revealApp();
     maybeShowWelcome();
     loadNotifications();
   } catch (e) {
     console.error('boot failed', e);
     document.getElementById('headerMeta').textContent = 'load error';
+    revealApp();   // never leave the user stuck on a blank locked screen
   }
 }
 
