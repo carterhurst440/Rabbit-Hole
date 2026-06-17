@@ -1730,11 +1730,13 @@ button.feed-comment-user:hover { text-decoration: underline; }
 .vh-modal { max-width: 680px; position: relative; }
 .vh-modal .ui-modal-title { padding-right: 28px; }
 .ui-modal-x {
-  position: absolute; top: 14px; right: 14px; z-index: 1;
-  background: none; border: none; color: var(--muted-2);
-  cursor: pointer; font-size: 15px; padding: 4px; line-height: 1;
+  position: absolute; top: 12px; right: 12px; z-index: 5;
+  background: none; border: none; color: var(--muted);
+  cursor: pointer; font-size: 17px; line-height: 1;
+  width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;
+  border-radius: 4px;
 }
-.ui-modal-x:hover { color: var(--danger); }
+.ui-modal-x:hover { color: var(--text-bright); background: var(--panel-2); }
 .vh-comments { display: flex; flex-direction: column; gap: 10px; border-top: 1px solid var(--line); padding-top: 14px; }
 .vh-comments-head { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
 .vh-comments-head span { color: var(--accent); }

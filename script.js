@@ -872,6 +872,8 @@ function drawFeed() {
     feedSort = 'recent'; drawFeed();
   });
   list.forEach(p => wireFeedCard(el.querySelector(`.feed-card[data-id="${p.id}"]`), p));
+  const fq = feedSearch.trim();
+  if (fq) markSearchHits(el, fq, '.feed-context, .feed-hop-title, .feed-hop-body, .feed-user, .feed-crumb, .feed-theme');
   if (pendingFeedFocus) {
     const card = el.querySelector(`.feed-card[data-id="${pendingFeedFocus}"]`);
     pendingFeedFocus = null;
@@ -1759,10 +1761,10 @@ function renderChunkList(ch) {
 // Wrap every plain-text occurrence of `q` inside hop titles and bodies in a
 // <mark.search-hit>. Walks text nodes only, so it never corrupts the entity
 // highlight spans or HTML attributes already in the rendered card.
-function markSearchHits(root, q) {
+function markSearchHits(root, q, selector = '.chunk-disp-title, .chunk-disp-body') {
   const needle = (q || '').toLowerCase();
   if (!needle) return;
-  root.querySelectorAll('.chunk-disp-title, .chunk-disp-body').forEach(scope => {
+  root.querySelectorAll(selector).forEach(scope => {
     const walker = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT, null);
     const nodes = [];
     let n; while ((n = walker.nextNode())) nodes.push(n);
