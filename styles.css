@@ -828,7 +828,20 @@ select.ui-modal-input { cursor: pointer; appearance: none; -webkit-appearance: n
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .spv-doc { padding: 8px 26px 28px; gap: 0; }
-.spv-empty-doc { padding: 48px 0; text-align: center; color: var(--muted); font-size: 13px; }
+.spv-empty-doc { padding: 32px 0; text-align: center; color: var(--muted); font-size: 13px; }
+.spv-section-divider {
+  position: sticky; top: 0; z-index: 2;
+  display: flex; align-items: center; gap: 10px;
+  margin: 0 -26px; padding: 12px 26px;
+  background: var(--panel); border-bottom: 1px solid var(--line-2);
+}
+.spv-section-divider:not(:first-child) { margin-top: 14px; }
+.spv-sec-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--sec); flex: none; }
+.spv-sec-name {
+  font-size: 12px; letter-spacing: 0.14em; font-weight: 700; text-transform: uppercase;
+  color: var(--text-bright); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.spv-sec-count { margin-left: auto; font-size: 10px; letter-spacing: 0.12em; color: var(--muted); flex: none; }
 .spv-hop {
   padding: 26px 0; border-bottom: 1px solid var(--line);
   transition: opacity 0.15s ease;

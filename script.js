@@ -2332,22 +2332,32 @@ function chunkCharLocLine(c) {
   return `<div class="chunk-charloc">${csTextRow('CHARACTERS', chars)}${csTextRow('LOCATIONS', locs)}</div>`;
 }
 
-// SECTION PREVIEW — every hop in a section shown as one continuous document in a
-// wide modal. Each hop carries its own EDIT button: it highlights that hop, dims
-// the rest, and swaps the title + body into inline editable fields. SAVE commits
-// straight to the project (save()) and re-renders the block; CANCEL discards.
+// SECTION / FULL PREVIEW — hops shown as one continuous document in a wide modal.
+// Called with a chapterId it previews that one section; called with no argument it
+// previews the whole story, every section in order. Each hop carries its own EDIT
+// button: it highlights that hop, dims the rest, and swaps the title + body into
+// inline editable fields. SAVE commits straight to the project (save()) and
+// re-renders the block; CANCEL discards.
 function sectionPreviewModal(chapterId) {
-  const ch = db.chapters.find(c => c.id === chapterId);
-  if (!ch) return;
+  const fullMode = !chapterId;
+  const chapters = fullMode
+    ? db.chapters.slice().sort((a, b) => a.order - b.order)
+    : [db.chapters.find(c => c.id === chapterId)].filter(Boolean);
+  if (!chapters.length) return;
+
+  const proj = projectsCache.find(p => p.id === activeProjectId) || {};
+  const headAccent = fullMode ? (proj.accent || DEFAULT_ACCENT) : chapterColor(chapters[0].id);
+  const headKicker = fullMode ? 'FULL PREVIEW' : 'SECTION PREVIEW';
+  const headTitle = fullMode ? (proj.name || 'THE WHOLE STORY') : chapters[0].title;
 
   const overlay = document.createElement('div');
   overlay.className = 'ui-modal-overlay';
   overlay.innerHTML = `
-    <div class="ui-modal section-preview-modal" style="--accent:${esc(chapterColor(ch.id))}">
+    <div class="ui-modal section-preview-modal" style="--accent:${esc(headAccent)}">
       <div class="spv-head">
         <div class="spv-titles">
-          <div class="ui-modal-title">SECTION PREVIEW</div>
-          <div class="spv-section">${esc(ch.title)}</div>
+          <div class="ui-modal-title">${headKicker}</div>
+          <div class="spv-section">${esc(headTitle)}</div>
         </div>
         <button class="ui-modal-btn" data-act="close">Close</button>
       </div>
@@ -2428,19 +2438,36 @@ function sectionPreviewModal(chapterId) {
   }
 
   function renderDoc() {
-    const chunks = chunksOf(ch.id).filter(isVisibleChunk);
     doc.innerHTML = '';
-    if (!chunks.length) {
-      doc.innerHTML = '<div class="spv-empty-doc">No hops in this section yet.</div>';
-      return;
-    }
-    chunks.forEach((c, i) => {
-      const block = document.createElement('div');
-      block.className = 'spv-hop';
-      block.dataset.id = c.id;
-      doc.appendChild(block);
-      renderHop(block, c, i);
+    let total = 0;
+    chapters.forEach(chap => {
+      const chunks = chunksOf(chap.id).filter(isVisibleChunk);
+      if (fullMode) {
+        const divider = document.createElement('div');
+        divider.className = 'spv-section-divider';
+        divider.style.setProperty('--sec', chapterColor(chap.id));
+        divider.innerHTML = `<span class="spv-sec-dot"></span><span class="spv-sec-name">${esc(chap.title)}</span><span class="spv-sec-count">${chunks.length} ${chunks.length === 1 ? 'HOP' : 'HOPS'}</span>`;
+        doc.appendChild(divider);
+      }
+      if (!chunks.length) {
+        const empty = document.createElement('div');
+        empty.className = 'spv-empty-doc';
+        empty.textContent = 'No hops in this section yet.';
+        doc.appendChild(empty);
+        return;
+      }
+      chunks.forEach((c, i) => {
+        total++;
+        const block = document.createElement('div');
+        block.className = 'spv-hop';
+        block.dataset.id = c.id;
+        doc.appendChild(block);
+        renderHop(block, c, i);
+      });
     });
+    if (!total && !fullMode) {
+      doc.innerHTML = '<div class="spv-empty-doc">No hops in this section yet.</div>';
+    }
   }
   renderDoc();
 }
@@ -2612,6 +2639,8 @@ document.getElementById('importSectionBtn')?.addEventListener('click', () => {
   if (!ch) { alertModal('Add a chapter first, then import content into it.', { title: 'IMPORT' }); return; }
   openSectionImportModal(ch);
 });
+
+document.getElementById('fullPreviewBtn')?.addEventListener('click', () => sectionPreviewModal());
 
 // SHOW/HIDE ARCHIVED: shared toggle across sections, timelines, characters, tags.
 document.querySelectorAll('[data-arch]').forEach(btn => {
