@@ -141,6 +141,10 @@ button, input, textarea, select { font-family: inherit; }
 .nav-icon span { font-size: 8.5px; letter-spacing: 0.08em; }
 .nav-icon:hover { color: var(--text-bright); background: var(--panel-2); }
 .nav-icon.active { color: var(--accent); border-left-color: var(--accent); background: var(--panel-2); }
+/* Practice is cross-project, so its highlight + CTA use the app default accent. */
+.nav-icon[data-route="practice"].active { color: #e0a96d; border-left-color: #e0a96d; }
+#addPracticeHopBtn.solid { background: #e0a96d; border-color: #e0a96d; color: #1a1206; }
+#addPracticeHopBtn.solid:hover { background: var(--text-bright); border-color: var(--text-bright); }
 .nav-spacer { flex: 1 1 auto; min-height: 12px; }
 .nav-icon.signout { color: var(--muted-2); }
 .nav-icon.signout:hover { color: var(--accent); }
