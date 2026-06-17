@@ -2391,6 +2391,17 @@ button.feed-comment-user:hover { text-decoration: underline; }
   padding: 10px 12px; font-size: 14px; font-family: inherit; margin: 4px 0 10px;
 }
 .pr-ff-title:focus { outline: none; border-color: var(--accent); }
+.pr-ff-timer { display: flex; align-items: center; gap: 10px; margin: 0 0 10px; flex-wrap: wrap; }
+.pr-ff-timer-lbl { font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+.pr-ff-durs { display: flex; gap: 6px; flex-wrap: wrap; }
+.pr-ff-durs.locked { opacity: 0.45; pointer-events: none; }
+.pr-ff-dur {
+  background: var(--panel-2); border: 1px solid var(--line-2); color: var(--muted);
+  padding: 5px 9px; font-size: 11px; font-family: inherit; letter-spacing: 0.04em; cursor: pointer;
+}
+.pr-ff-dur:hover { color: var(--text-bright); border-color: var(--accent); }
+.pr-ff-dur.active { background: #1a1206; border-color: var(--accent); color: var(--accent); }
+.pr-ff-clock { margin-left: auto; font-size: 16px; font-weight: 700; color: var(--accent); letter-spacing: 0.06em; font-variant-numeric: tabular-nums; }
 .pr-ff-body {
   width: 100%; min-height: 220px; resize: vertical;
   background: var(--panel-2); border: 1px solid var(--line-2); color: var(--text);

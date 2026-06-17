@@ -8473,12 +8473,21 @@ function addPracticeHopFlow() {
   if (!currentUser) return;
   const overlay = document.createElement('div');
   overlay.className = 'ui-modal-overlay';
+  const durOpts = [0, 10, 20, 30, 40, 50, 60];
+  const durBtns = durOpts.map(m =>
+    `<button class="pr-ff-dur${m === 0 ? ' active' : ''}" data-mins="${m}">${m === 0 ? 'OFF' : m + 'm'}</button>`
+  ).join('');
   overlay.innerHTML = `
     <div class="ui-modal pr-freeform" role="dialog" aria-modal="true">
       <button class="ui-modal-x" data-act="close" aria-label="Close">✕</button>
       <div class="ui-modal-title">ADD PRACTICE HOP</div>
       <div class="ui-modal-msg">A freeform hop. Give it a title if you like, then write.</div>
       <input type="text" class="pr-ff-title" id="prFfTitle" placeholder="Title (optional)" maxlength="120" autocomplete="off" />
+      <div class="pr-ff-timer">
+        <span class="pr-ff-timer-lbl">TIMER</span>
+        <div class="pr-ff-durs" id="prFfDurs">${durBtns}</div>
+        <span class="pr-ff-clock" id="prFfClock" hidden>00:00</span>
+      </div>
       <textarea class="pr-ff-body" id="prFfBody" placeholder="Write your hop…" spellcheck="true"></textarea>
       <div class="pr-ff-counts"><b id="prFfWc">0</b> words</div>
       <div class="ui-modal-actions">
@@ -8490,30 +8499,79 @@ function addPracticeHopFlow() {
   const titleEl = overlay.querySelector('#prFfTitle');
   const bodyEl = overlay.querySelector('#prFfBody');
   const wcEl = overlay.querySelector('#prFfWc');
-  const close = () => { document.removeEventListener('keydown', onKey); overlay.remove(); };
+  const dursEl = overlay.querySelector('#prFfDurs');
+  const clockEl = overlay.querySelector('#prFfClock');
+  const saveBtn = overlay.querySelector('[data-act="save"]');
+
+  let mins = 0;          // selected duration; 0 = OFF
+  let running = false;   // countdown active
+  let tick = null;       // interval handle
+  let endEpoch = 0;      // ms timestamp when timer hits 0
+  let startEpoch = 0;    // ms when the run began
+
+  const clearTick = () => { if (tick) { clearInterval(tick); tick = null; } };
+  const close = () => { clearTick(); document.removeEventListener('keydown', onKey); overlay.remove(); };
   function onKey(e) { if (e.key === 'Escape') { e.preventDefault(); close(); } }
   document.addEventListener('keydown', onKey);
   overlay.addEventListener('mousedown', e => { if (e.target === overlay) close(); });
   overlay.querySelector('[data-act="close"]').addEventListener('click', close);
   overlay.querySelector('[data-act="cancel"]').addEventListener('click', close);
   bodyEl.addEventListener('input', () => { wcEl.textContent = practiceWordCount(bodyEl.value); });
-  overlay.querySelector('[data-act="save"]').addEventListener('click', async () => {
+
+  // Pick a duration (only before a run has started).
+  dursEl.addEventListener('click', e => {
+    if (running) return;
+    const btn = e.target.closest('.pr-ff-dur');
+    if (!btn) return;
+    mins = parseInt(btn.dataset.mins, 10) || 0;
+    dursEl.querySelectorAll('.pr-ff-dur').forEach(b => b.classList.toggle('active', b === btn));
+    saveBtn.textContent = mins > 0 ? 'Start' : 'Save hop';
+  });
+
+  function paintClock(remainMs) {
+    const s = Math.max(0, Math.round(remainMs / 1000));
+    clockEl.textContent = prMMSS(s);
+  }
+
+  function startTimer() {
+    running = true;
+    startEpoch = Date.now();
+    endEpoch = startEpoch + mins * 60000;
+    dursEl.classList.add('locked');
+    clockEl.hidden = false;
+    paintClock(endEpoch - startEpoch);
+    saveBtn.textContent = 'Save now';
+    bodyEl.focus();
+    tick = setInterval(() => {
+      const left = endEpoch - Date.now();
+      paintClock(left);
+      if (left <= 0) { clearTick(); commitHop(true); }
+    }, 250);
+  }
+
+  async function commitHop(fromTimer) {
     const body = (bodyEl.value || '').trim();
-    if (!body) { bodyEl.focus(); return; }
+    if (!body) {
+      if (fromTimer) { running = false; clockEl.hidden = true; dursEl.classList.remove('locked'); saveBtn.textContent = mins > 0 ? 'Start' : 'Save hop'; }
+      bodyEl.focus();
+      return;
+    }
     const title = (titleEl.value || '').trim() || 'Freeform hop';
+    const seconds = running ? Math.max(0, Math.round((Date.now() - startEpoch) / 1000)) : 0;
+    clearTick();
     close();
     if (!practiceLoaded) await loadPracticeHops();
     const nowIso = new Date().toISOString();
     const optimistic = {
       id: 'local-' + Date.now(), user_id: currentUser.id,
-      title, body, prompt: null, word: null, seconds: 0,
+      title, body, prompt: null, word: null, seconds,
       created_at: nowIso, updated_at: nowIso,
     };
     practiceHops.unshift(optimistic);
     renderPracticeList();
     try {
       const { data, error } = await sb.from('practice_hops').insert({
-        user_id: currentUser.id, title, body, prompt: null, word: null, seconds: 0,
+        user_id: currentUser.id, title, body, prompt: null, word: null, seconds,
       }).select().single();
       if (error) throw error;
       const i = practiceHops.findIndex(h => h.id === optimistic.id);
@@ -8523,6 +8581,11 @@ function addPracticeHopFlow() {
     } catch (e) {
       alertModal('Saved locally, but the warren did not confirm: ' + (e.message || 'request failed'), { title: 'PRACTICE' });
     }
+  }
+
+  saveBtn.addEventListener('click', () => {
+    if (mins > 0 && !running) { startTimer(); return; }
+    commitHop(false);
   });
   setTimeout(() => bodyEl.focus(), 60);
 }
