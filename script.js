@@ -7910,7 +7910,7 @@ async function prFinish(early) {
   const word = prWord;
   prSetState('done');
   prRenderClock(0, 'DONE');
-  prBuzz();
+  if (!early) prBuzz();   // only the natural timer end gets the flash + buzzer
   prClearSession();
 
   const words = practiceWordCount(text);
