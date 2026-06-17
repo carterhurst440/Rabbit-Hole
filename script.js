@@ -401,6 +401,9 @@ let fluffleNames = new Map(); // user_id -> username for Fluffle members
 let feedScope = 'all';        // 'all' | 'fluffle' | 'mine'
 let feedGenre = '';           // '' = all genres, else a project_genre
 let feedType = '';            // '' = all types, else a project_type
+let feedSort = 'recent';      // 'recent' | 'popular' (FIND WRITERS)
+let feedSearch = '';          // free-text search across the feed
+let followerCount = 0;        // people who added the current user to their Fluffle
 let pendingFeedFocus = null;  // post id to scroll to after the feed draws
 
 // How many community posts the current user has per hop, so each hop can show a
@@ -507,7 +510,7 @@ function manageFluffleModal() {
         myFluffle.delete(idv); fluffleNames.delete(idv);
         await sb.from('community_follows').delete().eq('user_id', currentUser.id).eq('friend_id', idv);
         updateFluffleCount(); render();
-        if (currentRoute() === 'community') { renderCommunityFilters(); drawFeed(); }
+        if (currentRoute() === 'community') { renderCommunityTabs(); drawFeed(); renderCommunityRail(); }
       });
     });
   }
@@ -601,6 +604,13 @@ function postToCommunityModal(chunk) {
   overlay.querySelector('[data-act="post"]').addEventListener('click', async () => {
     const btn = overlay.querySelector('[data-act="post"]');
     btn.disabled = true; btn.textContent = 'POSTING…';
+    let themes = [];
+    try {
+      const { data: td } = await sb.functions.invoke('community-themes', {
+        body: { title: chunk.title || '', text: chunk.body || '', type: proj.type || '', genre: proj.genre || '' }
+      });
+      if (td && Array.isArray(td.themes)) themes = td.themes;
+    } catch (_) {}
     const { error } = await sb.from('community_posts').insert({
       user_id: currentUser.id,
       username,
@@ -613,6 +623,7 @@ function postToCommunityModal(chunk) {
       project_genre: proj.genre || null,
       accent: proj.accent || DEFAULT_ACCENT,
       entities,
+      themes,
       visibility
     });
     if (error) {
@@ -651,7 +662,9 @@ async function renderCommunity() {
   if (!el) return;
   el.innerHTML = '<div class="feed-empty">Loading…</div>';
   await loadFluffle();
-  renderCommunityFilters();
+  await loadFollowerCount();
+  renderCommunityTabs();
+  renderCommunityTools();
   const { data: posts, error } = await sb.from('community_posts')
     .select('*').eq('status', 'open').order('created_at', { ascending: false }).limit(100);
   if (error) { el.innerHTML = '<div class="feed-empty">Could not load the feed.</div>'; return; }
@@ -675,32 +688,60 @@ async function renderCommunity() {
     commentsOpen: false
   }));
   drawFeed();
+  renderCommunityRail();
 }
 
-// Scope toggle (ALL / MY FLUFFLE) plus GENRE and PROJECT TYPE dropdown filters.
-function renderCommunityFilters() {
-  const bar = document.getElementById('communityFilters');
+// People who have added the current user to their Fluffle (reverse follow).
+async function loadFollowerCount() {
+  followerCount = 0;
+  if (!currentUser) return;
+  const { count } = await sb.from('community_follows')
+    .select('user_id', { count: 'exact', head: true }).eq('friend_id', currentUser.id);
+  followerCount = count || 0;
+}
+
+// Up-to-two-letter avatar label from a handle (drops a leading @).
+function initialsOf(name) {
+  const s = (name || '').replace(/^@/, '').trim();
+  if (!s) return '?';
+  const parts = s.split(/[\s_.-]+/).filter(Boolean);
+  const letters = parts.length > 1 ? parts[0][0] + parts[1][0] : s.slice(0, 2);
+  return letters.toUpperCase();
+}
+
+// Tab row: ALL / MY FLUFFLE / MY POSTS scope toggle.
+function renderCommunityTabs() {
+  const bar = document.getElementById('communityTabs');
+  if (!bar) return;
+  bar.innerHTML = `
+    <button class="community-tab ${feedScope === 'all' ? 'active' : ''}" data-scope="all">ALL</button>
+    <button class="community-tab ${feedScope === 'fluffle' ? 'active' : ''}" data-scope="fluffle">MY FLUFFLE <span class="badge">${myFluffle.size}</span></button>
+    <button class="community-tab ${feedScope === 'mine' ? 'active' : ''}" data-scope="mine">MY POSTS</button>`;
+  bar.querySelectorAll('[data-scope]').forEach(b => b.addEventListener('click', () => {
+    feedScope = b.dataset.scope;
+    feedSort = 'recent';
+    renderCommunityTabs(); drawFeed();
+  }));
+}
+
+// Sticky toolbar: free-text search + GENRE / TYPE dropdown filters.
+function renderCommunityTools() {
+  const bar = document.getElementById('communityTools');
   if (!bar) return;
   const genreOpts = ['<option value="">ALL GENRES</option>']
     .concat(GENRES.map(g => `<option value="${esc(g)}" ${feedGenre === g ? 'selected' : ''}>${esc(g)}</option>`)).join('');
   const typeOpts = ['<option value="">ALL TYPES</option>']
     .concat(PROJECT_TYPES.map(t => `<option value="${esc(t)}" ${feedType === t ? 'selected' : ''}>${esc(t)}</option>`)).join('');
   bar.innerHTML = `
-    <div class="cf-scope">
-      <button class="cf-scope-btn ${feedScope === 'all' ? 'active' : ''}" data-scope="all">ALL</button>
-      <button class="cf-scope-btn ${feedScope === 'fluffle' ? 'active' : ''}" data-scope="fluffle">MY FLUFFLE <span class="cf-fluffle-count">${myFluffle.size}</span></button>
-      <button class="cf-scope-btn ${feedScope === 'mine' ? 'active' : ''}" data-scope="mine">MY POSTS</button>
+    <div class="feed-search">
+      <svg viewBox="0 0 20 20"><circle cx="9" cy="9" r="6.4"/><line x1="13.8" y1="13.8" x2="18" y2="18"/></svg>
+      <input type="text" id="feedSearchInput" placeholder="Search hops, writers, themes…" autocomplete="off" value="${esc(feedSearch)}" />
     </div>
-    <div class="cf-selects">
-      <select class="cf-select" data-filter="genre">${genreOpts}</select>
-      <select class="cf-select" data-filter="type">${typeOpts}</select>
-      ${currentUser ? '<button class="cf-profile-btn" data-act="myprofile">VIEW MY PROFILE</button>' : ''}
-    </div>`;
-  bar.querySelector('[data-act="myprofile"]')?.addEventListener('click', () =>
-    userProfileModal(currentUser.id, displayUsername()));
-  bar.querySelectorAll('[data-scope]').forEach(b => b.addEventListener('click', () => {
-    feedScope = b.dataset.scope; renderCommunityFilters(); drawFeed();
-  }));
+    <select class="cf-select" data-filter="genre">${genreOpts}</select>
+    <select class="cf-select" data-filter="type">${typeOpts}</select>`;
+  bar.querySelector('#feedSearchInput').addEventListener('input', e => {
+    feedSearch = e.target.value; drawFeed();
+  });
   bar.querySelector('[data-filter="genre"]').addEventListener('change', e => {
     feedGenre = e.target.value; drawFeed();
   });
@@ -709,22 +750,111 @@ function renderCommunityFilters() {
   });
 }
 
+// Right rail: profile card, your fluffle, themes cloud, guidelines.
+function renderCommunityRail() {
+  const rail = document.getElementById('communityRail');
+  if (!rail) return;
+  if (!currentUser) { rail.innerHTML = ''; return; }
+  const handle = displayUsername() || 'you';
+  const myPosts = feedCache.filter(p => p.user_id === currentUser.id).length;
+
+  const fluffle = [...myFluffle];
+  const fluffleHtml = fluffle.length
+    ? `<div class="rail-fluffle">${fluffle.map(id => {
+        const name = fluffleNames.get(id) || 'member';
+        return `<div class="rfl-row">
+          <div class="rfl-av">${esc(initialsOf(name))}</div>
+          <div class="rfl-meta">
+            <button class="rfl-h" data-uid="${esc(id)}" data-uname="${esc(name)}">@${esc(name)}</button>
+          </div>
+        </div>`;
+      }).join('')}</div>`
+    : '<div class="rail-empty">No one in your Fluffle yet. Tap a writer in the feed to add them.</div>';
+
+  const themeCounts = new Map();
+  feedCache.forEach(p => (p.themes || []).forEach(t => {
+    if (!t) return; themeCounts.set(t, (themeCounts.get(t) || 0) + 1);
+  }));
+  const themes = [...themeCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12);
+  const themesHtml = themes.length
+    ? `<div class="rail-tagcloud">${themes.map(([t, n]) =>
+        `<button class="rail-tagchip" data-theme="${esc(t)}">${esc(t)} <b>${n}</b></button>`).join('')}</div>`
+    : '<div class="rail-empty">Themes appear here as posts are shared.</div>';
+
+  rail.innerHTML = `
+    <div class="rail-card">
+      <div class="rpf-head">
+        <div class="rpf-av">${esc(initialsOf(handle))}</div>
+        <div class="rpf-id"><div class="rpf-handle"><span class="at">@</span>${esc(handle)}</div></div>
+      </div>
+      <div class="rpf-stats">
+        <div><b>${myPosts}</b><span>POSTS</span></div>
+        <div><b>${myFluffle.size}</b><span>FLUFFLE</span></div>
+        <div><b>${followerCount}</b><span>FOLLOWERS</span></div>
+      </div>
+      <button class="rail-link" data-act="myprofile">VIEW PROFILE →</button>
+    </div>
+    <div class="rail-card">
+      <h3>YOUR FLUFFLE</h3>
+      ${fluffleHtml}
+      <button class="rail-link" data-act="findwriters">FIND WRITERS →</button>
+    </div>
+    <div class="rail-card">
+      <h3>THEMES</h3>
+      ${themesHtml}
+    </div>
+    <div class="rail-card">
+      <h3>KEEP THE WARREN WARM</h3>
+      <p class="rail-note">Feedback is a gift. Be specific, be kind, and <b>quote the line</b> you are reacting to.</p>
+    </div>`;
+
+  rail.querySelector('[data-act="myprofile"]')?.addEventListener('click', () =>
+    userProfileModal(currentUser.id, displayUsername()));
+  rail.querySelector('[data-act="findwriters"]')?.addEventListener('click', () => {
+    feedScope = 'all'; feedSort = 'popular'; feedSearch = '';
+    renderCommunityTabs(); renderCommunityTools(); drawFeed();
+    document.getElementById('communityArea')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+  rail.querySelectorAll('.rfl-h').forEach(b =>
+    b.addEventListener('click', () => userProfileModal(b.dataset.uid, b.dataset.uname)));
+  rail.querySelectorAll('.rail-tagchip').forEach(b => b.addEventListener('click', () => {
+    feedSearch = b.dataset.theme;
+    renderCommunityTools(); drawFeed();
+  }));
+}
+
 function visibleFeed() {
   const me = currentUser && currentUser.id;
   const scopeOk = p => feedScope === 'fluffle' ? myFluffle.has(p.user_id)
     : feedScope === 'mine' ? p.user_id === me
     : true;
-  return feedCache.filter(p =>
+  const q = feedSearch.trim().toLowerCase();
+  const searchOk = p => {
+    if (!q) return true;
+    const hay = [p.username, p.context, p.hop_title, p.hop_body, p.project_name, p.project_type, p.project_genre,
+      ...(p.themes || []), ...((p.entities || []).map(e => e.name))].filter(Boolean).join(' ').toLowerCase();
+    return hay.includes(q);
+  };
+  const list = feedCache.filter(p =>
     scopeOk(p) &&
     (!feedGenre || p.project_genre === feedGenre) &&
-    (!feedType || p.project_type === feedType));
+    (!feedType || p.project_type === feedType) &&
+    searchOk(p));
+  if (feedSort === 'popular') return [...list].sort((a, b) => b.likeCount - a.likeCount);
+  return list;
 }
 
 function drawFeed() {
   const el = document.getElementById('communityFeed');
   if (!el) return;
+  const noResults = document.getElementById('communityNoResults');
   const list = visibleFeed();
   if (!list.length) {
+    if (feedSearch.trim()) {
+      el.innerHTML = '';
+      if (noResults) noResults.hidden = false;
+      return;
+    }
     const msg = feedScope === 'fluffle'
       ? 'No posts from your Fluffle yet. Add members from their profile.'
       : feedScope === 'mine'
@@ -733,7 +863,14 @@ function drawFeed() {
     el.innerHTML = `<div class="feed-empty">${msg}</div>`;
     return;
   }
-  el.innerHTML = list.map(feedCardHtml).join('');
+  if (noResults) noResults.hidden = true;
+  const banner = feedSort === 'popular'
+    ? `<div class="feed-popular-note"><span>MOST-LIKED HOPS</span><button data-act="clearpopular">← BACK TO RECENT</button></div>`
+    : '';
+  el.innerHTML = banner + list.map(feedCardHtml).join('');
+  el.querySelector('[data-act="clearpopular"]')?.addEventListener('click', () => {
+    feedSort = 'recent'; drawFeed();
+  });
   list.forEach(p => wireFeedCard(el.querySelector(`.feed-card[data-id="${p.id}"]`), p));
   if (pendingFeedFocus) {
     const card = el.querySelector(`.feed-card[data-id="${pendingFeedFocus}"]`);
@@ -785,6 +922,13 @@ function feedEntityChipsHtml(entities) {
   };
   const body = group('CHARACTERS', 'character') + group('LOCATIONS', 'location');
   return body ? `<div class="feed-ent-sep"></div>${body}` : '';
+}
+
+// AI-assigned theme tags for a post; click drops the theme into the feed search.
+function feedThemesHtml(themes) {
+  if (!themes || !themes.length) return '';
+  return `<div class="feed-themes">${themes.map(t =>
+    `<button class="feed-theme" data-theme="${esc(t)}">${esc(t)}</button>`).join('')}</div>`;
 }
 
 // Prominent project header for a post: name on its own line, type · genre beneath.
@@ -871,6 +1015,7 @@ function feedCardHtml(p) {
       <button class="feed-view" data-f="viewhop" hidden>VIEW FULL HOP <span>→</span></button>
       ${feedEntityChipsHtml(p.entities)}
     </div>
+    ${feedThemesHtml(p.themes)}
     <div class="feed-actions">
       <button class="feed-btn like ${p.likedByMe ? 'on' : ''}" data-f="like">
         <svg class="fa-ic" viewBox="0 0 20 20"><path class="fa-heart" d="M10,17 C10,17 2.5,12.2 2.5,7.2 C2.5,4.6 4.5,3 6.6,3 C8.2,3 9.4,4 10,5.2 C10.6,4 11.8,3 13.4,3 C15.5,3 17.5,4.6 17.5,7.2 C17.5,12.2 10,17 10,17 Z"/></svg>
@@ -897,6 +1042,10 @@ function wireFeedCard(card, p) {
   const viewBtn = card.querySelector('[data-f="viewhop"]');
   if (bodyEl && viewBtn && bodyEl.scrollHeight - bodyEl.clientHeight > 4) viewBtn.hidden = false;
   card.querySelector('[data-f="hopbox"]')?.addEventListener('click', () => viewHopModal(p));
+  card.querySelectorAll('.feed-theme').forEach(b => b.addEventListener('click', () => {
+    feedSearch = b.dataset.theme;
+    renderCommunityTools(); drawFeed();
+  }));
   card.querySelector('[data-f="user"]')?.addEventListener('click', () => userProfileModal(p.user_id, p.username));
   card.querySelectorAll('button.feed-comment-user').forEach(b =>
     b.addEventListener('click', () => userProfileModal(b.dataset.uid, b.dataset.uname)));
@@ -1248,6 +1397,9 @@ async function userProfileModal(userId, username) {
     allComments = cr.data || [];
     commentTotal = allComments.length;
   }
+  const { count: followers } = await sb.from('community_follows')
+    .select('user_id', { count: 'exact', head: true }).eq('friend_id', userId);
+  const followerTotal = followers || 0;
   const liveAccent = await resolveLivePostAccents(posts);
   const meId = currentUser && currentUser.id;
   posts.forEach(p => {
@@ -1288,6 +1440,7 @@ async function userProfileModal(userId, username) {
         <div class="up-stats">
           <span class="up-streak" title="Consecutive days with a new hop">${RABBIT_ICON}<strong>${streakVal}</strong> hop streak</span>
           <span><strong>${posts.length}</strong> posts</span>
+          <span><strong>${followerTotal}</strong> followers</span>
           <span><strong>${projects.length}</strong> projects</span>
           <span><strong>${likeTotal}</strong> ♥</span>
           <span><strong>${commentTotal}</strong> comments</span>
@@ -1312,7 +1465,7 @@ async function userProfileModal(userId, username) {
       }
       updateFluffleCount();
       render();
-      if (currentRoute() === 'community') { renderCommunityFilters(); drawFeed(); }
+      if (currentRoute() === 'community') { renderCommunityTabs(); drawFeed(); renderCommunityRail(); }
     });
     drawUpFeed();
   }

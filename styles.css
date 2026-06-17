@@ -1434,6 +1434,127 @@ body.locked .ai-overlay { display: none !important; }
 /* ---------- COMMUNITY FEED ---------- */
 .feed { display: flex; flex-direction: column; gap: 22px; max-width: 660px; }
 .feed-empty { color: var(--muted); padding: 40px; text-align: center; border: 1px dashed var(--line-2); }
+
+/* feed + rail layout */
+.feed-area { display: flex; gap: 34px; align-items: flex-start; }
+.feed-col { flex: 0 1 640px; max-width: 640px; min-width: 0; display: flex; flex-direction: column; gap: 22px; }
+.feed-area .feed { max-width: none; }
+.feed-noresults {
+  border: 1px dashed var(--line-2); padding: 34px; text-align: center;
+  font-size: 12px; letter-spacing: 0.08em; color: var(--muted);
+}
+.feed-rail { flex: none; width: 300px; display: flex; flex-direction: column; gap: 20px; position: sticky; top: calc(var(--header-h) + 16px); }
+@media (max-width: 1024px) {
+  .feed-rail { display: none; }
+  .feed-col { flex: 1 1 auto; width: 100%; max-width: 640px; }
+}
+
+/* sticky search + filter toolbar */
+.feed-tools {
+  position: sticky; top: var(--header-h); z-index: 20; display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+  background: var(--bg); padding: 10px 0 12px; border-bottom: 1px solid var(--line);
+}
+.feed-search {
+  flex: 1 1 220px; min-width: 0; display: flex; align-items: center; gap: 10px;
+  border: 1px solid var(--line-2); background: var(--panel-2); padding: 0 12px; transition: border-color 0.18s;
+}
+.feed-search:focus-within { border-color: var(--accent-mid); }
+.feed-search svg { width: 15px; height: 15px; stroke: var(--muted); fill: none; stroke-width: 1.7; stroke-linecap: round; flex: none; }
+.feed-search:focus-within svg { stroke: var(--accent); }
+.feed-search input {
+  flex: 1; background: none; border: none; outline: none; color: var(--text-bright);
+  font-family: inherit; font-size: 12px; letter-spacing: 0.04em; padding: 10px 0; min-width: 0;
+}
+.feed-search input::placeholder { color: var(--muted); letter-spacing: 0.08em; }
+
+/* tabs (ALL / MY FLUFFLE / MY POSTS) */
+.community-tabs { display: inline-flex; border: 1px solid var(--line-2); margin-bottom: 18px; width: max-content; }
+.community-tab {
+  display: inline-flex; align-items: center; gap: 8px; background: none; border: none;
+  border-left: 1px solid var(--line-2); color: var(--muted); font-family: inherit;
+  font-size: 12px; letter-spacing: 0.1em; padding: 10px 18px; cursor: pointer;
+}
+.community-tab:first-child { border-left: none; }
+.community-tab:hover { color: var(--text-bright); }
+.community-tab.active { color: var(--text-bright); background: var(--accent-dim); }
+.community-tab .badge {
+  display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px;
+  background: var(--line-2); color: var(--text-bright); font-size: 10px; font-weight: 700; border-radius: 9px;
+}
+.community-tab.active .badge { background: var(--accent); color: #0a0a0a; }
+
+/* popular (FIND WRITERS) banner */
+.feed-popular-note {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  border: 1px solid var(--accent-mid); background: var(--accent-dim); padding: 10px 14px;
+  font-size: 11px; letter-spacing: 0.08em; color: var(--accent);
+}
+.feed-popular-note button {
+  background: none; border: 1px solid var(--accent-mid); color: var(--accent);
+  font-family: inherit; font-size: 10px; letter-spacing: 0.1em; padding: 5px 10px; cursor: pointer;
+}
+.feed-popular-note button:hover { border-color: var(--accent); }
+
+/* theme chips on a feed card */
+.feed-themes { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 14px; }
+.feed-theme {
+  border: 1px solid var(--line-2); background: none; color: var(--muted);
+  font-family: inherit; font-size: 10px; letter-spacing: 0.08em; padding: 5px 9px; cursor: pointer;
+}
+.feed-theme:hover { border-color: var(--accent-mid); color: var(--accent); }
+
+/* rail cards */
+.rail-card { border: 1px solid var(--line-2); background: var(--panel-2); padding: 18px 18px 16px; }
+.rail-card h3 { font-size: 10px; letter-spacing: 0.26em; font-weight: 700; color: var(--muted); margin: 0 0 16px; }
+.rail-link {
+  display: inline-flex; align-items: center; gap: 8px; margin-top: 16px; font-size: 10px;
+  letter-spacing: 0.14em; font-weight: 700; color: var(--accent); background: none; border: none;
+  cursor: pointer; padding: 0; white-space: nowrap;
+}
+.rail-link:hover { text-decoration: underline; text-underline-offset: 3px; }
+.rail-empty { font-size: 11px; line-height: 1.6; color: var(--muted); }
+/* profile rail card */
+.rpf-head { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+.rpf-av {
+  width: 40px; height: 40px; flex: none; border: 1px solid var(--line-2); display: grid; place-items: center;
+  font-size: 13px; font-weight: 800; color: var(--accent); background: var(--accent-dim);
+}
+.rpf-id { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.rpf-handle { font-size: 14px; font-weight: 700; color: var(--text-bright); }
+.rpf-handle .at { color: var(--accent); }
+.rpf-stats {
+  display: flex; gap: 10px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+  padding: 14px 0; margin-bottom: 14px;
+}
+.rpf-stats > div { flex: 1; display: flex; flex-direction: column; gap: 5px; text-align: center; }
+.rpf-stats b { font-size: 18px; font-weight: 800; color: var(--text-bright); font-variant-numeric: tabular-nums; line-height: 1; }
+.rpf-stats span { font-size: 8px; letter-spacing: 0.14em; color: var(--muted); font-weight: 700; }
+/* fluffle list in rail */
+.rail-fluffle { display: flex; flex-direction: column; gap: 14px; }
+.rfl-row { display: flex; align-items: center; gap: 11px; }
+.rfl-av {
+  width: 32px; height: 32px; flex: none; border: 1px solid var(--line-2); display: grid; place-items: center;
+  font-size: 10px; font-weight: 800; color: var(--accent); background: var(--accent-dim);
+}
+.rfl-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.rfl-h {
+  background: none; border: none; padding: 0; font-family: inherit; text-align: left; cursor: pointer;
+  font-size: 12.5px; font-weight: 700; color: var(--text-bright);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.rfl-h:hover { color: var(--accent); text-decoration: underline; }
+.rfl-sub { font-size: 10px; color: var(--muted); letter-spacing: 0.03em; }
+/* themes cloud */
+.rail-tagcloud { display: flex; flex-wrap: wrap; gap: 8px; }
+.rail-tagchip {
+  border: 1px solid var(--line-2); background: none; color: var(--text-bright); font-family: inherit;
+  font-size: 11px; letter-spacing: 0.04em; padding: 7px 10px; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 7px;
+}
+.rail-tagchip:hover { border-color: var(--accent-mid); color: var(--accent); }
+.rail-tagchip b { color: var(--muted); font-weight: 700; }
+.rail-note { font-size: 11.5px; line-height: 1.7; color: var(--muted); margin: 0; }
+.rail-note b { color: var(--text-bright); font-weight: 700; }
 .feed-card {
   position: relative; background: var(--panel-2); border: 1px solid var(--line-2);
   padding: 22px 24px 20px; box-shadow: 0 14px 40px -18px rgba(0,0,0,0.8);
@@ -1573,11 +1694,6 @@ button.feed-comment-user:hover { text-decoration: underline; }
 .vis-btn:hover { color: var(--accent); }
 .vis-btn.active { background: var(--accent-dim); color: var(--accent); }
 .vis-note { font-size: 11px; line-height: 1.5; color: var(--muted-2); margin: 10px 0 0; }
-.cf-profile-btn {
-  background: none; border: 1px solid var(--line-2); color: var(--muted);
-  font-family: inherit; cursor: pointer; padding: 7px 12px; font-size: 11px; letter-spacing: 0.08em;
-}
-.cf-profile-btn:hover { border-color: var(--accent-mid); color: var(--accent); }
 .post-field textarea {
   background: var(--panel-2); border: 1px solid var(--line-2); color: var(--text);
   padding: 10px; font-size: 13px; line-height: 1.5; resize: vertical;
@@ -1635,27 +1751,13 @@ button.feed-comment-user:hover { text-decoration: underline; }
 }
 .pc-badge.has { background: var(--accent); color: #0a0a0a; font-weight: 700; }
 
-/* ---------- community filters ---------- */
-.community-filters { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; max-width: 640px; }
-.cf-scope { display: inline-flex; border: 1px solid var(--line-2); width: max-content; }
-.cf-scope-btn {
-  background: none; border: none; color: var(--muted); font-family: inherit; cursor: pointer;
-  padding: 6px 14px; font-size: 11px; letter-spacing: 0.1em;
-}
-.cf-scope-btn.active { background: var(--accent); color: #0a0a0a; font-weight: 700; }
-.cf-selects { display: flex; flex-wrap: wrap; gap: 8px; }
+/* ---------- community filter dropdowns ---------- */
 .cf-select {
   background: var(--panel-2); color: var(--text-bright);
-  border: 1px solid var(--line-2); padding: 5px 8px; cursor: pointer;
-  font-family: inherit; font-size: 11px; letter-spacing: 0.06em;
+  border: 1px solid var(--line-2); padding: 9px 10px; cursor: pointer;
+  font-family: inherit; font-size: 11px; letter-spacing: 0.06em; flex: none;
 }
 .cf-select:focus { outline: none; border-color: var(--accent-mid); }
-.cf-fluffle-count {
-  display: inline-flex; align-items: center; justify-content: center; min-width: 16px; height: 16px;
-  padding: 0 4px; margin-left: 4px; border-radius: 8px; font-size: 9px; font-weight: 700;
-  background: var(--accent-dim); color: var(--accent);
-}
-.cf-scope-btn.active .cf-fluffle-count { background: #0a0a0a; color: var(--accent); }
 
 /* ---------- manage fluffle modal ---------- */
 .fl-row {
