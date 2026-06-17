@@ -112,6 +112,8 @@ let activeProjectId = null;
 let projectsCache = [];
 let writingDaysCache = new Map();
 let dayStatsCache = new Map();   // day key -> { hops, words }, for heatmap tooltips
+let wordsChartCache = new Map(); // day key -> Map(sourceKey -> words); sourceKey = project_id | 'practice'
+const PRACTICE_BAR_COLOR = '#8f97a3';  // neutral grey for the practice stack segment
 
 // Pull any legacy localStorage data so it can become the user's first project.
 function importableLocalData() {
@@ -281,7 +283,7 @@ function route() {
   });
   closeDrawer();
   updateArchiveToggles();
-  if (r === 'home') { renderHome(); playHomeReveal(); }
+  if (r === 'home') { renderHome(); playHomeReveal(); fetchWordsChart().then(renderWordsChart); }
   if (r === 'search') renderSearch();
   if (r === 'sections') renderSections();
   if (r === 'timelines') renderTimelines();
@@ -6123,6 +6125,34 @@ async function fetchDayStats() {
   dayStatsCache = m;
 }
 
+// Per-day words, split by source (each project + practice), for the home words chart.
+// Reconstructed from current chunk/hop bodies bucketed by created_at day (Option A:
+// approximate, no per-day history table).
+async function fetchWordsChart() {
+  if (!currentUser) return;
+  const m = new Map(); // dayKey -> Map(sourceKey -> words)
+  const add = (key, src, words) => {
+    if (!words) return;
+    let row = m.get(key);
+    if (!row) { row = new Map(); m.set(key, row); }
+    row.set(src, (row.get(src) || 0) + words);
+  };
+  const wc = body => (body || '').trim().split(/\s+/).filter(Boolean).length;
+  const { data: chunks, error: ce } = await sb.from('chunks').select('created_at, body, project_id');
+  if (ce) { console.warn('words chart chunks fetch failed', ce); }
+  for (const r of (chunks || [])) {
+    if (!r.created_at) continue;
+    add(localDayKey(new Date(r.created_at)), r.project_id || 'unknown', wc(r.body));
+  }
+  const { data: hops, error: he } = await sb.from('practice_hops').select('created_at, body');
+  if (he) { console.warn('words chart hops fetch failed', he); }
+  for (const r of (hops || [])) {
+    if (!r.created_at) continue;
+    add(localDayKey(new Date(r.created_at)), 'practice', wc(r.body));
+  }
+  wordsChartCache = m;
+}
+
 // The most recent day the streak is still standing on (today or yesterday), or null.
 function lastWritingDay() {
   const today = localDayKey();
@@ -6539,6 +6569,7 @@ function renderProjectSelector(projects, activeId) {
 async function initProjects() {
   await fetchWritingDays();
   await fetchDayStats();
+  await fetchWordsChart();
   syncStreakStat();
   let projects = await fetchProjects();
   if (!projects.length) {
@@ -6703,6 +6734,117 @@ document.addEventListener('mouseout', e => {
   if (_hmTip && e.target.closest && e.target.closest('.hm-cell[data-date]')) _hmTip.hidden = true;
 });
 
+/* ---- HOME: words-per-day chart ---- */
+const WC_DAYS = 30;
+// Resolve a source key to its label + colour at render time (projectsCache may
+// have populated after the fetch).
+function wcSourceMeta(src) {
+  if (src === 'practice') return { label: 'Practice', color: PRACTICE_BAR_COLOR };
+  const p = projectsCache.find(x => x.id === src);
+  if (p) return { label: p.name, color: p.accent || DEFAULT_ACCENT };
+  return { label: 'Other', color: PRACTICE_BAR_COLOR };
+}
+
+function renderWordsChart() {
+  const el = document.getElementById('wordsChart');
+  if (!el) return;
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const days = [];
+  for (let i = WC_DAYS - 1; i >= 0; i--) {
+    const d = new Date(today); d.setDate(today.getDate() - i);
+    days.push(localDayKey(d));
+  }
+  // Which sources appear anywhere in the window, and per-day totals + max.
+  const present = new Set();
+  let maxTotal = 0;
+  const perDay = days.map(key => {
+    const row = wordsChartCache.get(key);
+    let total = 0;
+    const segs = [];
+    if (row) {
+      // Largest segment first; column-reverse stacking drops it to the bottom.
+      const sorted = [...row.entries()].sort((a, b) => b[1] - a[1]);
+      for (const [src, words] of sorted) {
+        if (!words) continue;
+        present.add(src);
+        total += words;
+        segs.push({ src, words });
+      }
+    }
+    if (total > maxTotal) maxTotal = total;
+    return { key, total, segs };
+  });
+
+  if (maxTotal === 0) {
+    el.innerHTML = `
+      <div class="wc-card">
+        <div class="wc-title">Words per day</div>
+        <div class="wc-empty">No words logged yet. Write a hop to start the chart.</div>
+      </div>`;
+    return;
+  }
+
+  const bars = perDay.map(day => {
+    const stack = day.segs.map(s => {
+      const { color } = wcSourceMeta(s.src);
+      const h = (s.words / maxTotal) * 100;
+      return `<span class="wc-seg" style="height:${h}%;background:${esc(color)}"></span>`;
+    }).join('');
+    return `<div class="wc-bar" data-day="${day.key}" data-total="${day.total}">
+      <div class="wc-stack">${stack}</div>
+    </div>`;
+  }).join('');
+
+  const legend = [...present].map(src => {
+    const { label, color } = wcSourceMeta(src);
+    return `<span class="wc-leg"><span class="wc-leg-dot" style="background:${esc(color)}"></span>${esc(label)}</span>`;
+  }).join('');
+
+  el.innerHTML = `
+    <div class="wc-card">
+      <div class="wc-title">Words per day</div>
+      <div class="wc-bars">${bars}</div>
+      <div class="wc-legend">${legend}</div>
+    </div>`;
+}
+
+/* words chart hover tooltip — reuses the heatmap tip element */
+function showWordsTip(bar) {
+  const key = bar.getAttribute('data-day');
+  if (!key) return;
+  const tip = ensureHeatTip();
+  const total = +bar.getAttribute('data-total') || 0;
+  const row = wordsChartCache.get(key);
+  let lines = '';
+  if (row && total) {
+    const sorted = [...row.entries()].sort((a, b) => b[1] - a[1]);
+    lines = sorted.map(([src, w]) => {
+      const { label, color } = wcSourceMeta(src);
+      return `<span class="hm-tip-stat"><span class="wc-leg-dot" style="background:${esc(color)}"></span>${esc(label)} · ${w.toLocaleString()}</span>`;
+    }).join('');
+  }
+  const wn = total === 1 ? 'word' : 'words';
+  tip.innerHTML =
+    `<span class="hm-tip-date">${prettyDay(key)}</span>` +
+    `<span class="hm-tip-stat">${total.toLocaleString()} ${wn}</span>` + lines;
+  tip.hidden = false;
+  const r = bar.getBoundingClientRect();
+  const tr = tip.getBoundingClientRect();
+  let left = r.left + r.width / 2 - tr.width / 2;
+  left = Math.max(8, Math.min(left, window.innerWidth - tr.width - 8));
+  let top = r.top - tr.height - 8;
+  if (top < 8) top = r.bottom + 8;
+  tip.style.left = left + 'px';
+  tip.style.top = top + 'px';
+}
+document.addEventListener('mouseover', e => {
+  const bar = e.target.closest && e.target.closest('.wc-bar[data-day]');
+  if (bar) showWordsTip(bar);
+});
+document.addEventListener('mouseout', e => {
+  if (_hmTip && e.target.closest && e.target.closest('.wc-bar[data-day]')) _hmTip.hidden = true;
+});
+
 /* ---- HOME: project cards ---- */
 // Replay the staggered "style into place" reveal of the home blocks. Restarting
 // the CSS animation needs the class removed, a forced reflow, then re-added.
@@ -6717,6 +6859,7 @@ function playHomeReveal() {
 function renderHome() {
   renderStreakBar();
   renderHeatmap();
+  renderWordsChart();
   const grid = document.getElementById('projectGrid');
   if (!grid) return;
   const cards = projectsCache.map(p => {
