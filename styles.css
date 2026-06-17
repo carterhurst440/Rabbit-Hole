@@ -267,7 +267,7 @@ button, input, textarea, select { font-family: inherit; }
   flex: 1 1 0; min-width: 0; display: flex;
 }
 .home-row > #heatmap > .heatmap, .home-row > #wordsChart > .wc-card { width: 100%; }
-.home-row > #heatmap > .heatmap { margin-bottom: 0; border-radius: 10px; border-color: var(--line-2); }
+.home-row > #heatmap > .heatmap { margin-bottom: 0; border-color: var(--line-2); }
 @media (max-width: 760px) {
   .home-row { flex-direction: column; gap: 0; }
   .home-row > #heatmap > .heatmap { margin-bottom: 16px; }
@@ -276,7 +276,7 @@ button, input, textarea, select { font-family: inherit; }
 /* ---------- HOME: words-per-day chart ---------- */
 .wc-card {
   border: 1px solid var(--line-2); background: var(--panel);
-  border-radius: 10px; padding: 14px 16px 12px;
+  padding: 14px 16px 12px;
   display: flex; flex-direction: column;
 }
 .wc-title {
