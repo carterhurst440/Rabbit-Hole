@@ -7634,59 +7634,118 @@ async function initAuth() {
 }
 
 /* ---------------- PRACTICE ---------------- */
-// PRACTICE is a low-pressure, cross-project space for uncategorized freewriting.
-// Its hops live in the global `practice_hops` table (per-user, not per-project),
-// so they survive switching books and can later be copied into a real project.
+// PRACTICE is a single writing game: spin for a word, write for 20 minutes
+// without stopping, and the hop auto-files itself to the warren when the timer
+// ends. Finished hops live in the global `practice_hops` table (per-user, not
+// per-project), so they survive switching books and can be copied into a real
+// project later via USE AS FOUNDATION.
 let practiceHops = [];
 let practiceLoaded = false;
 let practiceSearch = '';
-let practiceChallenge = null;        // { word, prompt } currently shown on the card
-let practiceCoachMessages = [];
-let practiceCoachBusy = false;
 let practiceInited = false;
 
 const PRACTICE_WORDS = [
-  'ember', 'threshold', 'salt', 'gravity', 'hollow', 'tide', 'rust', 'lantern',
-  'fracture', 'orchard', 'static', 'pilgrim', 'velvet', 'marrow', 'echo', 'glass',
-  'anchor', 'feral', 'compass', 'smoke', 'lullaby', 'cinder', 'harbor', 'thorn',
-  'mercury', 'nettle', 'vow', 'wreckage', 'halo', 'undertow', 'driftwood', 'fever',
-  'keyhole', 'frost', 'static', 'magpie', 'tinder', 'hush', 'quarry', 'spindle',
-  'verdigris', 'almanac', 'brine', 'cathedral', 'ferment', 'gossamer', 'kindling', 'meridian',
+  'THRESHOLD', 'SALT', 'DEBT', 'MIRROR', 'HUNGER', 'EMBER', 'TIDE', 'VOW',
+  'RUST', 'HOLLOW', 'SIGNAL', 'FEVER', 'LEDGER', 'DRIFT', 'OMEN', 'STATIC',
+  'MARROW', 'CINDER', 'FRACTURE', 'LANTERN', 'UNDERTOW', 'RELIC', 'PULSE',
+  'VERGE', 'HUSK', 'TREMOR', 'RATION', 'RESIDUE', 'GLASS', 'ASH', 'ORBIT',
+  'TETHER', 'SCAR', 'HALO', 'VAULT', 'CURFEW', 'SPLINTER', 'NECTAR', 'FALLOW',
+  'BEACON', 'MONSOON', 'GRAVITY', 'KEROSENE', 'THORN',
 ];
 
-// Each template takes today's word and yields a single, finishable exercise.
-const PRACTICE_TEMPLATES = [
-  w => `Spin a word — today it is "${w}". Write for 20 minutes about ${w}. No plan, no editing, no backspace.`,
-  w => `Write a scene that never once says "${w}", but makes the reader feel it in every line.`,
-  w => `Open on a character who has just lost something tied to "${w}". Two paragraphs, present tense.`,
-  w => `Dialogue only — two people argue about "${w}". No narration, no dialogue tags, no scene-setting.`,
-  w => `Describe "${w}" using only the five senses. Ban every abstract noun.`,
-  w => `A letter someone writes about "${w}" and will never send. Start mid-sentence.`,
-  w => `Flip the point of view: write "${w}" from the thing, not the person who notices it.`,
-  w => `A six-sentence story where "${w}" quietly changes everything in the final line.`,
-];
+// Short dictionary glosses shown once a word lands, for a spark of direction.
+const PRACTICE_DEFS = {
+  THRESHOLD: 'n. a doorway or sill; the point at which something begins or changes.',
+  SALT: 'n. a crystalline mineral used to season and preserve; fig. wit or sting.',
+  DEBT: 'n. something owed; a state of obligation to repay.',
+  MIRROR: 'n. a reflective surface; v. to reflect or imitate.',
+  HUNGER: 'n. a craving or urgent need — for food, or for anything.',
+  EMBER: 'n. a small glowing piece of coal or wood in a dying fire.',
+  TIDE: 'n. the rise and fall of the sea; a powerful current or trend.',
+  VOW: 'n. a solemn promise or binding pledge.',
+  RUST: 'n. the reddish coating iron forms in damp air; slow decay.',
+  HOLLOW: 'adj. having an empty space inside; n. a small valley.',
+  SIGNAL: 'n. a sign or impulse conveying information; v. to indicate.',
+  FEVER: 'n. an abnormally high body temperature; intense excitement.',
+  LEDGER: 'n. a book recording debits and credits; a running account.',
+  DRIFT: 'v. to be carried slowly by a current; n. a gradual shift.',
+  OMEN: 'n. a sign believed to foretell good or evil.',
+  STATIC: 'adj. lacking movement; n. atmospheric noise or interference.',
+  MARROW: 'n. the soft tissue inside bones; the essential core of a thing.',
+  CINDER: 'n. a small piece of partly burned coal or wood.',
+  FRACTURE: 'n. a break or crack; v. to break apart.',
+  LANTERN: 'n. a portable case enclosing a light.',
+  UNDERTOW: 'n. a current beneath the surface pulling away from shore.',
+  RELIC: 'n. an object surviving from the past; a treasured remnant.',
+  PULSE: 'n. the rhythmic beat of blood through the arteries; a throb.',
+  VERGE: 'n. an edge or border; the brink of something.',
+  HUSK: 'n. the dry outer covering of a seed; an empty shell.',
+  TREMOR: 'n. an involuntary shaking; a small earthquake.',
+  RATION: 'n. a fixed allowance; v. to limit the supply of.',
+  RESIDUE: 'n. what remains after a process; a trace left behind.',
+  GLASS: 'n. a hard, brittle, transparent substance; a vessel for drinking.',
+  ASH: 'n. the powdery residue left after burning.',
+  ORBIT: 'n. the curved path of one body around another; a sphere of influence.',
+  TETHER: 'n. a rope fastening something; the limit of one\u2019s reach.',
+  SCAR: 'n. a mark left by a healed wound; a lasting trace of harm.',
+  HALO: 'n. a ring of light around a head or celestial body.',
+  VAULT: 'n. an arched roof or secure chamber; v. to leap over.',
+  CURFEW: 'n. a rule requiring people to stay indoors after a set hour.',
+  SPLINTER: 'n. a thin, sharp fragment of wood; v. to break into pieces.',
+  NECTAR: 'n. the sweet fluid of flowers; any delicious drink.',
+  FALLOW: 'adj. (of land) plowed but left unsown; dormant, resting.',
+  BEACON: 'n. a fire or light used as a signal or guide.',
+  MONSOON: 'n. a seasonal wind bringing heavy rains.',
+  GRAVITY: 'n. the force pulling bodies together; seriousness, weight.',
+  KEROSENE: 'n. a thin, combustible oil used as fuel.',
+  THORN: 'n. a sharp woody spine on a stem; a persistent source of pain.',
+};
 
-// Deterministic index for the day so the daily challenge is stable until midnight.
-function practiceDayIndex() {
-  return Math.floor(Date.now() / 86400000);
+const PRACTICE_TOTAL = 20 * 60;   // 20 minutes, in seconds
+const PR_ROW_H = 92;              // reel row height, must match CSS
+const PR_SESSION_KEY = 'rh.practice.session.v1';
+
+// ---- game state ----
+let prState = 'idle';            // idle | spinning | armed | writing | done
+let prWord = '';
+let prStartEpoch = 0;
+let prTimerId = null;
+let prLastFinished = null;       // last entry we saved, for READ THIS HOP
+
+const prRand = a => a[Math.floor(Math.random() * a.length)];
+function practiceWordCount(s) {
+  const m = (s || '').trim().match(/\S+/g);
+  return m ? m.length : 0;
 }
-function practiceDailyChallenge() {
-  const d = practiceDayIndex();
-  const word = PRACTICE_WORDS[d % PRACTICE_WORDS.length];
-  const tmpl = PRACTICE_TEMPLATES[d % PRACTICE_TEMPLATES.length];
-  return { word, prompt: tmpl(word) };
+function prMMSS(sec) {
+  const m = Math.floor(sec / 60), s = sec % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
 }
-function practiceSpin() {
-  const word = PRACTICE_WORDS[Math.floor(Math.random() * PRACTICE_WORDS.length)];
-  const tmpl = PRACTICE_TEMPLATES[Math.floor(Math.random() * PRACTICE_TEMPLATES.length)];
-  practiceChallenge = { word, prompt: tmpl(word) };
-  renderPracticeDash();
+function prFmtDate(iso) {
+  const d = new Date(iso);
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function prEl(id) { return document.getElementById(id); }
+function prShowDef(word) {
+  const el = prEl('prReelDef');
+  if (!el) return;
+  const def = PRACTICE_DEFS[word];
+  if (!def) { el.hidden = true; return; }
+  el.innerHTML = `<span class="pr-def-word">${esc(word.toLowerCase())}</span> <span class="pr-def-text">${esc(def)}</span>`;
+  el.hidden = false;
+}
+function prHideDef() { const el = prEl('prReelDef'); if (el) el.hidden = true; }
+function prSetState(s) {
+  prState = s;
+  const arena = prEl('prArena');
+  if (arena) arena.dataset.pstate = s;
 }
 
 async function loadPracticeHops() {
   if (!currentUser) return;
   const { data, error } = await sb.from('practice_hops')
-    .select('id, title, body, prompt, word, created_at, updated_at')
+    .select('id, title, body, prompt, word, seconds, created_at, updated_at')
     .eq('user_id', currentUser.id)
     .order('created_at', { ascending: false });
   if (!error) { practiceHops = data || []; practiceLoaded = true; }
@@ -7695,187 +7754,375 @@ async function loadPracticeHops() {
 function practiceInit() {
   if (practiceInited) return;
   practiceInited = true;
-  document.getElementById('practiceNewBtn')?.addEventListener('click', () => {
-    practiceEditorModal({ title: '', body: '', prompt: '', word: '' }, { isNew: true });
+  prEl('prSpinBtn')?.addEventListener('click', () => prSpin());
+  prEl('prReroll')?.addEventListener('click', () => prReroll());
+  prEl('prEndBtn')?.addEventListener('click', () => prFinish(true));
+  prEl('prAgainBtn')?.addEventListener('click', () => prReset());
+  prEl('prReadBtn')?.addEventListener('click', () => {
+    if (prLastFinished) {
+      const hop = practiceHops.find(h => h.id === prLastFinished.id) || prLastFinished;
+      prReset();
+      prOpenEntry(hop.id);
+    }
   });
-  document.getElementById('practiceCoachBtn')?.addEventListener('click', openPracticeCoach);
-  const si = document.getElementById('practiceSearchInput');
+  const ed = prEl('prEditor');
+  ed?.addEventListener('input', prUpdateCounts);
+  const si = prEl('prSearch');
   si?.addEventListener('input', () => { practiceSearch = si.value; renderPracticeList(); });
 }
 
 async function renderPractice() {
   practiceInit();
-  if (!practiceChallenge) practiceChallenge = practiceDailyChallenge();
-  renderPracticeDash();
   if (!practiceLoaded) {
-    document.getElementById('practiceList').innerHTML = '<div class="practice-loading">Loading your practice…</div>';
+    prEl('prPlist').innerHTML = '<div class="pr-loading">Loading your backlog…</div>';
     await loadPracticeHops();
   }
+  // Restore an in-progress session if the user left mid-write and came back.
+  if (prState === 'idle') prTryResume();
   renderPracticeList();
 }
 
-function practiceWordCount(s) {
-  const t = (s || '').trim();
-  return t ? t.split(/\s+/).length : 0;
+// ---- the reel ----
+// RE-SPIN abandons the current word; if the user has started writing, confirm
+// first so a misclick can't wipe an in-progress session.
+async function prReroll() {
+  if (prState === 'spinning') return;
+  if (prState === 'writing' && (prEl('prEditor')?.value || '').trim()) {
+    const ok = await confirmModal('Re-spin a new word? This discards your current writing without saving.', { title: 'RE-SPIN' });
+    if (!ok) return;
+  }
+  clearInterval(prTimerId);
+  prTimerId = null;
+  prClearSession();
+  prSpin();
 }
 
-function renderPracticeDash() {
-  const dash = document.getElementById('practiceDash');
-  if (!dash) return;
-  const c = practiceChallenge || practiceDailyChallenge();
-  const total = practiceHops.length;
-  const weekAgo = Date.now() - 7 * 86400000;
-  const thisWeek = practiceHops.filter(h => new Date(h.created_at).getTime() >= weekAgo).length;
-  const words = practiceHops.reduce((n, h) => n + practiceWordCount(h.body), 0);
-  dash.innerHTML = `
-    <div class="practice-challenge">
-      <div class="practice-challenge-label">DAILY CHALLENGE · WORD OF THE DAY <span class="practice-word">${esc(c.word)}</span></div>
-      <div class="practice-challenge-prompt">${esc(c.prompt)}</div>
-      <div class="practice-challenge-actions">
-        <button class="add-btn solid" id="practiceWriteBtn">WRITE THIS</button>
-        <button class="add-btn" id="practiceSpinBtn">↻ SPIN NEW</button>
-      </div>
-    </div>
-    <div class="practice-stats">
-      <div class="practice-stat"><span class="practice-stat-n">${total}</span><span class="practice-stat-l">PRACTICE HOPS</span></div>
-      <div class="practice-stat"><span class="practice-stat-n">${thisWeek}</span><span class="practice-stat-l">THIS WEEK</span></div>
-      <div class="practice-stat"><span class="practice-stat-n">${words.toLocaleString()}</span><span class="practice-stat-l">WORDS WRITTEN</span></div>
-    </div>`;
-  dash.querySelector('#practiceWriteBtn').addEventListener('click', () => {
-    practiceEditorModal({ title: '', body: '', prompt: c.prompt, word: c.word }, { isNew: true });
+function prSpin() {
+  if (prState === 'spinning') return;
+  clearInterval(prTimerId);
+  prTimerId = null;
+  prSetState('spinning');
+  const reel = prEl('prReel');
+  const target = prRand(PRACTICE_WORDS);
+  prEl('prReroll').hidden = true;
+  prEl('prSpinBtn').disabled = true;
+  prHideDef();
+  // Build a tall strip of random words ending on the target.
+  const seq = [];
+  for (let i = 0; i < 30; i++) seq.push(prRand(PRACTICE_WORDS));
+  seq.push(target);
+  reel.style.transition = 'none';
+  reel.style.transform = 'translateY(0)';
+  reel.innerHTML = seq.map((w, i) =>
+    `<div class="pr-reel-row${i === seq.length - 1 ? ' landed' : ''}">${esc(w)}</div>`
+  ).join('');
+  const dist = (seq.length - 1) * PR_ROW_H;
+  requestAnimationFrame(() => {
+    reel.style.transition = 'transform 2.9s cubic-bezier(.1,.62,.12,1)';
+    reel.style.transform = `translateY(-${dist}px)`;
   });
-  dash.querySelector('#practiceSpinBtn').addEventListener('click', practiceSpin);
+  const onEnd = () => {
+    reel.removeEventListener('transitionend', onEnd);
+    prLand(target);
+  };
+  reel.addEventListener('transitionend', onEnd);
 }
 
+function prLand(word) {
+  const reel = prEl('prReel');
+  reel.style.transition = 'none';
+  reel.style.transform = 'translateY(0)';
+  reel.innerHTML = `<div class="pr-reel-row landed">${esc(word)}</div>`;
+  prArm(word);
+}
+
+function prArm(word) {
+  prWord = word;
+  prSetState('armed');
+  prShowDef(word);
+  prEl('prReroll').hidden = false;
+  prEl('prSpinBtn').disabled = true;
+  const ed = prEl('prEditor');
+  ed.disabled = false;
+  ed.value = '';
+  prEl('prEdKind').innerHTML = `PRACTICE HOP <span class="pr-muted">· write about</span> "${esc(word)}"`;
+  ed.placeholder = "Begin. Keep your hand moving — don't stop to think.";
+  prEl('prEndBtn').disabled = false;
+  const note = prEl('prEdNote');
+  if (note) note.textContent = "Keep your hand moving. It auto-files when the timer ends.";
+  prUpdateCounts();
+  prRenderClock(PRACTICE_TOTAL, 'READY');
+  prStartTimer();
+  setTimeout(() => ed.focus(), 80);
+}
+
+// ---- the timer ----
+function prStartTimer(resumeEpoch) {
+  prSetState('writing');
+  prStartEpoch = resumeEpoch || Date.now();
+  prSaveSession();
+  clearInterval(prTimerId);
+  prTimerId = setInterval(prTick, 250);
+  prTick();
+}
+
+function prRemaining() {
+  return Math.max(0, PRACTICE_TOTAL - Math.floor((Date.now() - prStartEpoch) / 1000));
+}
+
+function prRenderClock(r, lbl) {
+  const clock = prEl('prClock');
+  if (clock) clock.textContent = prMMSS(r);
+  const lblEl = prEl('prClockLbl');
+  if (lblEl) lblEl.textContent = lbl;
+  const frac = r / PRACTICE_TOTAL;
+  const C = 2 * Math.PI * 74;
+  const prog = prEl('prProg');
+  if (prog) {
+    prog.style.strokeDasharray = String(C);
+    prog.style.strokeDashoffset = String(C * (1 - frac));
+  }
+  const fill = prEl('prEdFill');
+  if (fill) fill.style.width = ((1 - frac) * 100) + '%';
+  prEl('prDial')?.classList.toggle('warn', prState === 'writing' && r <= 60 && r > 0);
+}
+
+function prTick() {
+  const r = prRemaining();
+  prRenderClock(r, 'WRITING');
+  if (r <= 0) { prFinish(false); return; }
+  if (r % 5 === 0) prSaveSession();
+}
+
+function prUpdateCounts() {
+  const t = prEl('prEditor')?.value || '';
+  prEl('prWc').textContent = practiceWordCount(t);
+  prEl('prCc').textContent = t.length;
+}
+
+// ---- finishing & saving ----
+async function prFinish(early) {
+  if (prState !== 'writing') return;
+  clearInterval(prTimerId);
+  prTimerId = null;
+  const text = (prEl('prEditor').value || '').trim();
+  const elapsed = early ? Math.min(PRACTICE_TOTAL, PRACTICE_TOTAL - prRemaining()) : PRACTICE_TOTAL;
+  const word = prWord;
+  prSetState('done');
+  prRenderClock(0, 'DONE');
+  prBuzz();
+  prClearSession();
+
+  const words = practiceWordCount(text);
+  prEl('prDoneSum').innerHTML =
+    `<b>${words}</b> ${words === 1 ? 'word' : 'words'} on <b>${esc(word)}</b> in ${prMMSS(elapsed)}. Filed to your backlog below.`;
+
+  // Persist to Supabase; optimistic local prepend so the backlog updates instantly.
+  const nowIso = new Date().toISOString();
+  const optimistic = {
+    id: 'local-' + Date.now(), user_id: currentUser?.id,
+    title: word, body: text, prompt: null, word, seconds: elapsed,
+    created_at: nowIso, updated_at: nowIso,
+  };
+  practiceHops.unshift(optimistic);
+  prLastFinished = optimistic;
+  renderPracticeList();
+  try {
+    const { data, error } = await sb.from('practice_hops').insert({
+      user_id: currentUser.id, title: word, body: text,
+      prompt: null, word, seconds: elapsed,
+    }).select().single();
+    if (error) throw error;
+    const i = practiceHops.findIndex(h => h.id === optimistic.id);
+    if (i >= 0) practiceHops[i] = data;
+    prLastFinished = data;
+    recordWritingActivity();
+    renderPracticeList();
+  } catch (e) {
+    // Leave the optimistic copy in place but flag the failure.
+    alertModal('Saved locally, but the warren did not confirm: ' + (e.message || 'request failed'), { title: 'PRACTICE' });
+  }
+}
+
+function prReset() {
+  clearInterval(prTimerId);
+  prTimerId = null;
+  prWord = '';
+  prStartEpoch = 0;
+  prSetState('idle');
+  prClearSession();
+  prHideDef();
+  prEl('prReroll').hidden = true;
+  const spin = prEl('prSpinBtn');
+  spin.disabled = false; spin.hidden = false;
+  const reel = prEl('prReel');
+  reel.style.transition = 'none';
+  reel.style.transform = 'translateY(0)';
+  reel.innerHTML = '<div class="pr-reel-row idle">SPIN TO BEGIN</div>';
+  const ed = prEl('prEditor');
+  ed.value = ''; ed.disabled = true; ed.placeholder = 'Spin a word to begin.';
+  prEl('prEdKind').textContent = 'PRACTICE HOP';
+  prEl('prEndBtn').disabled = true;
+  const note = prEl('prEdNote');
+  if (note) note.textContent = 'Spin to start your twenty minutes.';
+  prUpdateCounts();
+  prRenderClock(PRACTICE_TOTAL, 'READY');
+}
+
+// ---- buzzer ----
+function prBuzz() {
+  const buzz = prEl('prBuzz');
+  if (buzz) {
+    buzz.classList.add('go');
+    setTimeout(() => buzz.classList.remove('go'), 1500);
+  }
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    const ctx = new Ctx();
+    [0, 0.22, 0.44].forEach(off => {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = 'square'; o.frequency.value = 320;
+      o.connect(g); g.connect(ctx.destination);
+      const t = ctx.currentTime + off;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.12, t + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
+      o.start(t); o.stop(t + 0.18);
+    });
+  } catch (_) {}
+}
+
+// ---- session persistence (survives a full page reload) ----
+function prSaveSession() {
+  if (prState !== 'writing') return;
+  try {
+    localStorage.setItem(PR_SESSION_KEY, JSON.stringify({
+      word: prWord, startEpoch: prStartEpoch, text: prEl('prEditor')?.value || '',
+    }));
+  } catch (_) {}
+}
+function prClearSession() {
+  try { localStorage.removeItem(PR_SESSION_KEY); } catch (_) {}
+}
+function prTryResume() {
+  let raw = null;
+  try { raw = localStorage.getItem(PR_SESSION_KEY); } catch (_) {}
+  if (!raw) return;
+  let s; try { s = JSON.parse(raw); } catch (_) { return; }
+  if (!s || !s.startEpoch || !s.word) { prClearSession(); return; }
+  prWord = s.word;
+  prShowDef(s.word);
+  prEl('prReroll').hidden = false;
+  prEl('prSpinBtn').disabled = true;
+  const reel = prEl('prReel');
+  reel.style.transition = 'none';
+  reel.style.transform = 'translateY(0)';
+  reel.innerHTML = `<div class="pr-reel-row landed">${esc(s.word)}</div>`;
+  const ed = prEl('prEditor');
+  ed.disabled = false;
+  ed.value = s.text || '';
+  prEl('prEdKind').innerHTML = `PRACTICE HOP <span class="pr-muted">· write about</span> "${esc(s.word)}"`;
+  prEl('prEndBtn').disabled = false;
+  prUpdateCounts();
+  const elapsed = Math.floor((Date.now() - s.startEpoch) / 1000);
+  if (elapsed >= PRACTICE_TOTAL) {
+    // Timer expired while away — finalize immediately.
+    prSetState('writing');
+    prStartEpoch = s.startEpoch;
+    prFinish(false);
+  } else {
+    prStartTimer(s.startEpoch);
+  }
+}
+
+// ---- backlog ----
 function renderPracticeList() {
-  const list = document.getElementById('practiceList');
-  const empty = document.getElementById('practiceEmpty');
+  const list = prEl('prPlist');
+  const empty = prEl('prNoResults');
+  const count = prEl('prBlCount');
   if (!list) return;
+  if (count) count.textContent = practiceHops.length ? `${practiceHops.length} ${practiceHops.length === 1 ? 'hop' : 'hops'}` : '';
   const q = practiceSearch.trim().toLowerCase();
   const hops = q
     ? practiceHops.filter(h =>
-        (h.title || '').toLowerCase().includes(q) ||
+        (h.word || '').toLowerCase().includes(q) ||
         (h.body || '').toLowerCase().includes(q) ||
-        (h.word || '').toLowerCase().includes(q))
+        (h.title || '').toLowerCase().includes(q))
     : practiceHops;
   if (!practiceHops.length) {
-    list.innerHTML = '';
-    empty.hidden = false;
-    empty.textContent = 'No practice hops yet. Spin the daily challenge and write for twenty minutes.';
+    list.innerHTML = '<div class="pr-blempty">No hops yet. Spin a word and write your first.</div>';
+    if (empty) empty.hidden = true;
     return;
   }
   if (!hops.length) {
     list.innerHTML = '';
-    empty.hidden = false;
-    empty.textContent = 'No practice hops match that search.';
+    if (empty) empty.hidden = false;
     return;
   }
-  empty.hidden = true;
-  list.innerHTML = hops.map(h => {
-    const snippet = (h.body || '').replace(/\s+/g, ' ').trim().slice(0, 220);
-    return `
-      <div class="practice-card" data-id="${esc(h.id)}">
-        <div class="practice-card-main">
-          <div class="practice-card-title">${esc(h.title || 'Untitled practice')}</div>
-          <div class="practice-card-meta">${esc(timeAgo(h.created_at))}${h.word ? ' · <span class="practice-card-word">' + esc(h.word) + '</span>' : ''} · ${practiceWordCount(h.body)} words</div>
-          <div class="practice-card-body">${esc(snippet)}${(h.body || '').length > 220 ? '…' : ''}</div>
-        </div>
-        <div class="practice-card-actions">
-          <button class="add-btn" data-act="open">OPEN</button>
-          <button class="add-btn" data-act="foundation" title="Copy into a project as a starting point">USE AS FOUNDATION</button>
-          <button class="add-btn danger-ghost" data-act="delete">DELETE</button>
-        </div>
-      </div>`;
-  }).join('');
-  if (q) markSearchHits(list, practiceSearch, '.practice-card-title, .practice-card-body, .practice-card-word');
-  list.querySelectorAll('.practice-card').forEach(card => {
-    const hop = practiceHops.find(h => h.id === card.dataset.id);
-    if (!hop) return;
-    card.querySelector('[data-act="open"]').addEventListener('click', () => practiceEditorModal(hop, { isNew: false }));
-    card.querySelector('[data-act="foundation"]').addEventListener('click', () => practiceUseAsFoundation(hop));
-    card.querySelector('[data-act="delete"]').addEventListener('click', () => practiceDeleteHop(hop));
-    card.querySelector('.practice-card-main').addEventListener('click', () => practiceEditorModal(hop, { isNew: false }));
+  if (empty) empty.hidden = true;
+  list.innerHTML = hops.map(prEntryHTML).join('');
+  list.querySelectorAll('.pr-pentry').forEach(entry => {
+    const id = entry.dataset.id;
+    entry.querySelector('.pr-pe-toggle')?.addEventListener('click', () => prToggleEntry(id));
+    entry.querySelector('[data-act="foundation"]')?.addEventListener('click', e => {
+      e.stopPropagation();
+      const hop = practiceHops.find(h => h.id === id);
+      if (hop) practiceUseAsFoundation(hop);
+    });
+    entry.querySelector('[data-act="delete"]')?.addEventListener('click', e => {
+      e.stopPropagation();
+      const hop = practiceHops.find(h => h.id === id);
+      if (hop) practiceDeleteHop(hop);
+    });
   });
 }
 
-// Create/edit a practice hop in a plain textarea (no entity highlighting — practice
-// is unstructured and not tied to any project's characters/locations).
-function practiceEditorModal(hop, { isNew }) {
-  const overlay = document.createElement('div');
-  overlay.className = 'ui-modal-overlay';
-  overlay.innerHTML = `
-    <div class="ui-modal practice-editor" role="dialog" aria-modal="true">
-      <button class="ui-modal-x" data-act="close" aria-label="Close">✕</button>
-      <div class="ui-modal-title">${isNew ? 'NEW PRACTICE HOP' : 'PRACTICE HOP'}</div>
-      ${hop.prompt ? `<div class="practice-editor-prompt">${esc(hop.prompt)}</div>` : ''}
-      <input class="practice-editor-title" type="text" placeholder="Title (optional)" />
-      <textarea class="practice-editor-body" placeholder="Just write. None of this has to be good or go anywhere."></textarea>
-      <div class="ui-modal-actions practice-editor-actions">
-        ${isNew ? '' : '<button class="ui-modal-btn danger-ghost" data-act="delete">Delete</button>'}
-        <span class="practice-editor-spacer"></span>
-        <button class="ui-modal-btn" data-act="cancel">Cancel</button>
-        <button class="ui-modal-btn solid" data-act="save">Save</button>
+function prEntryHTML(h) {
+  const text = (h.body || '');
+  const snippet = text.replace(/\s+/g, ' ').trim().slice(0, 240);
+  const words = practiceWordCount(text);
+  const dur = prMMSS(h.seconds || 0);
+  return `
+    <article class="pr-pentry" data-id="${esc(h.id)}">
+      <div class="pr-pe-word">${esc(h.word || h.title || 'UNTITLED')}</div>
+      <div class="pr-pe-meta">
+        <span>${esc(prFmtDate(h.created_at))}</span>
+        <span class="pr-dot"></span><span>${esc(dur)}</span>
+        <span class="pr-dot"></span><span>${words} ${words === 1 ? 'word' : 'words'}</span>
       </div>
-    </div>`;
-  document.body.appendChild(overlay);
-  const titleEl = overlay.querySelector('.practice-editor-title');
-  const bodyEl = overlay.querySelector('.practice-editor-body');
-  titleEl.value = hop.title || '';
-  bodyEl.value = hop.body || '';
-  const close = () => { document.removeEventListener('keydown', onKey); overlay.remove(); };
-  function onKey(e) { if (e.key === 'Escape') { e.preventDefault(); close(); } }
-  document.addEventListener('keydown', onKey);
-  overlay.addEventListener('mousedown', e => { if (e.target === overlay) close(); });
-  overlay.querySelector('[data-act="close"]').addEventListener('click', close);
-  overlay.querySelector('[data-act="cancel"]').addEventListener('click', close);
-  overlay.querySelector('[data-act="save"]').addEventListener('click', async () => {
-    const title = titleEl.value.trim();
-    const body = bodyEl.value.trim();
-    if (!title && !body) { close(); return; }
-    const saveBtn = overlay.querySelector('[data-act="save"]');
-    saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
-    try {
-      await practiceSaveHop({ ...hop, title, body }, { isNew });
-      close();
-      renderPracticeDash();
-      renderPracticeList();
-    } catch (e) {
-      saveBtn.disabled = false; saveBtn.textContent = 'Save';
-      alertModal('Could not save: ' + (e.message || 'request failed'), { title: 'PRACTICE' });
-    }
-  });
-  const delBtn = overlay.querySelector('[data-act="delete"]');
-  if (delBtn) delBtn.addEventListener('click', async () => { close(); practiceDeleteHop(hop); });
-  setTimeout(() => (hop.title ? bodyEl : titleEl).focus(), 60);
+      <div class="pr-pe-snip">${esc(snippet)}${text.length > 240 ? '…' : ''}</div>
+      <div class="pr-pe-full">${esc(text)}</div>
+      <div class="pr-pe-actions">
+        <button class="pr-pe-toggle" type="button">READ FULL HOP →</button>
+        <button class="pr-pe-mini" data-act="foundation" type="button" title="Copy into a project as a starting point">USE AS FOUNDATION</button>
+        <button class="pr-pe-mini danger" data-act="delete" type="button">DELETE</button>
+      </div>
+    </article>`;
 }
 
-async function practiceSaveHop(hop, { isNew }) {
-  if (isNew) {
-    const { data, error } = await sb.from('practice_hops').insert({
-      user_id: currentUser.id,
-      title: hop.title || '', body: hop.body || '',
-      prompt: hop.prompt || null, word: hop.word || null,
-    }).select().single();
-    if (error) throw error;
-    practiceHops.unshift(data);
-  } else {
-    const { data, error } = await sb.from('practice_hops').update({
-      title: hop.title || '', body: hop.body || '', updated_at: new Date().toISOString(),
-    }).eq('id', hop.id).select().single();
-    if (error) throw error;
-    const i = practiceHops.findIndex(h => h.id === hop.id);
-    if (i >= 0) practiceHops[i] = data;
-  }
-  recordWritingActivity();
+function prToggleEntry(id) {
+  const entry = prEl('prPlist')?.querySelector(`.pr-pentry[data-id="${CSS.escape(id)}"]`);
+  if (!entry) return;
+  const open = entry.classList.toggle('open');
+  const toggle = entry.querySelector('.pr-pe-toggle');
+  if (toggle) toggle.textContent = open ? 'COLLAPSE ↑' : 'READ FULL HOP →';
+}
+function prOpenEntry(id) {
+  const entry = prEl('prPlist')?.querySelector(`.pr-pentry[data-id="${CSS.escape(id)}"]`);
+  if (!entry || entry.classList.contains('open')) { if (entry) entry.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
+  prToggleEntry(id);
+  entry.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
 async function practiceDeleteHop(hop) {
   const ok = await confirmModal('Delete this practice hop? This cannot be undone.', { title: 'DELETE PRACTICE HOP' });
   if (!ok) return;
-  const { error } = await sb.from('practice_hops').delete().eq('id', hop.id);
-  if (error) { alertModal('Could not delete: ' + error.message, { title: 'PRACTICE' }); return; }
+  if (!String(hop.id).startsWith('local-')) {
+    const { error } = await sb.from('practice_hops').delete().eq('id', hop.id);
+    if (error) { alertModal('Could not delete: ' + error.message, { title: 'PRACTICE' }); return; }
+  }
   practiceHops = practiceHops.filter(h => h.id !== hop.id);
-  renderPracticeDash();
   renderPracticeList();
 }
 
@@ -7957,80 +8204,6 @@ async function practiceCopyInto(hop, projectId, isNew, newName) {
     openChunkModal(id);
   } catch (e) {
     alertModal('Could not copy into a project: ' + (e.message || 'request failed'), { title: 'PRACTICE' });
-  }
-}
-
-/* ---- practice coach (AI) ---- */
-function openPracticeCoach() {
-  const overlay = document.createElement('div');
-  overlay.className = 'practice-coach-overlay';
-  overlay.innerHTML = `
-    <div class="practice-coach" role="dialog" aria-modal="true">
-      <div class="practice-coach-head">
-        <span>PRACTICE COACH</span>
-        <button class="practice-coach-x" data-act="close" aria-label="Close">✕</button>
-      </div>
-      <div class="practice-coach-log" id="practiceCoachLog"></div>
-      <form class="practice-coach-form" id="practiceCoachForm">
-        <input type="text" id="practiceCoachInput" placeholder="Ask for a prompt, or say you're stuck…" autocomplete="off" />
-        <button type="submit" class="add-btn solid" id="practiceCoachSend">SEND</button>
-      </form>
-    </div>`;
-  document.body.appendChild(overlay);
-  const close = () => { document.removeEventListener('keydown', onKey); overlay.remove(); };
-  function onKey(e) { if (e.key === 'Escape') { e.preventDefault(); close(); } }
-  document.addEventListener('keydown', onKey);
-  overlay.addEventListener('mousedown', e => { if (e.target === overlay) close(); });
-  overlay.querySelector('[data-act="close"]').addEventListener('click', close);
-  overlay.querySelector('#practiceCoachForm').addEventListener('submit', e => {
-    e.preventDefault();
-    const inp = overlay.querySelector('#practiceCoachInput');
-    const text = inp.value;
-    inp.value = '';
-    sendPracticeCoach(text);
-  });
-  renderPracticeCoachLog();
-  setTimeout(() => overlay.querySelector('#practiceCoachInput')?.focus(), 60);
-}
-
-function renderPracticeCoachLog() {
-  const log = document.getElementById('practiceCoachLog');
-  if (!log) return;
-  if (!practiceCoachMessages.length) {
-    log.innerHTML = `<div class="practice-coach-empty">Stuck for an idea? Ask for a warm-up prompt, a constraint, or a drill —<br>or tell me what you feel like working on and I'll build you an exercise.</div>`;
-    return;
-  }
-  log.innerHTML = practiceCoachMessages.map(m => `
-    <div class="ai-msg ${m.role}${m.pending ? ' pending' : ''}">
-      <span class="who">${m.role === 'user' ? 'you' : 'coach'}</span>
-      <div class="bubble">${esc(m.content)}</div>
-    </div>`).join('');
-  log.scrollTop = log.scrollHeight;
-}
-
-async function sendPracticeCoach(text) {
-  text = (text || '').trim();
-  if (practiceCoachBusy || !text) return;
-  practiceCoachBusy = true;
-  practiceCoachMessages.push({ role: 'user', content: text });
-  practiceCoachMessages.push({ role: 'assistant', content: 'thinking…', pending: true });
-  renderPracticeCoachLog();
-  try {
-    const payload = practiceCoachMessages.filter(m => !m.pending && !m.error).map(m => ({ role: m.role, content: m.content }));
-    const c = practiceChallenge || practiceDailyChallenge();
-    const data = await aiInvoke({
-      task: 'practice_coach',
-      messages: payload,
-      context: { todayWord: c.word, recentTitles: practiceHops.slice(0, 8).map(h => h.title).filter(Boolean) },
-    });
-    practiceCoachMessages = practiceCoachMessages.filter(m => !m.pending);
-    practiceCoachMessages.push({ role: 'assistant', content: data.reply || 'No response.' });
-  } catch (e) {
-    practiceCoachMessages = practiceCoachMessages.filter(m => !m.pending);
-    practiceCoachMessages.push({ role: 'assistant', content: 'Error: ' + (e.message || 'request failed'), error: true });
-  } finally {
-    practiceCoachBusy = false;
-    renderPracticeCoachLog();
   }
 }
 

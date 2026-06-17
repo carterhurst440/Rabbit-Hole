@@ -418,21 +418,79 @@
     <section class="view" id="view-practice" hidden>
       <div class="view-head">
         <h1>PRACTICE</h1>
-        <p class="sub">A no-pressure gym for your writing. Warm up with a daily challenge or your own — none of it has to go anywhere.</p>
-        <div class="view-head-actions">
-          <button class="add-btn solid" id="practiceNewBtn">+ NEW PRACTICE HOP</button>
-          <button class="add-btn" id="practiceCoachBtn"><span class="ai-star">✦</span> COACH</button>
+        <p class="sub">Spin for a word. Write for twenty minutes without stopping. When the timer ends, your hop files itself to the warren.</p>
+      </div>
+
+      <div class="pr-arena" id="prArena" data-pstate="idle">
+        <div class="pr-arena-top">
+          <div class="pr-reelpane">
+            <div class="pr-reel-label">YOUR WORD</div>
+            <div class="pr-reel-window" id="prReelWindow">
+              <div class="pr-reel" id="prReel">
+                <div class="pr-reel-row idle">SPIN TO BEGIN</div>
+              </div>
+            </div>
+            <div class="pr-reel-def" id="prReelDef" hidden></div>
+            <div class="pr-spinrow">
+              <button class="pr-spinbtn" id="prSpinBtn">SPIN</button>
+              <button class="pr-reroll" id="prReroll" hidden>RE-SPIN</button>
+            </div>
+          </div>
+          <div class="pr-timerpane">
+            <div class="pr-dial" id="prDial">
+              <svg viewBox="0 0 168 168" aria-hidden="true">
+                <circle class="pr-trackring" cx="84" cy="84" r="74"></circle>
+                <circle class="pr-prog" id="prProg" cx="84" cy="84" r="74"></circle>
+              </svg>
+              <div class="pr-clock">
+                <b id="prClock">20:00</b>
+                <span id="prClockLbl">READY</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="pr-editorpane">
+          <div class="pr-ed-head">
+            <span id="prEdKind">PRACTICE HOP</span>
+            <span class="pr-ed-counts"><b id="prWc">0</b> words · <b id="prCc">0</b> chars</span>
+          </div>
+          <textarea class="pr-editor" id="prEditor" placeholder="Spin a word to begin." spellcheck="true" disabled></textarea>
+          <div class="pr-ed-progress"><div class="pr-ed-fill" id="prEdFill"></div></div>
+          <div class="pr-ed-foot">
+            <span id="prEdNote">Spin to start your twenty minutes.</span>
+            <button class="pr-endbtn" id="prEndBtn" disabled>END EARLY &amp; SAVE</button>
+          </div>
+        </div>
+
+        <div class="pr-done" id="prDone">
+          <svg class="pr-done-ears" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M22 30c-3-8-4-16-2-22 4 2 7 9 8 16"/>
+            <path d="M42 30c3-8 4-16 2-22-4 2-7 9-8 16"/>
+            <path d="M20 34a12 12 0 0 0 24 0"/>
+            <circle cx="27" cy="38" r="1.4" fill="currentColor"/>
+            <circle cx="37" cy="38" r="1.4" fill="currentColor"/>
+          </svg>
+          <h2>HOP SAVED TO THE WARREN</h2>
+          <div class="pr-sum" id="prDoneSum"></div>
+          <div class="pr-done-actions">
+            <button class="pr-spinbtn" id="prAgainBtn">SPIN AGAIN</button>
+            <button class="pr-reroll" id="prReadBtn">READ THIS HOP</button>
+          </div>
         </div>
       </div>
-      <div class="practice-dash" id="practiceDash"></div>
-      <div class="practice-catalog-head">
-        <h2>PRACTICE HOPS</h2>
-        <div class="practice-search-bar">
-          <input type="text" id="practiceSearchInput" class="search-input" placeholder="Search your practice writing…" />
-        </div>
+
+      <div class="pr-blhead">
+        <h2>PRACTICE BACKLOG</h2>
+        <span class="pr-blcount" id="prBlCount"></span>
       </div>
-      <div class="practice-list" id="practiceList"></div>
-      <div class="practice-empty" id="practiceEmpty" hidden>No practice hops yet. Spin the daily challenge and write for twenty minutes.</div>
+      <div class="pr-searchbox">
+        <input type="text" id="prSearch" placeholder="Search your backlog…" />
+      </div>
+      <div class="pr-plist" id="prPlist"></div>
+      <div class="pr-noresults" id="prNoResults" hidden>No hops match that search.</div>
+
+      <div class="pr-buzz" id="prBuzz"></div>
     </section>
 
   </main>
