@@ -34,7 +34,7 @@ function parseThemes(s: string): string[] {
     if (a === -1 || b === -1) return [];
     const obj = JSON.parse(s.slice(a, b + 1));
     return Array.isArray(obj.themes)
-      ? obj.themes.filter((x: any) => typeof x === "string" && x.trim()).map((x: string) => x.trim()).slice(0, 3)
+      ? obj.themes.filter((x: any) => typeof x === "string" && x.trim()).map((x: string) => x.trim().toUpperCase()).slice(0, 3)
       : [];
   } catch {
     return [];
@@ -44,11 +44,18 @@ function parseThemes(s: string): string[] {
 function systemPrompt(kind: string): string {
   return (
     "You are a thematic-tagging assistant inside RABBIT HOLE, a writing community. Read one shared " +
-    "excerpt of creative writing and name the 2-3 universal THEMES it explores — the big human ideas, " +
-    "motifs, or tones a reader would file it under (e.g. Betrayal, Power and Corruption, Grief, Coming " +
-    "of Age, Isolation, Redemption, Survival). Strongly prefer broad, reusable themes that many " +
-    "different stories could share over plot-specific labels or proper nouns. Each theme is 1-3 words, " +
-    "Title Case. Return 2 or 3, most central first. " +
+    "excerpt of creative writing and name 2-3 THEME tags it explores. These tags are shared across the " +
+    "whole community, so they MUST be universal and reusable — the kind of label that hundreds of " +
+    "different stories would land on, never a one-off. " +
+    "RULES:\n" +
+    "1. Prefer ONE single canonical word: CORRUPTION, GRIEF, REVENGE, BETRAYAL, SURVIVAL, IDENTITY, " +
+    "POWER, ISOLATION, REDEMPTION, FAITH, GREED, FAMILY, SACRIFICE, LOVE, FEAR, JUSTICE, AMBITION, LOSS. " +
+    "2. Only use a 2-3 word phrase when it is itself a well-known reusable trope: COMING OF AGE, " +
+    "MAN VS NATURE, FORBIDDEN LOVE, BOARD MEETING, COLD OPEN. " +
+    "3. NEVER chain ideas with 'and' (no 'Power and Corruption' — pick CORRUPTION). " +
+    "4. NEVER use proper nouns, character names, places, or plot-specific labels. " +
+    "5. Pick the most common, generic word a reader would search by, not the most precise one. " +
+    "Output every tag in UPPERCASE. Return 2 or 3, most central first. " +
     (kind ? `This is a ${kind}. ` : "") +
     `Respond with ONLY a JSON object of the form {"themes":["...","..."]}. No markdown, no commentary.`
   );
@@ -77,10 +84,11 @@ Deno.serve(async (req) => {
         .from("community_posts")
         .select("id, hop_title, hop_body, project_type, project_genre, themes");
       if (error) return json({ error: error.message }, 500);
+      const force = body.force === true;
       let updated = 0;
       const results: any[] = [];
       for (const p of posts || []) {
-        if (Array.isArray(p.themes) && p.themes.length) { results.push({ id: p.id, skipped: true }); continue; }
+        if (!force && Array.isArray(p.themes) && p.themes.length) { results.push({ id: p.id, skipped: true }); continue; }
         const themes = await themesFor(apiKey, p.hop_title || "", p.hop_body || "", p.project_type || "", p.project_genre || "");
         if (themes.length) {
           await admin.from("community_posts").update({ themes }).eq("id", p.id);
