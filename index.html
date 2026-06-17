@@ -214,6 +214,10 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3"/><path d="M2.5 20c0-3.3 2.9-5 6.5-5s6.5 1.7 6.5 5"/><path d="M16 5.5a3 3 0 0 1 0 5.5M18 14.5c2.2.6 3.5 2 3.5 4"/></svg>
       <span>COMMUNITY</span>
     </a>
+    <a href="#practice" class="nav-icon" data-route="practice" title="Practice">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h9l3 3v15H6z"/><path d="M9 8h6M9 12h6M9 16h4"/></svg>
+      <span>PRACTICE</span>
+    </a>
   </nav>
 
   <main class="app-main">
@@ -408,6 +412,27 @@
         </div>
         <aside class="feed-rail" id="communityRail"></aside>
       </div>
+    </section>
+
+    <!-- ============ PRACTICE ============ -->
+    <section class="view" id="view-practice" hidden>
+      <div class="view-head">
+        <h1>PRACTICE</h1>
+        <p class="sub">A no-pressure gym for your writing. Warm up with a daily challenge or your own — none of it has to go anywhere.</p>
+        <div class="view-head-actions">
+          <button class="add-btn solid" id="practiceNewBtn">+ NEW PRACTICE HOP</button>
+          <button class="add-btn" id="practiceCoachBtn"><span class="ai-star">✦</span> COACH</button>
+        </div>
+      </div>
+      <div class="practice-dash" id="practiceDash"></div>
+      <div class="practice-catalog-head">
+        <h2>PRACTICE HOPS</h2>
+        <div class="practice-search-bar">
+          <input type="text" id="practiceSearchInput" class="search-input" placeholder="Search your practice writing…" />
+        </div>
+      </div>
+      <div class="practice-list" id="practiceList"></div>
+      <div class="practice-empty" id="practiceEmpty" hidden>No practice hops yet. Spin the daily challenge and write for twenty minutes.</div>
     </section>
 
   </main>

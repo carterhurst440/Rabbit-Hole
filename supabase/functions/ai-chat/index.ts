@@ -25,6 +25,7 @@
 //                                                      -> { sections: [{ title }], hops: [{ section, title, body }] }
 //   journal_advice    { entries:[{title,body,when}], type, genre }
 //                                                      -> { items: [{ type:"reflection"|"prompt", title, body }] }
+//   practice_coach    { messages, context:{ todayWord?, recentTitles? } } -> { reply }
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
 const CORS = {
@@ -51,6 +52,7 @@ const TASK_MODELS: Record<string, { floor: string; optimal: string }> = {
   idea_title: { floor: HAIKU, optimal: SONNET },
   import_outline: { floor: HAIKU, optimal: SONNET },
   journal_advice: { floor: HAIKU, optimal: SONNET },
+  practice_coach: { floor: HAIKU, optimal: SONNET },
 };
 
 function modelFor(task: string, tier?: string): string {
@@ -92,6 +94,7 @@ Deno.serve(async (req) => {
     if (task === "search_hops") return await doSearchHops(apiKey, body);
     if (task === "import_outline") return await doImportOutline(apiKey, body);
     if (task === "journal_advice") return await doJournalAdvice(apiKey, body);
+    if (task === "practice_coach") return await doPracticeCoach(apiKey, body);
     return json({ error: `Unknown task: ${task}` }, 400);
   } catch (e) {
     console.error("ai-chat error:", (e as Error)?.message || e);
@@ -105,6 +108,32 @@ async function doChat(apiKey: string, body: { messages?: Msg[]; context?: Ctx })
     .map((m) => ({ role: m.role, content: String(m.content) }));
   if (!clean.length) return json({ error: "No messages." }, 400);
   const reply = await callClaude(apiKey, { model: (body as any)._model, system: buildSystem(body.context || {}), messages: clean, max_tokens: 1024 });
+  return json({ reply });
+}
+
+// PRACTICE coach — a creative-writing warm-up partner. Separate from doChat so it
+// is never grounded in the user's book; PRACTICE is a no-pressure skills gym.
+async function doPracticeCoach(
+  apiKey: string,
+  body: { messages?: Msg[]; context?: { todayWord?: string; recentTitles?: string[] } },
+) {
+  const clean = (Array.isArray(body.messages) ? body.messages : [])
+    .filter((m) => m && (m.role === "user" || m.role === "assistant") && m.content)
+    .map((m) => ({ role: m.role, content: String(m.content) }));
+  if (!clean.length) return json({ error: "No messages." }, 400);
+  const ctx = body.context || {};
+  const lines = [
+    "You are a warm, energizing creative-writing COACH inside RABBIT HOLE's PRACTICE module.",
+    "PRACTICE is a low-pressure gym for freewriting, drills, and skill-building — wholly separate from the writer's real book projects. Nothing here has to be good or go anywhere.",
+    "Your job: help the writer warm up, break through blocks, and keep their craft progressing on days they have no narrative idea of their own.",
+    "When they ask for a prompt, give ONE specific, concrete exercise they can finish in 15-20 minutes — not a menu, unless they explicitly ask for options. Favor sensory detail, a constraint, a random word, a character voice, a dialogue-only scene, a point-of-view flip, or 'write for 20 minutes about X'.",
+    "Keep replies short, vivid, and actionable. Reward effort over polish. Encourage, never lecture. No long preambles.",
+  ];
+  if (ctx.todayWord) lines.push(`\nToday's random word is "${ctx.todayWord}" — you can build a prompt around it if useful.`);
+  if (Array.isArray(ctx.recentTitles) && ctx.recentTitles.length) {
+    lines.push(`Recent practice the writer has done: ${ctx.recentTitles.slice(0, 8).join("; ")}.`);
+  }
+  const reply = await callClaude(apiKey, { model: (body as any)._model, system: lines.join("\n"), messages: clean, max_tokens: 900 });
   return json({ reply });
 }
 
