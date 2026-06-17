@@ -289,6 +289,9 @@ function route() {
   const addPr = document.getElementById('addPracticeHopBtn');
   if (addHop) addHop.hidden = onPractice;
   if (addPr) addPr.hidden = !onPractice;
+  // The project switcher is meaningless inside the global PRACTICE module.
+  const projSwitch = document.querySelector('.header-project');
+  if (projSwitch) projSwitch.hidden = onPractice;
   if (r === 'home') { renderHome(); playHomeReveal(); fetchWordsChart().then(renderWordsChart); }
   if (r === 'search') renderSearch();
   if (r === 'sections') renderSections();
