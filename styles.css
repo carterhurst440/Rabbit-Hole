@@ -816,6 +816,55 @@ select.ui-modal-input { cursor: pointer; appearance: none; -webkit-appearance: n
 .ui-modal-btn.solid.danger { background: #c0584e; border-color: #c0584e; color: #fff; }
 .ui-modal-btn.solid.danger:hover { filter: brightness(1.08); color: #fff; }
 
+/* SECTION PREVIEW — wide single-document view of every hop in a section. */
+.section-preview-modal { max-width: min(1000px, 94vw); padding: 0; gap: 0; }
+.spv-head {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 16px;
+  padding: 20px 26px; border-bottom: 1px solid var(--line-2); flex: none;
+}
+.spv-titles { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.spv-section {
+  font-size: 17px; font-weight: 700; color: var(--text-bright); letter-spacing: 0.01em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.spv-doc { padding: 8px 26px 28px; gap: 0; }
+.spv-empty-doc { padding: 48px 0; text-align: center; color: var(--muted); font-size: 13px; }
+.spv-hop {
+  padding: 26px 0; border-bottom: 1px solid var(--line);
+  transition: opacity 0.15s ease;
+}
+.spv-hop:last-child { border-bottom: none; }
+.spv-hop.is-dimmed { opacity: 0.32; }
+.spv-hop.is-editing {
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  box-shadow: inset 3px 0 0 var(--accent);
+  padding-left: 18px; padding-right: 18px; margin: 0 -18px;
+}
+.spv-hop-head {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 16px;
+  margin-bottom: 14px;
+}
+.spv-hop-meta { display: flex; flex-direction: column; gap: 6px; min-width: 0; flex: 1 1 auto; }
+.spv-eyebrow { font-size: 10px; letter-spacing: 0.16em; color: var(--muted); text-transform: uppercase; }
+.spv-hop-title { margin: 0; font-size: 16px; font-weight: 700; color: var(--accent); letter-spacing: 0.01em; }
+.spv-hop-body {
+  font-size: 14px; line-height: 1.85; color: var(--text-bright);
+  white-space: pre-wrap; word-break: break-word;
+}
+.spv-empty { color: var(--muted-2); font-style: italic; }
+.spv-edit { flex: none; }
+.spv-edit-actions { display: flex; gap: 8px; flex: none; }
+.spv-title-input {
+  background: var(--panel-2); border: 1px solid var(--line-2); color: var(--text-bright);
+  padding: 8px 10px; font-family: inherit; font-size: 15px; font-weight: 700; width: 100%;
+}
+.spv-title-input:focus { outline: none; border-color: var(--accent-mid); }
+.spv-hop-body.spv-editing {
+  background: var(--panel-2); border: 1px solid var(--line-2); padding: 12px 14px;
+  min-height: 120px; outline: none; color: var(--text-bright);
+}
+.spv-hop-body.spv-editing:focus { border-color: var(--accent-mid); }
+
 /* ---------- AI SIDECAR ---------- */
 .ai-toggle {
   background: none; border: 1px solid var(--line-2); color: var(--text);

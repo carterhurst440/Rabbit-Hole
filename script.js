@@ -1646,6 +1646,7 @@ function renderChunkPane() {
     <div class="chunk-card-head">
       <input type="color" class="chap-color" id="chapColor" value="${chapterColor(ch.id)}" title="Chapter accent color" />
       <input class="chunk-title-input" id="chapTitle" value="${esc(ch.title)}" />
+      ${chunks.length ? `<button class="add-btn" id="sectionPreviewBtn" title="Preview all hops as one document">\u25A4 PREVIEW</button>` : ''}
       <button class="add-btn solid" id="addChunkBtn">+ HOP</button>
       <button class="icon-btn" id="delChapBtn" title="Delete chapter">✕</button>
     </div>`;
@@ -1698,6 +1699,7 @@ function renderChunkPane() {
     };
     openChunkModal(id);
   });
+  document.getElementById('sectionPreviewBtn')?.addEventListener('click', () => sectionPreviewModal(ch.id));
   document.getElementById('delChapBtn').addEventListener('click', async () => {
     if (!await confirmModal('Delete this chapter and its hops?')) return;
     db.chunks = db.chunks.filter(c => c.chapterId !== ch.id);
@@ -2328,6 +2330,119 @@ function chunkCharLocLine(c) {
   const locs = chunkEntities(ENTITY_KINDS.location, c);
   if (!chars.length && !locs.length) return '';
   return `<div class="chunk-charloc">${csTextRow('CHARACTERS', chars)}${csTextRow('LOCATIONS', locs)}</div>`;
+}
+
+// SECTION PREVIEW — every hop in a section shown as one continuous document in a
+// wide modal. Each hop carries its own EDIT button: it highlights that hop, dims
+// the rest, and swaps the title + body into inline editable fields. SAVE commits
+// straight to the project (save()) and re-renders the block; CANCEL discards.
+function sectionPreviewModal(chapterId) {
+  const ch = db.chapters.find(c => c.id === chapterId);
+  if (!ch) return;
+
+  const overlay = document.createElement('div');
+  overlay.className = 'ui-modal-overlay';
+  overlay.innerHTML = `
+    <div class="ui-modal section-preview-modal" style="--accent:${esc(chapterColor(ch.id))}">
+      <div class="spv-head">
+        <div class="spv-titles">
+          <div class="ui-modal-title">SECTION PREVIEW</div>
+          <div class="spv-section">${esc(ch.title)}</div>
+        </div>
+        <button class="ui-modal-btn" data-act="close">Close</button>
+      </div>
+      <div class="ui-modal-scroll spv-doc" id="spvDoc"></div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  let editingId = null;
+  const doc = overlay.querySelector('#spvDoc');
+  const close = () => { document.removeEventListener('keydown', onKey); overlay.remove(); };
+  const onKey = e => { if (e.key === 'Escape' && !editingId) close(); };
+  document.addEventListener('keydown', onKey);
+  overlay.addEventListener('click', e => { if (e.target === overlay && !editingId) close(); });
+  overlay.querySelector('[data-act="close"]').addEventListener('click', () => { if (!editingId) close(); });
+
+  function clearDim() { doc.querySelectorAll('.spv-hop').forEach(b => b.classList.remove('is-dimmed')); }
+
+  function displayHtml(c, i) {
+    const body = c.body
+      ? highlightNames(c.body, entityHighlightTerms())
+      : '<span class="spv-empty">(empty hop)</span>';
+    return `
+      <div class="spv-hop-head">
+        <div class="spv-hop-meta">
+          <span class="spv-eyebrow">HOP ${i + 1}${c.chronoLabel ? ' · ' + esc(c.chronoLabel) : ''}</span>
+          <h3 class="spv-hop-title">${esc(c.title || 'Untitled hop')}</h3>
+        </div>
+        <button class="add-btn spv-edit" data-f="edit">EDIT</button>
+      </div>
+      <div class="spv-hop-body">${body}</div>`;
+  }
+
+  function editHtml(c, i) {
+    return `
+      <div class="spv-hop-head">
+        <div class="spv-hop-meta">
+          <span class="spv-eyebrow">HOP ${i + 1} · EDITING</span>
+          <input class="spv-title-input" value="${esc(c.title || '')}" placeholder="Untitled hop" />
+        </div>
+        <div class="spv-edit-actions">
+          <button class="add-btn solid spv-save" data-f="save">✓ SAVE</button>
+          <button class="add-btn spv-cancel" data-f="cancel">CANCEL</button>
+        </div>
+      </div>
+      <div class="spv-hop-body spv-editing" contenteditable="true" spellcheck="true"></div>`;
+  }
+
+  function renderHop(block, c, i) {
+    const editing = editingId === c.id;
+    block.classList.toggle('is-editing', editing);
+    block.innerHTML = editing ? editHtml(c, i) : displayHtml(c, i);
+    if (editing) {
+      block.querySelector('.spv-hop-body').textContent = c.body || '';
+      block.querySelector('.spv-title-input').focus();
+    }
+    wireHop(block, c, i);
+  }
+
+  function wireHop(block, c, i) {
+    block.querySelector('[data-f="edit"]')?.addEventListener('click', () => {
+      if (editingId) return; // one hop at a time
+      editingId = c.id;
+      doc.querySelectorAll('.spv-hop').forEach(b => b.classList.toggle('is-dimmed', b.dataset.id !== c.id));
+      renderHop(block, c, i);
+    });
+    block.querySelector('[data-f="save"]')?.addEventListener('click', () => {
+      c.title = block.querySelector('.spv-title-input').value.trim();
+      c.body = block.querySelector('.spv-hop-body').textContent;
+      save();
+      editingId = null; clearDim();
+      renderHop(block, c, i);
+      renderSections();
+    });
+    block.querySelector('[data-f="cancel"]')?.addEventListener('click', () => {
+      editingId = null; clearDim();
+      renderHop(block, c, i);
+    });
+  }
+
+  function renderDoc() {
+    const chunks = chunksOf(ch.id).filter(isVisibleChunk);
+    doc.innerHTML = '';
+    if (!chunks.length) {
+      doc.innerHTML = '<div class="spv-empty-doc">No hops in this section yet.</div>';
+      return;
+    }
+    chunks.forEach((c, i) => {
+      const block = document.createElement('div');
+      block.className = 'spv-hop';
+      block.dataset.id = c.id;
+      doc.appendChild(block);
+      renderHop(block, c, i);
+    });
+  }
+  renderDoc();
 }
 
 // Header shown at the top of an expanded chunk: current tags, characters, and
