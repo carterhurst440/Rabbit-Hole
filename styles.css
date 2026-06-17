@@ -2078,6 +2078,13 @@ button.feed-comment-user:hover { text-decoration: underline; }
 
 /* ============ PRACTICE ============ */
 /* A single writing game: spin a word, write 20 min, auto-file to the backlog. */
+/* Practice is cross-project, so pin it to the app's default accent rather than
+   inheriting whatever the active project's accent happens to be. */
+#view-practice {
+  --accent: #e0a96d;
+  --accent-dim: color-mix(in srgb, var(--accent) 15%, transparent);
+  --accent-mid: color-mix(in srgb, var(--accent) 40%, transparent);
+}
 .pr-arena {
   border: 1.5px solid var(--line-2); background: var(--panel-2);
   padding: 22px; margin-bottom: 34px;
