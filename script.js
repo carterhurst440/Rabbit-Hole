@@ -6748,34 +6748,20 @@ function wcSourceMeta(src) {
 function renderWordsChart() {
   const el = document.getElementById('wordsChart');
   if (!el) return;
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  const days = [];
-  for (let i = WC_DAYS - 1; i >= 0; i--) {
-    const d = new Date(today); d.setDate(today.getDate() - i);
-    days.push(localDayKey(d));
-  }
-  // Which sources appear anywhere in the window, and per-day totals + max.
+  // Only days that actually had words — no empty filler. Oldest → newest, last WC_DAYS active days.
   const present = new Set();
-  let maxTotal = 0;
-  const perDay = days.map(key => {
-    const row = wordsChartCache.get(key);
+  const entries = [...wordsChartCache.entries()].map(([key, row]) => {
     let total = 0;
     const segs = [];
-    if (row) {
-      // Largest segment first; column-reverse stacking drops it to the bottom.
-      const sorted = [...row.entries()].sort((a, b) => b[1] - a[1]);
-      for (const [src, words] of sorted) {
-        if (!words) continue;
-        present.add(src);
-        total += words;
-        segs.push({ src, words });
-      }
+    for (const [src, words] of row.entries()) {
+      if (words > 0) { total += words; segs.push({ src, words }); }
     }
-    if (total > maxTotal) maxTotal = total;
     return { key, total, segs };
-  });
+  }).filter(d => d.total > 0).sort((a, b) => (a.key < b.key ? -1 : 1));
+  const recent = entries.slice(-WC_DAYS);
+  const maxTotal = recent.reduce((m, d) => Math.max(m, d.total), 0);
 
-  if (maxTotal === 0) {
+  if (!recent.length || maxTotal === 0) {
     el.innerHTML = `
       <div class="wc-card">
         <div class="wc-title">Words per day</div>
@@ -6784,13 +6770,17 @@ function renderWordsChart() {
     return;
   }
 
-  const bars = perDay.map(day => {
-    const stack = day.segs.map(s => {
+  // Each bar's height is its share of the busiest day (tallest = full section).
+  // Segments split that bar by flex-grow proportional to each source's words.
+  const bars = recent.map(day => {
+    const sorted = [...day.segs].sort((a, b) => b.words - a.words);
+    sorted.forEach(s => present.add(s.src));
+    const stack = sorted.map(s => {
       const { color } = wcSourceMeta(s.src);
-      const h = (s.words / maxTotal) * 100;
-      return `<span class="wc-seg" style="height:${h}%;background:${esc(color)}"></span>`;
+      return `<span class="wc-seg" style="flex-grow:${s.words};background:${esc(color)}"></span>`;
     }).join('');
-    return `<div class="wc-bar" data-day="${day.key}" data-total="${day.total}">
+    const hPct = Math.max(2, (day.total / maxTotal) * 100);
+    return `<div class="wc-bar" data-day="${day.key}" data-total="${day.total}" style="height:${hPct}%">
       <div class="wc-stack">${stack}</div>
     </div>`;
   }).join('');
