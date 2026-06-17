@@ -770,6 +770,7 @@ mark.search-hit {
   display: flex; align-items: center; justify-content: center; padding: 24px;
 }
 .ui-modal {
+  position: relative;
   background: var(--panel); border: 1px solid var(--line-2);
   width: 100%; max-width: 420px; padding: 22px;
   display: flex; flex-direction: column; gap: 14px;
