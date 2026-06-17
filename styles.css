@@ -2199,7 +2199,9 @@ button.feed-comment-user:hover { text-decoration: underline; }
 
 /* done panel */
 .pr-done { display: none; flex-direction: column; align-items: center; text-align: center; padding: 18px 0 6px; }
-.pr-done-ears { width: 52px; height: 52px; color: var(--accent); margin-bottom: 10px; }
+.pr-done-logo { margin-bottom: 12px; }
+.pr-done-logo ellipse, .pr-done-logo path { stroke: var(--accent); stroke-width: 1.7; }
+.pr-done-logo .brand-ear { fill: var(--panel-2); }
 .pr-done h2 { font-size: 14px; letter-spacing: 0.16em; color: var(--accent); margin: 0 0 10px; }
 .pr-sum { font-size: 13px; line-height: 1.7; color: var(--text); max-width: 420px; }
 .pr-sum b { color: var(--text-bright); }
