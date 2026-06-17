@@ -2419,4 +2419,6 @@ button.feed-comment-user:hover { text-decoration: underline; }
   .pr-clock b { font-size: 20px; }
   .pr-pe-actions { flex-wrap: wrap; }
   .pr-pe-mini { margin-left: 0; }
+  /* 16px keeps iOS Safari from auto-zooming when these fields gain focus */
+  .pr-editor, .pr-ff-title, .pr-ff-body { font-size: 16px; }
 }
