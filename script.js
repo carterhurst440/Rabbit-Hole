@@ -7702,7 +7702,7 @@ const PRACTICE_DEFS = {
 };
 
 const PRACTICE_TOTAL = 20 * 60;   // 20 minutes, in seconds
-const PR_ROW_H = 92;              // reel row height, must match CSS
+const PR_ROW_H = 64;              // reel row height, must match CSS .pr-reel-window/.pr-reel-row
 const PR_SESSION_KEY = 'rh.practice.session.v1';
 
 // ---- game state ----
