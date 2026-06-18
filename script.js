@@ -3667,7 +3667,6 @@ function renderEntityPane(K) {
     <div class="chunk-card-head">
       <input type="color" class="chap-color" data-f="color" value="${c.color || '#e0a96d'}" title="${K.NOUN} color" />
       <input class="chunk-title-input head-name" data-f="name" value="${esc(c.name)}" />
-      <select class="head-cat-sel" data-f="catSel" title="Category">${catOpts}</select>
       <details class="head-kebab" data-f="kebabWrap">
         <summary title="More actions" aria-label="More actions">⋮</summary>
         <div class="head-kebab-menu">
@@ -3675,6 +3674,9 @@ function renderEntityPane(K) {
           <button class="add-btn danger" data-f="del" title="Delete this ${K.noun}">DELETE</button>
         </div>
       </details>
+    </div>
+    <div class="meta-field" style="margin:0 0 14px">CATEGORY
+      <select data-f="catSel" title="Category">${catOpts}</select>
     </div>
     <div class="char-block">
       <h3>ALIASES <span style="color:var(--muted);font-weight:400">(comma separated — used to find references)</span></h3>
