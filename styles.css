@@ -765,6 +765,23 @@ mark.search-hit {
 }
 .modal-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
 .modal-tools-sep { flex: 1 1 0; min-width: 8px; }
+/* DETECT pop-down — single button that reveals CHARACTERS / LOCATIONS / TAGS. */
+.detect-tool { position: relative; display: inline-block; }
+.detect-tool > summary {
+  list-style: none; display: inline-flex; align-items: center; gap: 5px;
+}
+.detect-tool > summary::-webkit-details-marker { display: none; }
+.detect-tool[open] > summary { color: var(--accent); border-color: var(--accent); }
+.detect-caret { font-size: 9px; line-height: 1; opacity: 0.8; }
+/* Opens UPWARD: the tall body editor is always above the tools row, so the menu
+   never falls below the modal's scroll fold (as a downward menu can). */
+.detect-tool-menu {
+  position: absolute; bottom: calc(100% + 5px); left: 0; z-index: 50;
+  display: flex; flex-direction: column; gap: 4px; min-width: 150px; padding: 8px;
+  background: var(--panel); border: 1px solid var(--line-2);
+  box-shadow: 0 -10px 32px rgba(0,0,0,0.5);
+}
+.detect-tool-menu .add-btn { text-align: left; width: 100%; }
 .chunk-meta { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 10px; align-items: center; }
 .meta-field { display: flex; flex-direction: column; gap: 4px; font-size: 10px; letter-spacing: 0.1em; color: var(--muted); }
 .meta-field input, .meta-field select {
@@ -869,7 +886,9 @@ mark.search-hit {
   position: fixed; inset: 0; z-index: 60;
   background: rgba(0,0,0,0.65);
   display: flex; align-items: center; justify-content: center;
-  padding: 16px; overflow-y: auto;
+  /* Keep the modal clear of the status bar / notch and the home indicator. */
+  padding: calc(16px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom));
+  overflow-y: auto;
 }
 .modal-overlay[hidden] { display: none; }
 .modal {
@@ -877,7 +896,8 @@ mark.search-hit {
   width: 100%; max-width: 680px; padding: 18px;
   display: flex; flex-direction: column; gap: 12px;
   box-shadow: 0 20px 60px rgba(0,0,0,0.6);
-  max-height: calc(100vh - 32px); overflow: hidden;
+  max-height: calc(100vh - 32px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  overflow: hidden;
 }
 /* Head stays pinned; everything below scrolls within the viewport-capped modal. */
 .modal-scroll {
@@ -917,6 +937,8 @@ mark.search-hit {
 }
 .ui-modal-input:focus { outline: none; border-color: var(--accent-mid); }
 select.ui-modal-input { cursor: pointer; appearance: none; -webkit-appearance: none; }
+textarea.ui-modal-input { resize: vertical; min-height: 84px; line-height: 1.5; box-sizing: border-box; }
+.ui-modal-btn.solid .aifn-ic { color: currentColor; vertical-align: -2px; }
 .ps-field { display: flex; flex-direction: column; gap: 6px; }
 .ps-label { font-size: 10px; letter-spacing: 0.14em; color: var(--muted); }
 .ps-swatches { display: flex; flex-wrap: wrap; gap: 10px; }

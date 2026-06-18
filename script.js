@@ -2018,6 +2018,84 @@ async function generateChunkBody(chunk, btn) {
   }
 }
 
+// RE-WRITE: revise an existing hop body from a free-text instruction. Opens a
+// prompt modal for the instruction, then asks the AI to rewrite the current body
+// (grounded in the project) and swaps the new version into the editor.
+async function rewriteChunkBody(chunk, btn) {
+  const titleEl = document.getElementById('chunkModalTitle');
+  const title = (titleEl ? titleEl.value : chunk.title || '').trim();
+  const current = (typeof getEditorText === 'function' ? getEditorText() : chunk.body || '').trim();
+  if (!current) { generateChunkBody(chunk, btn); return; }   // nothing to rewrite → draft fresh
+  const instruction = await rewritePromptModal();
+  if (instruction == null) return;                            // cancelled
+  const instr = instruction.trim();
+  if (!instr) return;
+  const original = aiBtnStart(btn, IC_GENERATE, 'RE-WRITING…');
+  try {
+    const proj = projectsCache.find(p => p.id === activeProjectId);
+    const gen = projectGenContext(chunk.id);
+    const userMsg =
+      'Rewrite the body of a single hop (a scene or beat) in my book according to my instruction below. ' +
+      'Output ONLY the rewritten prose for the hop body — no preamble, no title line, no surrounding quotes, ' +
+      'no commentary, no markdown. Stay consistent with the rest of the manuscript and keep a length similar ' +
+      'to the current body unless the instruction asks otherwise.\n\n' +
+      (title ? `HOP TITLE: ${title}\n` : '') +
+      (chunk.chapterId ? `SECTION: ${chapterTitle(chunk.chapterId)}\n` : '') +
+      `\nCURRENT BODY:\n${current}\n\nREWRITE INSTRUCTION:\n${instr}`;
+    const { reply } = await aiInvoke({
+      task: 'chat',
+      messages: [{ role: 'user', content: userMsg }],
+      context: {
+        project: proj?.name || '',
+        type: proj?.type || '',
+        genre: proj?.genre || '',
+        chapters: gen.chapters,
+        characters: (db.characters || []).map(c => ({ name: c.name })).filter(c => c.name)
+      }
+    });
+    aiBtnDone(btn, original);
+    let text = (reply || '').trim().replace(/^["'\u201c\u2018]+|["'\u201d\u2019]+$/g, '').trim();
+    if (!text) { alertModal('No body text came back. Try again.', { title: 'RE-WRITE' }); return; }
+    chunk.body = text;
+    if (typeof setEditorContent === 'function') setEditorContent(text);
+    save(); markChunkDirty();
+  } catch (err) {
+    aiBtnDone(btn, original);
+    alertModal('Re-write failed.\n\n' + (err.message || ''), { title: 'RE-WRITE' });
+  }
+}
+
+// Multiline prompt for a RE-WRITE instruction. Resolves to the entered string,
+// or null if the writer cancels. Cmd/Ctrl+Enter submits.
+function rewritePromptModal() {
+  return new Promise(resolve => {
+    const overlay = document.createElement('div');
+    overlay.className = 'ui-modal-overlay';
+    overlay.innerHTML = `
+      <div class="ui-modal" role="dialog" aria-modal="true">
+        <div class="ui-modal-title">RE-WRITE BODY</div>
+        <div class="ui-modal-msg">Describe how you want this hop rewritten. The current body is replaced with a new AI version.</div>
+        <textarea class="ui-modal-input rewrite-prompt" rows="4" placeholder="e.g. tighten the pacing, add sensory detail, shift to past tense…"></textarea>
+        <div class="ui-modal-actions">
+          <button class="ui-modal-btn" data-act="cancel">Cancel</button>
+          <button class="ui-modal-btn solid" data-act="ok">${IC_GENERATE} RE-WRITE</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    const ta = overlay.querySelector('textarea');
+    const done = val => { document.removeEventListener('keydown', onKey); overlay.remove(); resolve(val); };
+    overlay.querySelector('[data-act="ok"]').addEventListener('click', () => done(ta.value));
+    overlay.querySelector('[data-act="cancel"]').addEventListener('click', () => done(null));
+    overlay.addEventListener('mousedown', e => { if (e.target === overlay) done(null); });
+    function onKey(e) {
+      if (e.key === 'Escape') { e.preventDefault(); done(null); }
+      else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); done(ta.value); }
+    }
+    document.addEventListener('keydown', onKey);
+    ta.focus();
+  });
+}
+
 function tagReviewModal(assign, suggest) {
   return new Promise(resolve => {
     const rows = [
@@ -2936,15 +3014,34 @@ function openChunkModal(chunkId) {
   if (le) wireTagEditor(le, c);
 
   const gt = document.getElementById('chunkModalGenTags');
-  gt.onclick = () => generateChunkTags(c, gt);
+  gt.onclick = () => { document.getElementById('chunkDetectMenu')?.removeAttribute('open'); generateChunkTags(c, gt); };
+  // Close the DETECT pop-down on an outside click (wired once for the element).
+  const dm = document.getElementById('chunkDetectMenu');
+  if (dm && !dm._outsideWired) {
+    dm._outsideWired = true;
+    document.addEventListener('click', e => {
+      if (dm.hasAttribute('open') && !dm.contains(e.target)) dm.removeAttribute('open');
+    });
+  }
 
+  // GENERATE BODY when the hop has no body yet; once there is body text the same
+  // button becomes RE-WRITE, which opens a prompt modal to revise the existing body.
   const gb = document.getElementById('chunkModalGenBody');
-  if (gb) gb.onclick = () => generateChunkBody(c, gb);
+  if (gb) {
+    const hasBody = (c.body || '').trim().length > 0;
+    gb.innerHTML = IC_GENERATE + (hasBody ? ' RE-WRITE' : ' GENERATE BODY');
+    gb.title = hasBody ? 'AI: rewrite the body from a prompt' : 'AI: draft body text from the title';
+    gb.onclick = hasBody ? () => rewriteChunkBody(c, gb) : () => generateChunkBody(c, gb);
+  }
 
+  // One DETECT button → pop-down with CHARACTERS / LOCATIONS / TAGS. Each choice
+  // closes the menu, then runs the matching per-hop detection.
+  const detectMenu = document.getElementById('chunkDetectMenu');
+  const closeDetect = () => detectMenu && detectMenu.removeAttribute('open');
   const dc = document.getElementById('chunkDetectChars');
-  dc.onclick = () => detectChunkEntities(ENTITY_KINDS.character, c, dc);
+  dc.onclick = () => { closeDetect(); detectChunkEntities(ENTITY_KINDS.character, c, dc); };
   const dl = document.getElementById('chunkDetectLocs');
-  dl.onclick = () => detectChunkEntities(ENTITY_KINDS.location, c, dl);
+  dl.onclick = () => { closeDetect(); detectChunkEntities(ENTITY_KINDS.location, c, dl); };
 
   const sv = document.getElementById('chunkModalSave');
   sv.onclick = () => {
