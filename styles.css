@@ -848,17 +848,47 @@ mark.search-hit {
 .ev-dot { position: absolute; left: 50%; top: 20px; width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--bg); transform: translate(-50%, -50%); z-index: 2; }
 .ev-card {
   flex: 1; min-width: 0; background: var(--panel-2); border: 1px solid var(--line-2);
-  padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; cursor: pointer;
+  display: flex; flex-direction: column;
 }
 .ev-card:hover { border-color: var(--accent-mid); }
+.ev-card-head { display: flex; align-items: flex-start; gap: 8px; padding: 10px 10px 10px 8px; }
+.ev-expand {
+  flex: 0 0 auto; background: none; border: none; color: var(--muted); cursor: pointer;
+  font-size: 11px; line-height: 1.3; padding: 1px 2px; margin-top: 1px;
+}
+.ev-expand:hover { color: var(--accent); }
+.ev-card-headmain { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; cursor: pointer; }
+.ev-kebab { flex: 0 0 auto; }
 .ev-date { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; color: var(--accent); text-transform: uppercase; }
 .ev-card-title { font-size: 13px; font-weight: 600; color: var(--text-bright); line-height: 1.35; }
+.ev-card-detail {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 0 12px 12px 26px; border-top: 1px solid var(--line); margin-top: -2px; padding-top: 10px;
+}
 .ev-card-desc { font-size: 12px; color: var(--muted); line-height: 1.45; }
-.ev-card-foot { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; margin-top: 2px; }
+.ev-card-foot { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; }
 .ev-hop-link { font-size: 11px; color: var(--text); opacity: 0.8; cursor: pointer; }
 .ev-hop-link:hover { color: var(--accent); opacity: 1; }
 .ev-hop-none { font-size: 11px; color: var(--muted); opacity: 0.6; font-style: italic; }
 .ev-card-chars { font-size: 11px; color: var(--muted); }
+.ev-card-locs::before { content: "\25C9 "; opacity: 0.7; }
+
+/* EVENT view toggle (chronological axis vs by-section kanban) */
+.ev-view-toggle { display: inline-flex; border: 1px solid var(--line-2); border-radius: 4px; overflow: hidden; }
+.ev-view-btn {
+  background: var(--panel-2); border: none; color: var(--muted); cursor: pointer;
+  font-family: inherit; font-size: 11px; letter-spacing: 0.04em; padding: 6px 12px;
+}
+.ev-view-btn + .ev-view-btn { border-left: 1px solid var(--line-2); }
+.ev-view-btn:hover { color: var(--text-bright); }
+.ev-view-btn.active { background: var(--accent-dim); color: var(--accent); }
+
+/* EVENTS by section: kanban swimlanes (reuses .kanban/.lane) */
+.ev-kanban .ev-lane { max-height: calc(100vh - 320px); }
+.ev-lane-cards { display: flex; flex-direction: column; gap: 8px; }
+.ev-kan-card { min-width: 0; }
+.ev-kan-card.dim { opacity: 0.28; }
+.ev-kan-card .ev-card { background: var(--panel); }
 
 /* EVENT MODAL */
 .ev-modal .ev-desc-input {
@@ -883,6 +913,51 @@ mark.search-hit {
 .ev-review-title { font-size: 13px; font-weight: 600; color: var(--text-bright); }
 .ev-review-desc { font-size: 12px; color: var(--muted); line-height: 1.4; }
 .ev-review-hop { font-size: 11px; color: var(--text); opacity: 0.7; }
+.ev-review-item.is-dup { opacity: 0.6; }
+.ev-review-dup {
+  display: inline-block; margin-left: 6px; font-size: 9px; font-weight: 700; letter-spacing: 0.06em;
+  color: var(--muted); border: 1px solid var(--line-2); border-radius: 2px; padding: 1px 5px; vertical-align: middle;
+}
+
+/* EVENTS list inside the hop modal */
+.chunk-ev-list { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.chunk-ev-item {
+  display: flex; align-items: baseline; gap: 8px; width: 100%; text-align: left; cursor: pointer;
+  background: var(--panel); border: 1px solid var(--line-2); color: var(--text-bright);
+  font-family: inherit; padding: 8px 10px;
+}
+.chunk-ev-item:hover { border-color: var(--accent-mid); }
+.chunk-ev-when { flex: 0 0 auto; font-size: 9px; font-weight: 700; letter-spacing: 0.06em; color: var(--accent); text-transform: uppercase; }
+.chunk-ev-title { font-size: 12px; line-height: 1.4; }
+.meta-field-head { display: flex; align-items: center; gap: 10px; }
+.meta-field-head .add-btn { font-size: 10px; padding: 3px 8px; }
+
+/* SECTION OVERVIEW: master roll-up of entities/events for the whole section */
+.section-summary {
+  border: 1px solid var(--line-2); background: var(--panel-2);
+  margin: 0 0 14px; padding: 0;
+}
+.section-summary > summary {
+  list-style: none; cursor: pointer; user-select: none;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.12em; color: var(--muted);
+  padding: 10px 12px;
+}
+.section-summary > summary::-webkit-details-marker { display: none; }
+.section-summary > summary::before { content: '\25B8 '; color: var(--muted); }
+.section-summary[open] > summary::before { content: '\25BE '; }
+.section-summary > summary:hover { color: var(--accent); }
+.ss-grid { display: flex; flex-direction: column; gap: 8px; padding: 0 12px 12px; }
+.ss-row { display: flex; gap: 12px; align-items: baseline; }
+.ss-label { flex: 0 0 84px; font-size: 9px; letter-spacing: 0.12em; color: var(--muted); padding-top: 3px; }
+.ss-vals { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; min-width: 0; align-items: center; }
+.ss-chip {
+  display: inline-flex; align-items: center; gap: 5px; cursor: pointer;
+  font-size: 11px; color: var(--text-bright); border: 1px solid var(--line-2);
+  background: var(--panel); padding: 3px 8px; border-radius: 12px;
+}
+.ss-chip:hover { border-color: var(--accent-mid); }
+.ss-chip .ent-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--cc, var(--accent)); flex: 0 0 auto; }
+.ss-ev .ss-ev-when { font-size: 9px; font-weight: 700; letter-spacing: 0.05em; color: var(--accent); text-transform: uppercase; }
 
 /* NARRATIVE: kanban swimlanes by section */
 .tl-kanban .tl-lane { max-height: calc(100vh - 320px); }

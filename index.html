@@ -302,6 +302,10 @@
         </div>
       </div>
       <div class="timeline-controls">
+        <div class="ev-view-toggle" id="eventViewToggle">
+          <button class="ev-view-btn active" data-view="chrono">&#9776; TIMELINE</button>
+          <button class="ev-view-btn" data-view="section">&#9707; BY SECTION</button>
+        </div>
         <label>FILTER BY CHARACTER
           <select id="timelineCharFilter"><option value="">— all —</option></select>
         </label>
@@ -590,6 +594,12 @@
         <div class="meta-field-head">TAGS</div>
         <div id="chunkModalTags"></div>
       </div>
+      <div class="meta-field" style="margin-top:12px">
+        <div class="meta-field-head">EVENTS IN THIS HOP
+          <button class="add-btn" id="chunkModalAddEvent" title="Add an event linked to this hop">+ EVENT</button>
+        </div>
+        <div id="chunkModalEvents"></div>
+      </div>
       </div>
     </div>
   </div>
@@ -620,6 +630,9 @@
         </div>
         <div class="meta-field" style="margin-top:12px">CHARACTERS INVOLVED
           <div class="ev-chip-row" id="eventModalChars"></div>
+        </div>
+        <div class="meta-field" style="margin-top:12px">LOCATIONS INVOLVED
+          <div class="ev-chip-row" id="eventModalLocs"></div>
         </div>
       </div>
     </div>

@@ -1820,6 +1820,48 @@ function renderSectionDetail() {
   renderChunkPane();
 }
 
+// Master roll-up for the open section: every character, location, tag, and event
+// present across any hop in the section, as clickable chips.
+function sectionSummaryHTML(ch) {
+  const hops = chunksOf(ch.id).filter(isVisibleChunk);
+  const charSet = new Set(), locSet = new Set(), tagSet = new Set();
+  hops.forEach(c => {
+    db.characters.forEach(ent => { if (chunkEntityPresence(ENTITY_KINDS.character, c, ent).on) charSet.add(ent.id); });
+    db.locations.forEach(ent => { if (chunkEntityPresence(ENTITY_KINDS.location, c, ent).on) locSet.add(ent.id); });
+    (c.tagIds || []).forEach(t => tagSet.add(t));
+  });
+  const hopIds = new Set(hops.map(c => c.id));
+  const events = (db.events || [])
+    .filter(e => e.hopId && hopIds.has(e.hopId))
+    .sort((a, b) => (a.chronoPos ?? 0) - (b.chronoPos ?? 0));
+
+  const entChips = (ids, coll) => {
+    const arr = [...ids].map(id => db[coll].find(x => x.id === id)).filter(Boolean);
+    if (!arr.length) return `<span class="ci-count">none</span>`;
+    return arr.map(ent => `<span class="ss-chip" data-ss-ent="${coll}:${ent.id}" style="--cc:${ent.color || 'var(--accent)'}" title="Open ${esc(ent.name)}"><span class="ent-dot"></span>${esc(ent.name)}</span>`).join('');
+  };
+  const tagChips = () => {
+    const arr = [...tagSet].map(id => db.tags.find(t => t.id === id)).filter(Boolean);
+    if (!arr.length) return `<span class="ci-count">none</span>`;
+    return arr.map(t => `<span class="lbl-chip on" style="--lc:${t.color}">${esc(t.name)}</span>`).join('');
+  };
+  const evChips = () => {
+    if (!events.length) return `<span class="ci-count">none</span>`;
+    return events.map(e => `<span class="ss-chip ss-ev" data-ss-ev="${e.id}" title="Open this event">${e.dateLabel ? `<span class="ss-ev-when">${esc(e.dateLabel)}</span>` : ''}${esc(e.title || 'Untitled event')}</span>`).join('');
+  };
+
+  return `
+    <details class="section-summary" open>
+      <summary>SECTION OVERVIEW</summary>
+      <div class="ss-grid">
+        <div class="ss-row"><span class="ss-label">CHARACTERS</span><span class="ss-vals">${entChips(charSet, 'characters')}</span></div>
+        <div class="ss-row"><span class="ss-label">LOCATIONS</span><span class="ss-vals">${entChips(locSet, 'locations')}</span></div>
+        <div class="ss-row"><span class="ss-label">TAGS</span><span class="ss-vals">${tagChips()}</span></div>
+        <div class="ss-row"><span class="ss-label">EVENTS</span><span class="ss-vals">${evChips()}</span></div>
+      </div>
+    </details>`;
+}
+
 function renderChunkPane() {
   const pane = document.getElementById('chunkPane');
   const ch = db.chapters.find(c => c.id === db.ui.activeChapter);
@@ -1857,7 +1899,15 @@ function renderChunkPane() {
     ? `<div class="section-import-strip" data-secimport="${ch.id}">${sectionImportProgressHTML(importJob)}</div>`
     : '';
 
-  pane.innerHTML = head + importStrip + searchRow + `<div id="chunkList"></div>`;
+  pane.innerHTML = head + sectionSummaryHTML(ch) + importStrip + searchRow + `<div id="chunkList"></div>`;
+
+  // Section overview chips jump to the entity / event they represent.
+  pane.querySelectorAll('[data-ss-ent]').forEach(el => el.addEventListener('click', () => {
+    const [coll, id] = el.dataset.ssEnt.split(':');
+    gotoEntity(coll === 'characters' ? 'character' : 'location', id);
+  }));
+  pane.querySelectorAll('[data-ss-ev]').forEach(el =>
+    el.addEventListener('click', () => openEventModal(el.dataset.ssEv)));
 
   const stripEl = pane.querySelector('[data-secimport]');
   if (stripEl) wireSectionImportDismiss(stripEl, ch.id);
@@ -2871,6 +2921,14 @@ window.addEventListener('scroll', () => {
 // surfacing in a hop but positioned independently on the chronological axis.
 document.getElementById('addEventBtn')?.addEventListener('click', () => openEventModal(null));
 document.getElementById('detectEventsBtn')?.addEventListener('click', detectEvents);
+document.getElementById('eventViewToggle')?.addEventListener('click', e => {
+  const btn = e.target.closest('.ev-view-btn');
+  if (!btn) return;
+  evView = btn.dataset.view;
+  document.querySelectorAll('#eventViewToggle .ev-view-btn')
+    .forEach(b => b.classList.toggle('active', b === btn));
+  renderTimelines();
+});
 
 document.getElementById('addChapterBtn').addEventListener('click', () => {
   const id = uid();
@@ -2922,12 +2980,88 @@ function renderTimelines() {
   renderEventTimeline(document.getElementById('timelineStage'), filterChar);
 }
 
-/* ---- EVENT timeline: a vertical chronological axis of discrete events ---- */
+/* ---- EVENT views: chronological axis OR by-section kanban ---- */
 let evDragId = null;
+let evExpanded = new Set();      // event ids currently expanded (title-only by default)
+let evView = 'chrono';          // 'chrono' | 'section'
 function eventsSorted() {
   return [...(db.events || [])].sort((a, b) => (a.chronoPos ?? 0) - (b.chronoPos ?? 0));
 }
+function toggleEvExpand(id) {
+  if (evExpanded.has(id)) evExpanded.delete(id); else evExpanded.add(id);
+  renderTimelines();
+}
+
+// Shared inner card used by both event views: the title (+ when) shows always;
+// the description / hop link / characters reveal on EXPAND; a kebab folds the
+// EDIT + DELETE actions.
+function eventCardInner(ev) {
+  const expanded = evExpanded.has(ev.id);
+  const hop = ev.hopId ? db.chunks.find(c => c.id === ev.hopId) : null;
+  const color = hop ? chapterColor(hop.chapterId) : 'var(--accent)';
+  const chars = (ev.characterIds || []).map(id => db.characters.find(c => c.id === id)).filter(Boolean);
+  const locs = (ev.locationIds || []).map(id => (db.locations || []).find(l => l.id === id)).filter(Boolean);
+  const hasDetail = !!(ev.description || hop || chars.length || locs.length);
+  return `
+    <div class="ev-card ${expanded ? 'is-expanded' : ''}" style="border-left:3px solid ${color}">
+      <div class="ev-card-head">
+        <button class="ev-expand" data-act="toggle" title="${expanded ? 'Collapse' : 'Expand'}">${hasDetail ? (expanded ? '\u25BE' : '\u25B8') : '\u00B7'}</button>
+        <span class="ev-card-headmain">
+          ${ev.dateLabel ? `<span class="ev-date">${esc(ev.dateLabel)}</span>` : ''}
+          <span class="ev-card-title">${esc(ev.title || 'Untitled event')}</span>
+        </span>
+        <details class="hop-kebab ev-kebab">
+          <summary title="Options">\u22EE</summary>
+          <div class="hop-menu">
+            <button class="add-btn" data-act="edit">EDIT</button>
+            <button class="add-btn danger" data-act="del">DELETE</button>
+          </div>
+        </details>
+      </div>
+      ${expanded && hasDetail ? `
+        <div class="ev-card-detail">
+          ${ev.description ? `<span class="ev-card-desc">${esc(ev.description)}</span>` : ''}
+          <span class="ev-card-foot">
+            ${hop ? `<span class="ev-hop-link" data-hop="${hop.id}" title="Open the hop this surfaces in">\u21B7 ${esc(hop.title || 'Untitled hop')}</span>` : `<span class="ev-hop-none">unlinked</span>`}
+            ${chars.length ? `<span class="ev-card-chars">${chars.map(c => esc(c.name)).join(', ')}</span>` : ''}
+            ${locs.length ? `<span class="ev-card-chars ev-card-locs">${locs.map(l => esc(l.name)).join(', ')}</span>` : ''}
+          </span>
+        </div>` : ''}
+    </div>`;
+}
+
+// Click delegation shared by both views: kebab EDIT/DELETE, hop link, expand.
+function wireEventCard(cardEl, id) {
+  if (!cardEl) return;
+  const kebab = cardEl.querySelector('.ev-kebab');
+  if (kebab) kebab.addEventListener('toggle', () => { if (kebab.open) positionHopMenu(kebab); });
+  cardEl.addEventListener('click', e => {
+    if (e.target.closest('.ev-kebab > summary')) return;     // let <details> toggle
+    const hopLink = e.target.closest('.ev-hop-link');
+    if (hopLink) { e.stopPropagation(); openChunkModal(hopLink.dataset.hop); return; }
+    const closeKebab = () => cardEl.querySelector('.ev-kebab[open]')?.removeAttribute('open');
+    const actEl = e.target.closest('[data-act]');
+    if (actEl) {
+      const act = actEl.dataset.act;
+      if (act === 'toggle') { e.stopPropagation(); toggleEvExpand(id); return; }
+      if (act === 'edit') { e.stopPropagation(); closeKebab(); openEventModal(id); return; }
+      if (act === 'del') {
+        e.stopPropagation(); closeKebab();
+        (async () => {
+          if (await confirmModal('Delete this event? This cannot be undone.', { title: 'DELETE EVENT' })) {
+            db.events = (db.events || []).filter(x => x.id !== id);
+            save(); renderTimelines();
+          }
+        })();
+        return;
+      }
+    }
+    if (e.target.closest('.ev-card-headmain')) { toggleEvExpand(id); return; }
+  });
+}
+
 function renderEventTimeline(stage, filterChar) {
+  if (evView === 'section') return renderEventKanban(stage, filterChar);
   const events = eventsSorted();
   if (!events.length) {
     stage.innerHTML = `<div class="pane-empty">No events yet. Add one by hand, or DETECT EVENTS to pull moments fixed in time straight from your writing.</div>`;
@@ -2937,34 +3071,16 @@ function renderEventTimeline(stage, filterChar) {
     const dim = filterChar && !(ev.characterIds || []).includes(filterChar) ? 'dim' : '';
     const hop = ev.hopId ? db.chunks.find(c => c.id === ev.hopId) : null;
     const color = hop ? chapterColor(hop.chapterId) : 'var(--accent)';
-    const chars = (ev.characterIds || [])
-      .map(id => db.characters.find(c => c.id === id)).filter(Boolean);
     return `
       <div class="ev-row ${dim}" data-id="${ev.id}" draggable="true">
         <div class="ev-axis"><span class="ev-dot" style="background:${color}"></span></div>
-        <div class="ev-card" style="border-left:3px solid ${color}">
-          ${ev.dateLabel ? `<span class="ev-date">${esc(ev.dateLabel)}</span>` : ''}
-          <span class="ev-card-title">${esc(ev.title || 'Untitled event')}</span>
-          ${ev.description ? `<span class="ev-card-desc">${esc(ev.description)}</span>` : ''}
-          <span class="ev-card-foot">
-            ${hop ? `<span class="ev-hop-link" data-hop="${hop.id}" title="Open the hop this surfaces in">&#8627; ${esc(hop.title || 'Untitled hop')}</span>` : `<span class="ev-hop-none">unlinked</span>`}
-            ${chars.length ? `<span class="ev-card-chars">${chars.map(c => esc(c.name)).join(', ')}</span>` : ''}
-          </span>
-        </div>
+        ${eventCardInner(ev)}
       </div>`;
   }).join('') + `</div>`;
 
   stage.querySelectorAll('.ev-row').forEach(row => {
     const id = row.dataset.id;
-    row.querySelector('.ev-card').addEventListener('click', e => {
-      if (e.target.closest('.ev-hop-link')) return;       // hop-link handled below
-      if (!row.classList.contains('dragging')) openEventModal(id);
-    });
-    const hopLink = row.querySelector('.ev-hop-link');
-    if (hopLink) hopLink.addEventListener('click', e => {
-      e.stopPropagation();
-      openChunkModal(hopLink.dataset.hop);
-    });
+    wireEventCard(row.querySelector('.ev-card'), id);
     row.addEventListener('dragstart', e => {
       evDragId = id;
       e.dataTransfer.effectAllowed = 'move';
@@ -2978,6 +3094,47 @@ function renderEventTimeline(stage, filterChar) {
     });
   });
   wireEvTimelineDnD(stage.querySelector('.ev-timeline'));
+}
+
+// BY SECTION: one swimlane per section holding the events whose linked hop lives
+// in that section; events with no hop link gather in an UNLINKED lane.
+function renderEventKanban(stage, filterChar) {
+  const events = eventsSorted();
+  if (!events.length) {
+    stage.innerHTML = `<div class="pane-empty">No events yet. Add one by hand, or DETECT EVENTS to pull moments fixed in time straight from your writing.</div>`;
+    return;
+  }
+  const chapters = [...db.chapters].sort((a, b) => a.order - b.order);
+  const byCh = new Map(chapters.map(ch => [ch.id, []]));
+  const unlinked = [];
+  events.forEach(ev => {
+    const hop = ev.hopId ? db.chunks.find(c => c.id === ev.hopId) : null;
+    if (hop && byCh.has(hop.chapterId)) byCh.get(hop.chapterId).push(ev);
+    else unlinked.push(ev);
+  });
+  const lanes = chapters
+    .map(ch => ({ title: ch.title, color: chapterColor(ch.id), evs: byCh.get(ch.id) }))
+    .filter(l => l.evs.length);
+  if (unlinked.length) lanes.push({ title: 'UNLINKED', color: 'var(--muted)', evs: unlinked });
+
+  stage.innerHTML = `<div class="kanban ev-kanban">` + lanes.map(lane => {
+    const cards = lane.evs.map(ev => {
+      const dim = filterChar && !(ev.characterIds || []).includes(filterChar) ? 'dim' : '';
+      return `<div class="ev-kan-card ${dim}" data-id="${ev.id}">${eventCardInner(ev)}</div>`;
+    }).join('');
+    return `
+      <div class="lane ev-lane">
+        <div class="lane-head">
+          <span class="ci-dot" style="background:${lane.color}"></span>
+          <span class="lane-title-static" style="color:${lane.color}">${esc(lane.title)}</span>
+          <span class="lane-count">${lane.evs.length}</span>
+        </div>
+        <div class="lane-cards ev-lane-cards">${cards}</div>
+      </div>`;
+  }).join('') + `</div>`;
+
+  stage.querySelectorAll('.ev-kan-card').forEach(card =>
+    wireEventCard(card.querySelector('.ev-card'), card.dataset.id));
 }
 
 function clearEvMarkers() {
@@ -3034,13 +3191,13 @@ function reorderEvent(id, beforeId) {
 let modalEventId = null;       // id of the event being edited, or null for a new draft
 let eventDraft = null;         // working copy; committed to db.events only on SAVE
 
-function openEventModal(eventId) {
+function openEventModal(eventId, presetHopId = null) {
   const existing = eventId ? (db.events || []).find(e => e.id === eventId) : null;
   modalEventId = eventId;
   // Edit a copy so cancelling discards changes; a brand-new event starts blank.
   eventDraft = existing
     ? { ...existing, characterIds: [...(existing.characterIds || [])], locationIds: [...(existing.locationIds || [])] }
-    : { id: uid(), hopId: null, title: '', description: '', dateLabel: '', chronoPos: (db.events || []).length, characterIds: [], locationIds: [] };
+    : { id: uid(), hopId: presetHopId || null, title: '', description: '', dateLabel: '', chronoPos: (db.events || []).length, characterIds: [], locationIds: [] };
 
   document.getElementById('eventModalKicker').textContent = existing ? 'EVENT' : 'NEW EVENT';
   document.getElementById('eventModalTitle').value = eventDraft.title || '';
@@ -3056,6 +3213,7 @@ function openEventModal(eventId) {
     hopOpts.map(o => `<option value="${o.id}" ${o.id === eventDraft.hopId ? 'selected' : ''}>${esc(o.label)}</option>`).join('');
 
   renderEventChars();
+  renderEventLocs();
 
   document.getElementById('eventModalOverlay').hidden = false;
   document.getElementById('eventModalTitle').focus();
@@ -3083,6 +3241,28 @@ function renderEventChars() {
   });
 }
 
+function renderEventLocs() {
+  const wrap = document.getElementById('eventModalLocs');
+  if (!wrap) return;
+  if (!(db.locations || []).length) {
+    wrap.innerHTML = `<span class="ci-count">no locations yet — add them in LOCATIONS</span>`;
+    return;
+  }
+  wrap.innerHTML = db.locations.map(l => {
+    const on = (eventDraft.locationIds || []).includes(l.id);
+    return `<button type="button" class="ev-char-chip ${on ? 'on' : ''}" data-lid="${l.id}" style="--cc:${l.color || 'var(--accent)'}">${esc(l.name)}</button>`;
+  }).join('');
+  wrap.querySelectorAll('.ev-char-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const id = chip.dataset.lid;
+      const arr = eventDraft.locationIds || (eventDraft.locationIds = []);
+      const i = arr.indexOf(id);
+      if (i >= 0) arr.splice(i, 1); else arr.push(id);
+      chip.classList.toggle('on');
+    });
+  });
+}
+
 function closeEventModal() {
   document.getElementById('eventModalOverlay').hidden = true;
   modalEventId = null;
@@ -3102,6 +3282,7 @@ function saveEventFromModal() {
   save();
   closeEventModal();
   renderTimelines();
+  refreshChunkModalEvents();
 }
 
 function deleteEventFromModal() {
@@ -3110,6 +3291,37 @@ function deleteEventFromModal() {
   save();
   closeEventModal();
   renderTimelines();
+  refreshChunkModalEvents();
+}
+
+// Render the events linked to hop `c` inside the open hop modal. Each row shows
+// the event title (+ when); clicking opens the event editor.
+function renderChunkEvents(c) {
+  const wrap = document.getElementById('chunkModalEvents');
+  if (!wrap) return;
+  const linked = (db.events || [])
+    .filter(e => e.hopId === c.id)
+    .sort((a, b) => (a.chronoPos ?? 0) - (b.chronoPos ?? 0));
+  if (!linked.length) {
+    wrap.innerHTML = `<span class="ci-count">No events linked to this hop yet.</span>`;
+    return;
+  }
+  wrap.innerHTML = `<div class="chunk-ev-list">` + linked.map(e => `
+    <button type="button" class="chunk-ev-item" data-ev="${e.id}" title="Open this event">
+      ${e.dateLabel ? `<span class="chunk-ev-when">${esc(e.dateLabel)}</span>` : ''}
+      <span class="chunk-ev-title">${esc(e.title || 'Untitled event')}</span>
+    </button>`).join('') + `</div>`;
+  wrap.querySelectorAll('.chunk-ev-item').forEach(btn =>
+    btn.addEventListener('click', () => openEventModal(btn.dataset.ev)));
+}
+
+// Re-render the hop modal's EVENTS list if that modal is currently open (used
+// after the event editor saves/deletes an event linked to the open hop).
+function refreshChunkModalEvents() {
+  const overlay = document.getElementById('chunkModalOverlay');
+  if (!overlay || overlay.hidden) return;
+  const c = resolveChunk(modalChunkId);
+  if (c) renderChunkEvents(c);
 }
 
 document.getElementById('eventModalSave')?.addEventListener('click', saveEventFromModal);
@@ -3122,6 +3334,9 @@ document.getElementById('eventModalOverlay')?.addEventListener('mousedown', e =>
 });
 
 /* ---- DETECT EVENTS: scan the manuscript for moments fixed in time ---- */
+// Loose title key for duplicate detection: lower-cased, punctuation-stripped.
+function evNormTitle(s) { return (s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim(); }
+
 async function detectEvents() {
   const btn = document.getElementById('detectEventsBtn');
   const manuscript = db.chapters
@@ -3134,10 +3349,60 @@ async function detectEvents() {
   const original = aiBtnStart(btn, IC_DETECT, 'SCANNING…');
   try {
     const hops = manuscript.map(h => ({ id: h.hopId, title: h.title, section: h.section, body: h.body }));
-    const { events: found = [] } = await aiInvoke({ task: 'detect_events', hops });
+    // Hand the model the events we already have so it can avoid re-reporting them.
+    const existing = (db.events || []).map(e => ({ title: e.title, when: e.dateLabel || '' }));
+    // Rosters of the author's own characters/locations (name + aliases) so the model
+    // tags each event with the EXACT entity names, which we then resolve back to ids.
+    const characters = (db.characters || []).map(c => ({ name: c.name, aliases: c.aliases || [] }));
+    const locations = (db.locations || []).map(l => ({ name: l.name, aliases: l.aliases || [] }));
+    const { events: found = [] } = await aiInvoke({ task: 'detect_events', hops, existing, characters, locations });
     aiBtnDone(btn, original);
-    if (!found.length) { alertModal('No events were detected. Try adding more detail to your hops.', { title: 'DETECT EVENTS' }); return; }
-    const chosen = await eventReviewModal(found);
+    const hadEvents = !!(db.events && db.events.length);
+    if (!found.length) {
+      alertModal(
+        hadEvents
+          ? 'All events categorized — no new large-scale events were found.'
+          : 'No events were detected. Try adding more detail to your hops.',
+        { title: 'DETECT EVENTS' });
+      return;
+    }
+
+    // Client-side dedup safety net: flag any detected event whose title already
+    // exists on the timeline, and collapse duplicates within the batch itself.
+    const have = new Set((db.events || []).map(e => evNormTitle(e.title)));
+    const seen = new Set();
+    const annotated = found.map(e => {
+      const key = evNormTitle(e.title);
+      const dup = !!key && (have.has(key) || seen.has(key));
+      if (key) seen.add(key);
+      return { ...e, _dup: dup };
+    });
+    const newCount = annotated.filter(e => !e._dup).length;
+    const dupCount = annotated.length - newCount;
+    // Nothing genuinely new — detection has converged. Report and stop.
+    if (newCount === 0) {
+      alertModal('All events categorized — every event found is already on your timeline.', { title: 'DETECT EVENTS' });
+      return;
+    }
+
+    // Resolve AI-returned entity NAMES back to the author's entity ids, matching on
+    // canonical name or any alias (case-insensitive). Unknown names are dropped.
+    const resolveNames = (names, coll) => {
+      if (!Array.isArray(names) || !names.length) return [];
+      const ents = db[coll] || [];
+      const ids = [];
+      names.forEach(nm => {
+        const key = (nm || '').trim().toLowerCase();
+        if (!key) return;
+        const ent = ents.find(e =>
+          (e.name || '').trim().toLowerCase() === key ||
+          (Array.isArray(e.aliases) && e.aliases.some(a => (a || '').trim().toLowerCase() === key)));
+        if (ent && !ids.includes(ent.id)) ids.push(ent.id);
+      });
+      return ids;
+    };
+
+    const chosen = await eventReviewModal(annotated, { dupCount });
     if (!chosen || !chosen.length) return;
     db.events = db.events || [];
     let pos = db.events.length;
@@ -3150,8 +3415,8 @@ async function detectEvents() {
         description: ev.description || '',
         dateLabel: ev.when || '',
         chronoPos: pos++,
-        characterIds: [],
-        locationIds: []
+        characterIds: resolveNames(ev.characters, 'characters'),
+        locationIds: resolveNames(ev.locations, 'locations')
       });
     });
     save();
@@ -3162,24 +3427,28 @@ async function detectEvents() {
   }
 }
 
-// Review modal: pick which detected events to add. Resolves to the chosen array
-// (in original order) or null on cancel.
-function eventReviewModal(events) {
+// Review modal: pick which detected events to add. Events already on the timeline
+// (marked `_dup`) are shown with an ALREADY ON TIMELINE badge and start unchecked.
+// Resolves to the chosen array (in original order) or null on cancel.
+function eventReviewModal(events, opts = {}) {
   return new Promise(resolve => {
     const overlay = document.createElement('div');
     overlay.className = 'ui-modal-overlay';
     const hopName = id => { const c = db.chunks.find(x => x.id === id); return c ? (c.title || 'Untitled hop') : ''; };
+    const dupNote = opts.dupCount
+      ? ` ${opts.dupCount} already on your timeline ${opts.dupCount === 1 ? 'is' : 'are'} pre-unchecked.`
+      : '';
     overlay.innerHTML = `
       <div class="ui-modal ev-review" role="dialog" aria-modal="true">
         <div class="ui-modal-title">DETECTED EVENTS</div>
-        <div class="ui-modal-msg">${events.length} event${events.length === 1 ? '' : 's'} found. Uncheck any you don't want.</div>
+        <div class="ui-modal-msg">${events.length} event${events.length === 1 ? '' : 's'} found. Uncheck any you don't want.${dupNote}</div>
         <div class="ev-review-list">
           ${events.map((e, i) => `
-            <label class="ev-review-item">
-              <input type="checkbox" data-i="${i}" checked />
+            <label class="ev-review-item ${e._dup ? 'is-dup' : ''}">
+              <input type="checkbox" data-i="${i}" ${e._dup ? '' : 'checked'} />
               <span class="ev-review-body">
                 ${e.when ? `<span class="ev-review-when">${esc(e.when)}</span>` : ''}
-                <span class="ev-review-title">${esc(e.title || 'Untitled event')}</span>
+                <span class="ev-review-title">${esc(e.title || 'Untitled event')}${e._dup ? ' <span class="ev-review-dup">ALREADY ON TIMELINE</span>' : ''}</span>
                 ${e.description ? `<span class="ev-review-desc">${esc(e.description)}</span>` : ''}
                 ${e.hopId && hopName(e.hopId) ? `<span class="ev-review-hop">↳ ${esc(hopName(e.hopId))}</span>` : ''}
               </span>
@@ -3445,6 +3714,10 @@ function openChunkModal(chunkId) {
   tagsWrap.innerHTML = tagEditorHTML(c.tagIds || []);
   const le = tagsWrap.querySelector('.label-editor');
   if (le) wireTagEditor(le, c);
+
+  renderChunkEvents(c);
+  const addEvBtn = document.getElementById('chunkModalAddEvent');
+  if (addEvBtn) addEvBtn.onclick = () => openEventModal(null, c.id);
 
   const gt = document.getElementById('chunkModalGenTags');
   gt.onclick = () => { document.getElementById('chunkDetectMenu')?.removeAttribute('open'); generateChunkTags(c, gt); };
