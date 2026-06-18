@@ -3655,8 +3655,13 @@ function renderEntityPane(K) {
       <input type="color" class="chap-color" data-f="color" value="${c.color || '#e0a96d'}" title="${K.NOUN} color" />
       <input class="chunk-title-input head-name" data-f="name" value="${esc(c.name)}" />
       <select class="head-cat-sel" data-f="catSel" title="Category">${catOpts}</select>
-      <button class="add-btn" data-f="merge" title="Merge another ${K.noun} into this one">MERGE</button>
-      <button class="add-btn danger" data-f="del" title="Delete this ${K.noun}">DELETE</button>
+      <details class="head-kebab" data-f="kebabWrap">
+        <summary title="More actions" aria-label="More actions">⋮</summary>
+        <div class="head-kebab-menu">
+          <button class="add-btn" data-f="merge" title="Merge another ${K.noun} into this one">MERGE</button>
+          <button class="add-btn danger" data-f="del" title="Delete this ${K.noun}">DELETE</button>
+        </div>
+      </details>
     </div>
     <div class="char-block">
       <h3>ALIASES <span style="color:var(--muted);font-weight:400">(comma separated — used to find references)</span></h3>
@@ -3746,6 +3751,14 @@ function renderEntityPane(K) {
     save(); renderEntityList(K);
   });
   q('[data-f="merge"]').addEventListener('click', () => openMergeModal(K, c));
+  const kebab = q('[data-f="kebabWrap"]');
+  if (kebab) {
+    kebab.querySelectorAll('.head-kebab-menu .add-btn').forEach(b =>
+      b.addEventListener('click', () => kebab.removeAttribute('open')));
+    document.addEventListener('click', e => {
+      if (kebab.hasAttribute('open') && !kebab.contains(e.target)) kebab.removeAttribute('open');
+    });
+  }
   pane.querySelectorAll('[data-ref-toggle]').forEach(btn => {
     btn.addEventListener('click', () => {
       const id = btn.closest('.ref-row').dataset.ref;
