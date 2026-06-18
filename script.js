@@ -8874,6 +8874,12 @@ async function sendAI(text) {
 
 aiToggle.addEventListener('click', toggleAI);
 
+/* Tap the message body to dismiss the keyboard while keeping the panel open.
+   With resize:"none" the keypad won't collapse on its own; blurring the input
+   on a tap in the log area gives an easy way to put it away. (Tapping the
+   overlay scrim closes the whole panel via its own handler below.) */
+if (aiLog) aiLog.addEventListener('click', () => { if (document.activeElement === aiInput) aiInput.blur(); });
+
 /* ---------------- ACCOUNT MENU ---------------- */
 const profileBtn = document.getElementById('profileBtn');
 const accountMenu = document.getElementById('accountMenu');
