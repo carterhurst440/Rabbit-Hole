@@ -8733,16 +8733,96 @@ const aiToggle  = document.getElementById('aiToggle');
 let aiMessages = [];
 let aiBusy = false;
 
+/* Apply the iOS safe-area insets to the AI panel's header and input row.
+   env() resolves correctly on the full-width .app-header but to 0 inside the
+   fixed, transformed .ai-sidecar, so we read the header's resolved top inset
+   (and a full-width bottom probe) and set concrete px padding inline. In mobile
+   Safari both insets are 0, so nothing changes there. */
+function syncSafeAreaVars() {
+  const header = document.querySelector('.app-header');
+  const topPx = header ? parseFloat(getComputedStyle(header).paddingTop) || 0 : 0;
+  const probe = document.createElement('div');
+  probe.style.cssText = 'position:fixed;left:0;right:0;bottom:0;height:0;visibility:hidden;pointer-events:none;padding-bottom:env(safe-area-inset-bottom,0px);';
+  document.body.appendChild(probe);
+  const botPx = parseFloat(getComputedStyle(probe).paddingBottom) || 0;
+  probe.remove();
+  document.documentElement.style.setProperty('--rh-safe-top', topPx + 'px');
+  document.documentElement.style.setProperty('--rh-safe-bottom', botPx + 'px');
+}
+
+/* Pin the AI panel to the *visual* viewport. A full-height fixed panel
+   (top:0/bottom:0) is sized to the layout viewport, so when the keyboard
+   opens iOS scrolls the whole webview up and the header slides under the
+   status bar. Tracking visualViewport keeps the panel exactly as tall as the
+   visible area and pinned to its top, so the header always clears the notch
+   and the input row stays above the keyboard. No-op on desktop/mobile Safari
+   where offsetTop is 0 and height equals the window. */
+/* With the page scroll locked (see openAI), the panel stays pinned at top:0
+   below the notch. All we do here is lift the panel's bottom edge above the
+   on-screen keyboard so the input row stays visible. keyboardHeight is the
+   slice of the layout viewport the keyboard now covers. 0 on desktop/mobile
+   Safari and whenever no keyboard is up, so the panel is full height. */
+function sizeAISidecar() {
+  const vv = window.visualViewport;
+  if (!vv || !aiSidecar) return;
+  const kb = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+  aiSidecar.style.bottom = kb + 'px';
+}
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', sizeAISidecar);
+  window.visualViewport.addEventListener('scroll', sizeAISidecar);
+}
+
+/* In the Capacitor iOS app the WebView is set to resize:"none", so the keyboard
+   overlays the page and visualViewport doesn't report its height. The Keyboard
+   plugin's own events give the exact keyboard height — lift the panel's bottom
+   to it so the input row bounces up and stays visible above the keypad. The
+   header stays pinned (top:0) and the scrollable .ai-log body compresses. */
+(function wireAIKeyboard() {
+  const KB = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Keyboard;
+  if (!KB) return;
+  KB.addListener('keyboardWillShow', (info) => {
+    if (aiSidecar) aiSidecar.style.bottom = (info && info.keyboardHeight ? info.keyboardHeight : 0) + 'px';
+  });
+  KB.addListener('keyboardWillHide', () => {
+    if (aiSidecar) aiSidecar.style.bottom = '';
+  });
+})();
+window.addEventListener('resize', syncSafeAreaVars);
+window.addEventListener('orientationchange', syncSafeAreaVars);
+syncSafeAreaVars();
+
+let _aiScrollY = 0;
 function openAI() {
+  /* Lock the page scroll. Otherwise, when the keyboard opens iOS scrolls the
+     whole webview up to reveal the focused input, dragging the fixed panel's
+     header under the status bar. Pinning the body keeps everything still so the
+     header holds its place and we only lift the panel bottom (sizeAISidecar). */
+  _aiScrollY = window.scrollY || window.pageYOffset || 0;
+  document.body.style.position = 'fixed';
+  document.body.style.top = (-_aiScrollY) + 'px';
+  document.body.style.left = '0';
+  document.body.style.right = '0';
   aiOverlay.hidden = false; aiSidecar.hidden = false;
+  syncSafeAreaVars();
+  sizeAISidecar();
   requestAnimationFrame(() => { aiSidecar.classList.add('open'); aiOverlay.classList.add('show'); });
   aiToggle.classList.add('active');
-  setTimeout(() => aiInput.focus(), 60);
+  /* No auto-focus: focusing the input here pops the keyboard right after the
+     slide finishes, which jerks the panel upward. Let the user tap to type. */
 }
 function closeAI() {
   aiSidecar.classList.remove('open'); aiOverlay.classList.remove('show');
   aiToggle.classList.remove('active');
-  setTimeout(() => { aiSidecar.hidden = true; aiOverlay.hidden = true; }, 220);
+  document.body.style.position = '';
+  document.body.style.top = '';
+  document.body.style.left = '';
+  document.body.style.right = '';
+  window.scrollTo(0, _aiScrollY);
+  setTimeout(() => {
+    aiSidecar.hidden = true; aiOverlay.hidden = true;
+    aiSidecar.style.top = ''; aiSidecar.style.height = ''; aiSidecar.style.bottom = '';
+  }, 220);
 }
 function toggleAI() { aiSidecar.classList.contains('open') ? closeAI() : openAI(); }
 
