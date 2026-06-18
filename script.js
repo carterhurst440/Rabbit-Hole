@@ -1560,9 +1560,10 @@ window.addEventListener('hashchange', route);
 /* ---------------- DRAWER ---------------- */
 const drawer = document.getElementById('drawer');
 const overlay = document.getElementById('drawerOverlay');
-function openDrawer() { drawer.classList.add('open'); overlay.classList.add('show'); }
-function closeDrawer() { drawer.classList.remove('open'); overlay.classList.remove('show'); }
-document.getElementById('drawerToggle').addEventListener('click', openDrawer);
+const drawerToggle = document.getElementById('drawerToggle');
+function openDrawer() { drawer.classList.add('open'); overlay.classList.add('show'); drawerToggle.classList.add('is-open'); }
+function closeDrawer() { drawer.classList.remove('open'); overlay.classList.remove('show'); drawerToggle.classList.remove('is-open'); }
+drawerToggle.addEventListener('click', () => { drawer.classList.contains('open') ? closeDrawer() : openDrawer(); });
 overlay.addEventListener('click', closeDrawer);
 
 /* ---------------- GLOBAL ADD HOP ---------------- */
