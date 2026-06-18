@@ -77,6 +77,7 @@ function seed() {
     characters: [],
     locations: [],
     ideas: [],
+    events: [],
     tags: [],
     ui: { activeChapter: chId, activeChar: null, activeLoc: null, activeTag: null }
   };
@@ -86,6 +87,7 @@ function seed() {
 function migrate(d) {
   d.tags = d.tags || [];
   d.locations = d.locations || [];
+  d.events = d.events || [];
   d.ui = d.ui || {};
   (d.chunks || []).forEach(c => { if (!Array.isArray(c.tagIds)) c.tagIds = []; });
   (d.chunks || []).forEach(c => { if (!Array.isArray(c.locationIds)) c.locationIds = []; });
@@ -2865,17 +2867,10 @@ window.addEventListener('scroll', () => {
     applyRailSearch(id === 'charSearch' ? ENTITY_KINDS.character : ENTITY_KINDS.location));
 });
 
-// Timelines mode chips: NARRATIVE TIMELINE (kanban by section) vs CHRONOLOGICAL
-// (horizontal running timeline). Switching re-renders the single stage.
-let timelineMode = 'narrative';
-document.querySelectorAll('#tlAxisTabs .tl-axis-tab').forEach(tab => {
-  tab.addEventListener('click', () => {
-    timelineMode = tab.dataset.mode;
-    document.querySelectorAll('#tlAxisTabs .tl-axis-tab').forEach(t =>
-      t.classList.toggle('active', t === tab));
-    renderTimelines();
-  });
-});
+// TIMELINE is an EVENT timeline: discrete events fixed in time, each optionally
+// surfacing in a hop but positioned independently on the chronological axis.
+document.getElementById('addEventBtn')?.addEventListener('click', () => openEventModal(null));
+document.getElementById('detectEventsBtn')?.addEventListener('click', detectEvents);
 
 document.getElementById('addChapterBtn').addEventListener('click', () => {
   const id = uid();
@@ -2924,19 +2919,287 @@ function renderTimelines() {
   sel.onchange = renderTimelines;
   const filterChar = sel.value;
 
-  // populate label filter
-  const lsel = document.getElementById('timelineTagFilter');
-  const lprev = lsel.value;
-  lsel.innerHTML = `<option value="">— all —</option>` +
-    db.tags.map(l => `<option value="${l.id}">${esc(l.name)}</option>`).join('');
-  lsel.value = lprev;
-  lsel.onchange = renderTimelines;
-  const filterLabel = lsel.value;
+  renderEventTimeline(document.getElementById('timelineStage'), filterChar);
+}
 
-  const stage = document.getElementById('timelineStage');
-  if (timelineMode === 'chrono') renderChronoTimeline(stage, filterChar, filterLabel);
-  else renderNarrativeTimeline(stage, filterChar, filterLabel);
-  updateArchiveToggles();
+/* ---- EVENT timeline: a vertical chronological axis of discrete events ---- */
+let evDragId = null;
+function eventsSorted() {
+  return [...(db.events || [])].sort((a, b) => (a.chronoPos ?? 0) - (b.chronoPos ?? 0));
+}
+function renderEventTimeline(stage, filterChar) {
+  const events = eventsSorted();
+  if (!events.length) {
+    stage.innerHTML = `<div class="pane-empty">No events yet. Add one by hand, or DETECT EVENTS to pull moments fixed in time straight from your writing.</div>`;
+    return;
+  }
+  stage.innerHTML = `<div class="ev-timeline">` + events.map(ev => {
+    const dim = filterChar && !(ev.characterIds || []).includes(filterChar) ? 'dim' : '';
+    const hop = ev.hopId ? db.chunks.find(c => c.id === ev.hopId) : null;
+    const color = hop ? chapterColor(hop.chapterId) : 'var(--accent)';
+    const chars = (ev.characterIds || [])
+      .map(id => db.characters.find(c => c.id === id)).filter(Boolean);
+    return `
+      <div class="ev-row ${dim}" data-id="${ev.id}" draggable="true">
+        <div class="ev-axis"><span class="ev-dot" style="background:${color}"></span></div>
+        <div class="ev-card" style="border-left:3px solid ${color}">
+          ${ev.dateLabel ? `<span class="ev-date">${esc(ev.dateLabel)}</span>` : ''}
+          <span class="ev-card-title">${esc(ev.title || 'Untitled event')}</span>
+          ${ev.description ? `<span class="ev-card-desc">${esc(ev.description)}</span>` : ''}
+          <span class="ev-card-foot">
+            ${hop ? `<span class="ev-hop-link" data-hop="${hop.id}" title="Open the hop this surfaces in">&#8627; ${esc(hop.title || 'Untitled hop')}</span>` : `<span class="ev-hop-none">unlinked</span>`}
+            ${chars.length ? `<span class="ev-card-chars">${chars.map(c => esc(c.name)).join(', ')}</span>` : ''}
+          </span>
+        </div>
+      </div>`;
+  }).join('') + `</div>`;
+
+  stage.querySelectorAll('.ev-row').forEach(row => {
+    const id = row.dataset.id;
+    row.querySelector('.ev-card').addEventListener('click', e => {
+      if (e.target.closest('.ev-hop-link')) return;       // hop-link handled below
+      if (!row.classList.contains('dragging')) openEventModal(id);
+    });
+    const hopLink = row.querySelector('.ev-hop-link');
+    if (hopLink) hopLink.addEventListener('click', e => {
+      e.stopPropagation();
+      openChunkModal(hopLink.dataset.hop);
+    });
+    row.addEventListener('dragstart', e => {
+      evDragId = id;
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', id);
+      requestAnimationFrame(() => row.classList.add('dragging'));
+    });
+    row.addEventListener('dragend', () => {
+      row.classList.remove('dragging');
+      clearEvMarkers();
+      evDragId = null;
+    });
+  });
+  wireEvTimelineDnD(stage.querySelector('.ev-timeline'));
+}
+
+function clearEvMarkers() {
+  document.querySelectorAll('.ev-row.drop-before, .ev-row.drop-after')
+    .forEach(r => r.classList.remove('drop-before', 'drop-after'));
+}
+function evDragAfter(container, y) {
+  const rows = [...container.querySelectorAll('.ev-row:not(.dragging)')];
+  for (const r of rows) {
+    const box = r.getBoundingClientRect();
+    if (y < box.top + box.height / 2) return r;
+  }
+  return null;
+}
+function wireEvTimelineDnD(container) {
+  if (!container) return;
+  container.addEventListener('dragover', e => {
+    if (!evDragId) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    clearEvMarkers();
+    const after = evDragAfter(container, e.clientY);
+    if (after) after.classList.add('drop-before');
+    else {
+      const rows = container.querySelectorAll('.ev-row:not(.dragging)');
+      if (rows.length) rows[rows.length - 1].classList.add('drop-after');
+    }
+  });
+  container.addEventListener('drop', e => {
+    if (!evDragId) return;
+    e.preventDefault();
+    const id = e.dataTransfer.getData('text/plain') || evDragId;
+    const after = evDragAfter(container, e.clientY);
+    clearEvMarkers();
+    reorderEvent(id, after ? after.dataset.id : null);
+  });
+}
+// Move event `id` to sit before `beforeId` (end if null) on the chrono axis, then
+// renumber every event's chronoPos to its index so the order is stable.
+function reorderEvent(id, beforeId) {
+  if (id === beforeId) return;
+  const ordered = eventsSorted().filter(e => e.id !== id);
+  const moving = (db.events || []).find(e => e.id === id);
+  if (!moving) return;
+  let idx = beforeId ? ordered.findIndex(e => e.id === beforeId) : ordered.length;
+  if (idx < 0) idx = ordered.length;
+  ordered.splice(idx, 0, moving);
+  ordered.forEach((e, i) => e.chronoPos = i);
+  save();
+  renderTimelines();
+}
+
+/* ---- EVENT editor modal ---- */
+let modalEventId = null;       // id of the event being edited, or null for a new draft
+let eventDraft = null;         // working copy; committed to db.events only on SAVE
+
+function openEventModal(eventId) {
+  const existing = eventId ? (db.events || []).find(e => e.id === eventId) : null;
+  modalEventId = eventId;
+  // Edit a copy so cancelling discards changes; a brand-new event starts blank.
+  eventDraft = existing
+    ? { ...existing, characterIds: [...(existing.characterIds || [])], locationIds: [...(existing.locationIds || [])] }
+    : { id: uid(), hopId: null, title: '', description: '', dateLabel: '', chronoPos: (db.events || []).length, characterIds: [], locationIds: [] };
+
+  document.getElementById('eventModalKicker').textContent = existing ? 'EVENT' : 'NEW EVENT';
+  document.getElementById('eventModalTitle').value = eventDraft.title || '';
+  document.getElementById('eventModalDate').value = eventDraft.dateLabel || '';
+  document.getElementById('eventModalDesc').value = eventDraft.description || '';
+  document.getElementById('eventModalDelete').style.display = existing ? '' : 'none';
+
+  const hopSel = document.getElementById('eventModalHop');
+  const hopOpts = db.chapters
+    .slice().sort((a, b) => a.order - b.order)
+    .flatMap(ch => chunksOf(ch.id).map(c => ({ id: c.id, label: `${ch.title} · ${c.title || 'Untitled hop'}` })));
+  hopSel.innerHTML = `<option value="">— not linked —</option>` +
+    hopOpts.map(o => `<option value="${o.id}" ${o.id === eventDraft.hopId ? 'selected' : ''}>${esc(o.label)}</option>`).join('');
+
+  renderEventChars();
+
+  document.getElementById('eventModalOverlay').hidden = false;
+  document.getElementById('eventModalTitle').focus();
+}
+
+function renderEventChars() {
+  const wrap = document.getElementById('eventModalChars');
+  if (!wrap) return;
+  if (!db.characters.length) {
+    wrap.innerHTML = `<span class="ci-count">no characters yet — add them in CHARACTERS</span>`;
+    return;
+  }
+  wrap.innerHTML = db.characters.map(c => {
+    const on = (eventDraft.characterIds || []).includes(c.id);
+    return `<button type="button" class="ev-char-chip ${on ? 'on' : ''}" data-cid="${c.id}" style="--cc:${c.color || 'var(--accent)'}">${esc(c.name)}</button>`;
+  }).join('');
+  wrap.querySelectorAll('.ev-char-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const id = chip.dataset.cid;
+      const arr = eventDraft.characterIds || (eventDraft.characterIds = []);
+      const i = arr.indexOf(id);
+      if (i >= 0) arr.splice(i, 1); else arr.push(id);
+      chip.classList.toggle('on');
+    });
+  });
+}
+
+function closeEventModal() {
+  document.getElementById('eventModalOverlay').hidden = true;
+  modalEventId = null;
+  eventDraft = null;
+}
+
+function saveEventFromModal() {
+  if (!eventDraft) return;
+  eventDraft.title = document.getElementById('eventModalTitle').value.trim();
+  eventDraft.dateLabel = document.getElementById('eventModalDate').value.trim();
+  eventDraft.description = document.getElementById('eventModalDesc').value.trim();
+  eventDraft.hopId = document.getElementById('eventModalHop').value || null;
+  if (!eventDraft.title && !eventDraft.description) { closeEventModal(); return; }
+  const existing = modalEventId ? (db.events || []).find(e => e.id === modalEventId) : null;
+  if (existing) Object.assign(existing, eventDraft);
+  else { db.events = db.events || []; db.events.push(eventDraft); }
+  save();
+  closeEventModal();
+  renderTimelines();
+}
+
+function deleteEventFromModal() {
+  if (!modalEventId) { closeEventModal(); return; }
+  db.events = (db.events || []).filter(e => e.id !== modalEventId);
+  save();
+  closeEventModal();
+  renderTimelines();
+}
+
+document.getElementById('eventModalSave')?.addEventListener('click', saveEventFromModal);
+document.getElementById('eventModalClose')?.addEventListener('click', closeEventModal);
+document.getElementById('eventModalDelete')?.addEventListener('click', async () => {
+  if (await confirmModal('Delete this event? This cannot be undone.', { title: 'DELETE EVENT' })) deleteEventFromModal();
+});
+document.getElementById('eventModalOverlay')?.addEventListener('mousedown', e => {
+  if (e.target.id === 'eventModalOverlay') closeEventModal();
+});
+
+/* ---- DETECT EVENTS: scan the manuscript for moments fixed in time ---- */
+async function detectEvents() {
+  const btn = document.getElementById('detectEventsBtn');
+  const manuscript = db.chapters
+    .slice().sort((a, b) => a.order - b.order)
+    .flatMap(ch => chunksOf(ch.id)
+      .filter(c => (c.body || '').trim())
+      .map(c => ({ hopId: c.id, section: ch.title, title: c.title || 'Untitled hop', body: c.body })));
+  if (!manuscript.length) { alertModal('Write some hops first — there is nothing to scan yet.', { title: 'DETECT EVENTS' }); return; }
+
+  const original = aiBtnStart(btn, IC_DETECT, 'SCANNING…');
+  try {
+    const hops = manuscript.map(h => ({ id: h.hopId, title: h.title, section: h.section, body: h.body }));
+    const { events: found = [] } = await aiInvoke({ task: 'detect_events', hops });
+    aiBtnDone(btn, original);
+    if (!found.length) { alertModal('No events were detected. Try adding more detail to your hops.', { title: 'DETECT EVENTS' }); return; }
+    const chosen = await eventReviewModal(found);
+    if (!chosen || !chosen.length) return;
+    db.events = db.events || [];
+    let pos = db.events.length;
+    const validHops = new Set(db.chunks.map(c => c.id));
+    chosen.forEach(ev => {
+      db.events.push({
+        id: uid(),
+        hopId: validHops.has(ev.hopId) ? ev.hopId : null,
+        title: (ev.title || '').slice(0, 200),
+        description: ev.description || '',
+        dateLabel: ev.when || '',
+        chronoPos: pos++,
+        characterIds: [],
+        locationIds: []
+      });
+    });
+    save();
+    renderTimelines();
+  } catch (err) {
+    aiBtnDone(btn, original);
+    alertModal('Event detection failed.\n\n' + (err.message || ''), { title: 'DETECT EVENTS' });
+  }
+}
+
+// Review modal: pick which detected events to add. Resolves to the chosen array
+// (in original order) or null on cancel.
+function eventReviewModal(events) {
+  return new Promise(resolve => {
+    const overlay = document.createElement('div');
+    overlay.className = 'ui-modal-overlay';
+    const hopName = id => { const c = db.chunks.find(x => x.id === id); return c ? (c.title || 'Untitled hop') : ''; };
+    overlay.innerHTML = `
+      <div class="ui-modal ev-review" role="dialog" aria-modal="true">
+        <div class="ui-modal-title">DETECTED EVENTS</div>
+        <div class="ui-modal-msg">${events.length} event${events.length === 1 ? '' : 's'} found. Uncheck any you don't want.</div>
+        <div class="ev-review-list">
+          ${events.map((e, i) => `
+            <label class="ev-review-item">
+              <input type="checkbox" data-i="${i}" checked />
+              <span class="ev-review-body">
+                ${e.when ? `<span class="ev-review-when">${esc(e.when)}</span>` : ''}
+                <span class="ev-review-title">${esc(e.title || 'Untitled event')}</span>
+                ${e.description ? `<span class="ev-review-desc">${esc(e.description)}</span>` : ''}
+                ${e.hopId && hopName(e.hopId) ? `<span class="ev-review-hop">↳ ${esc(hopName(e.hopId))}</span>` : ''}
+              </span>
+            </label>`).join('')}
+        </div>
+        <div class="ui-modal-actions">
+          <button class="ui-modal-btn" data-act="cancel">Cancel</button>
+          <button class="ui-modal-btn solid" data-act="ok">Add selected</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    const done = val => { overlay.remove(); resolve(val); };
+    overlay.querySelector('[data-act="ok"]').addEventListener('click', () => {
+      const picks = [...overlay.querySelectorAll('input[type=checkbox]')]
+        .filter(cb => cb.checked).map(cb => events[+cb.dataset.i]);
+      done(picks);
+    });
+    overlay.querySelector('[data-act="cancel"]').addEventListener('click', () => done(null));
+    overlay.addEventListener('mousedown', e => { if (e.target === overlay) done(null); });
+  });
 }
 
 // Is this hop dimmed under the current filters? (presence = explicit link OR mention)
@@ -6566,14 +6829,15 @@ async function seedProjectContent(projectId, data) {
 
 async function loadProject(projectId) {
   activeProjectId = projectId;
-  const [proj, chapters, chunks, characters, locations, tags, ideas] = await Promise.all([
+  const [proj, chapters, chunks, characters, locations, tags, ideas, events] = await Promise.all([
     sb.from('projects').select('*').eq('id', projectId).single(),
     sb.from('chapters').select('*').eq('project_id', projectId),
     sb.from('chunks').select('*').eq('project_id', projectId),
     sb.from('characters').select('*').eq('project_id', projectId),
     sb.from('locations').select('*').eq('project_id', projectId),
     sb.from('tags').select('*').eq('project_id', projectId),
-    sb.from('ideas').select('*').eq('project_id', projectId)
+    sb.from('ideas').select('*').eq('project_id', projectId),
+    sb.from('events').select('*').eq('project_id', projectId)
   ]);
   const chunkIds = (chunks.data || []).map(r => r.id);
   const ideaIds = (ideas.data || []).map(r => r.id);
@@ -6599,6 +6863,7 @@ async function loadProject(projectId) {
     locations: (locations.data || []).map(r => ({ id: r.id, name: r.name, aliases: r.aliases || [], summary: r.summary || '', notes: r.notes || [], color: r.color || '', category: (r.category || '').toUpperCase(), dismissedRefs: r.dismissed_refs || [] })),
     tags: (tags.data || []).map(r => ({ id: r.id, name: (r.name || '').toUpperCase(), color: r.color, summary: r.summary || '', category: (r.category || '').toUpperCase() })),
     ideas: (ideas.data || []).map(r => ({ id: r.id, title: r.title || '', body: (r.body != null ? r.body : (r.text || '')), ts: r.ts || Date.parse(r.created_at), tagIds: il.filter(j => j.idea_id === r.id).map(j => j.tag_id) })),
+    events: (events.data || []).map(r => ({ id: r.id, hopId: r.hop_id || null, title: r.title || '', description: r.description || '', dateLabel: r.date_label || '', chronoPos: r.chrono_pos ?? 0, characterIds: r.character_ids || [], locationIds: r.location_ids || [] })),
     ui: (proj.data && proj.data.ui) || {}
   };
   // One-time migration: tag categories used to live in the project ui blob
@@ -6672,10 +6937,11 @@ async function persistProject() {
     const locations = (db.locations || []).map(c => ({ id: c.id, user_id: U, project_id: P, name: c.name, aliases: c.aliases || [], summary: c.summary || '', notes: c.notes || [], color: c.color || null, category: c.category || null, dismissed_refs: c.dismissedRefs || [] }));
     const tags = db.tags.map(l => ({ id: l.id, user_id: U, project_id: P, name: l.name, color: l.color, summary: l.summary || null, category: l.category || null }));
     const ideas = db.ideas.map(i => ({ id: i.id, user_id: U, project_id: P, title: i.title || null, body: i.body || null, text: (i.body || i.title || ''), ts: i.ts || Date.now() }));
+    const events = (db.events || []).map(e => ({ id: e.id, user_id: U, project_id: P, hop_id: e.hopId || null, title: e.title || '', description: e.description || '', date_label: e.dateLabel || null, chrono_pos: e.chronoPos ?? 0, character_ids: e.characterIds || [], location_ids: e.locationIds || [] }));
 
     await upsertSync('chapters', chapters, P);
     await Promise.all([upsertSync('tags', tags, P), upsertSync('characters', characters, P), upsertSync('locations', locations, P)]);
-    await Promise.all([upsertSync('chunks', chunks, P), upsertSync('ideas', ideas, P)]);
+    await Promise.all([upsertSync('chunks', chunks, P), upsertSync('ideas', ideas, P), upsertSync('events', events, P)]);
 
     const chunkTags = [], chunkChars = [], chunkLocs = [], ideaTags = [];
     db.chunks.forEach(c => {

@@ -294,21 +294,17 @@
     <!-- ============ TIMELINES ============ -->
     <section class="view" id="view-timelines" hidden>
       <div class="view-head">
-        <h1>TIMELINES</h1>
-        <p class="sub">Narrative order (what the reader sees) vs chronological order (what actually happens).</p>
-        <button class="add-btn arch-toggle" data-arch>SHOW ARCHIVED</button>
+        <h1>TIMELINE</h1>
+        <p class="sub">Events fixed in time — what actually happened, in chronological order. Each event links back to the hop it surfaces in, but sits on its own point in time.</p>
+        <div class="view-head-actions">
+          <button class="add-btn" id="detectEventsBtn" title="AI: scan the manuscript for events fixed in time">&#9906; DETECT EVENTS</button>
+          <button class="add-btn solid" id="addEventBtn">+ ADD EVENT</button>
+        </div>
       </div>
       <div class="timeline-controls">
         <label>FILTER BY CHARACTER
           <select id="timelineCharFilter"><option value="">— all —</option></select>
         </label>
-        <label>FILTER BY TAG
-          <select id="timelineTagFilter"><option value="">— all —</option></select>
-        </label>
-      </div>
-      <div class="tl-axis-tabs" id="tlAxisTabs">
-        <button class="tl-axis-tab active" data-mode="narrative">NARRATIVE TIMELINE</button>
-        <button class="tl-axis-tab" data-mode="chrono">CHRONOLOGICAL</button>
       </div>
       <div class="timeline-stage" id="timelineStage"></div>
     </section>
@@ -594,6 +590,37 @@
         <div class="meta-field-head">TAGS</div>
         <div id="chunkModalTags"></div>
       </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ EVENT MODAL ============ -->
+  <div class="modal-overlay" id="eventModalOverlay" hidden>
+    <div class="modal ev-modal" role="dialog" aria-modal="true">
+      <div class="modal-head">
+        <span class="modal-head-meta">
+          <span class="modal-proj" id="eventModalKicker">EVENT</span>
+        </span>
+        <button class="add-btn solid" id="eventModalSave" title="Save this event">✓ SAVE</button>
+        <button class="add-btn danger" id="eventModalDelete" title="Delete this event">DELETE</button>
+        <button class="icon-btn" id="eventModalClose" title="Close">✕</button>
+      </div>
+      <div class="modal-scroll">
+        <input class="chunk-title-input" id="eventModalTitle" placeholder="What happened? e.g. Adam is born" />
+        <div class="chunk-meta">
+          <div class="meta-field">WHEN (chronological label)
+            <input id="eventModalDate" placeholder="e.g. ~4000 BC, Spring 1820, Day 3" />
+          </div>
+          <div class="meta-field">SURFACES IN HOP
+            <select id="eventModalHop"></select>
+          </div>
+        </div>
+        <div class="meta-field" style="margin-top:12px">DESCRIPTION
+          <textarea id="eventModalDesc" class="ev-desc-input" placeholder="Describe the event…"></textarea>
+        </div>
+        <div class="meta-field" style="margin-top:12px">CHARACTERS INVOLVED
+          <div class="ev-chip-row" id="eventModalChars"></div>
+        </div>
       </div>
     </div>
   </div>

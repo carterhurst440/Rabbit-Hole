@@ -830,6 +830,60 @@ mark.search-hit {
 .tl-axis-tab.active { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
 .timeline-stage { min-height: 160px; }
 
+/* EVENT TIMELINE: a vertical chronological axis of discrete events */
+.ev-timeline { position: relative; padding: 6px 0 6px 6px; }
+.ev-row { position: relative; display: flex; gap: 14px; align-items: stretch; padding: 6px 0; cursor: grab; }
+.ev-row:active { cursor: grabbing; }
+.ev-row.dim { opacity: 0.3; }
+.ev-row.dragging { opacity: 0.4; }
+.ev-row.drop-before::before,
+.ev-row.drop-after::before { content: ''; position: absolute; left: 0; right: 0; height: 2px; background: var(--accent); z-index: 3; }
+.ev-row.drop-before::before { top: 0; }
+.ev-row.drop-after::before { bottom: 0; }
+.ev-axis { position: relative; flex: 0 0 14px; }
+/* continuous line down the axis column */
+.ev-axis::before { content: ''; position: absolute; left: 50%; top: -6px; bottom: -6px; width: 2px; background: var(--line-2); transform: translateX(-50%); }
+.ev-row:first-child .ev-axis::before { top: 50%; }
+.ev-row:last-child .ev-axis::before { bottom: 50%; }
+.ev-dot { position: absolute; left: 50%; top: 20px; width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--bg); transform: translate(-50%, -50%); z-index: 2; }
+.ev-card {
+  flex: 1; min-width: 0; background: var(--panel-2); border: 1px solid var(--line-2);
+  padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; cursor: pointer;
+}
+.ev-card:hover { border-color: var(--accent-mid); }
+.ev-date { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; color: var(--accent); text-transform: uppercase; }
+.ev-card-title { font-size: 13px; font-weight: 600; color: var(--text-bright); line-height: 1.35; }
+.ev-card-desc { font-size: 12px; color: var(--muted); line-height: 1.45; }
+.ev-card-foot { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; margin-top: 2px; }
+.ev-hop-link { font-size: 11px; color: var(--text); opacity: 0.8; cursor: pointer; }
+.ev-hop-link:hover { color: var(--accent); opacity: 1; }
+.ev-hop-none { font-size: 11px; color: var(--muted); opacity: 0.6; font-style: italic; }
+.ev-card-chars { font-size: 11px; color: var(--muted); }
+
+/* EVENT MODAL */
+.ev-modal .ev-desc-input {
+  width: 100%; min-height: 120px; resize: vertical; margin-top: 6px;
+  background: var(--panel); border: 1px solid var(--line-2); color: var(--text-bright);
+  font-family: inherit; font-size: 13px; line-height: 1.5; padding: 10px 12px; border-radius: 4px;
+}
+.ev-chip-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.ev-char-chip {
+  background: var(--panel); border: 1px solid var(--line-2); color: var(--muted);
+  font-family: inherit; font-size: 11px; padding: 4px 10px; border-radius: 12px; cursor: pointer;
+}
+.ev-char-chip.on { border-color: var(--cc, var(--accent)); color: var(--text-bright); background: color-mix(in srgb, var(--cc, var(--accent)) 18%, transparent); }
+
+/* DETECTED-EVENTS review modal */
+.ui-modal.ev-review { max-width: 480px; width: 92vw; }
+.ev-review-list { max-height: 50vh; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; margin: 12px 0; }
+.ev-review-item { display: flex; gap: 10px; align-items: flex-start; padding: 10px; border: 1px solid var(--line-2); background: var(--panel-2); cursor: pointer; text-align: left; }
+.ev-review-item input { margin-top: 3px; flex: 0 0 auto; }
+.ev-review-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.ev-review-when { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; color: var(--accent); text-transform: uppercase; }
+.ev-review-title { font-size: 13px; font-weight: 600; color: var(--text-bright); }
+.ev-review-desc { font-size: 12px; color: var(--muted); line-height: 1.4; }
+.ev-review-hop { font-size: 11px; color: var(--text); opacity: 0.7; }
+
 /* NARRATIVE: kanban swimlanes by section */
 .tl-kanban .tl-lane { max-height: calc(100vh - 320px); }
 .lane-title-static { flex: 1; min-width: 0; font-size: 13px; font-weight: 700; letter-spacing: 0.03em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
