@@ -1832,7 +1832,7 @@ function sectionSummaryHTML(ch) {
   });
   const hopIds = new Set(hops.map(c => c.id));
   const events = (db.events || [])
-    .filter(e => e.hopId && hopIds.has(e.hopId))
+    .filter(e => !e.dismissed && e.hopId && hopIds.has(e.hopId))
     .sort((a, b) => (a.chronoPos ?? 0) - (b.chronoPos ?? 0));
 
   const entChips = (ids, coll) => {
@@ -2921,6 +2921,7 @@ window.addEventListener('scroll', () => {
 // surfacing in a hop but positioned independently on the chronological axis.
 document.getElementById('addEventBtn')?.addEventListener('click', () => openEventModal(null));
 document.getElementById('detectEventsBtn')?.addEventListener('click', detectEvents);
+document.getElementById('viewDismissedBtn')?.addEventListener('click', openDismissedModal);
 document.getElementById('eventViewToggle')?.addEventListener('click', e => {
   const btn = e.target.closest('.ev-view-btn');
   if (!btn) return;
@@ -2977,6 +2978,14 @@ function renderTimelines() {
   sel.onchange = renderTimelines;
   const filterChar = sel.value;
 
+  // Surface the VIEW DISMISSED button only when there are dismissed events.
+  const dismissBtn = document.getElementById('viewDismissedBtn');
+  if (dismissBtn) {
+    const n = dismissedEvents().length;
+    dismissBtn.hidden = n === 0;
+    dismissBtn.innerHTML = `\u25CB VIEW DISMISSED (${n})`;
+  }
+
   renderEventTimeline(document.getElementById('timelineStage'), filterChar);
 }
 
@@ -2985,7 +2994,10 @@ let evDragId = null;
 let evExpanded = new Set();      // event ids currently expanded (title-only by default)
 let evView = 'chrono';          // 'chrono' | 'section'
 function eventsSorted() {
-  return [...(db.events || [])].sort((a, b) => (a.chronoPos ?? 0) - (b.chronoPos ?? 0));
+  return [...(db.events || [])].filter(e => !e.dismissed).sort((a, b) => (a.chronoPos ?? 0) - (b.chronoPos ?? 0));
+}
+function dismissedEvents() {
+  return [...(db.events || [])].filter(e => e.dismissed).sort((a, b) => (a.chronoPos ?? 0) - (b.chronoPos ?? 0));
 }
 function toggleEvExpand(id) {
   if (evExpanded.has(id)) evExpanded.delete(id); else evExpanded.add(id);
@@ -2995,7 +3007,7 @@ function toggleEvExpand(id) {
 // Shared inner card used by both event views: the title (+ when) shows always;
 // the description / hop link / characters reveal on EXPAND; a kebab folds the
 // EDIT + DELETE actions.
-function eventCardInner(ev) {
+function eventCardInner(ev, opts = {}) {
   const expanded = evExpanded.has(ev.id);
   const hop = ev.hopId ? db.chunks.find(c => c.id === ev.hopId) : null;
   const color = hop ? chapterColor(hop.chapterId) : 'var(--accent)';
@@ -3007,7 +3019,7 @@ function eventCardInner(ev) {
       <div class="ev-card-head">
         <button class="ev-expand" data-act="toggle" title="${expanded ? 'Collapse' : 'Expand'}">${hasDetail ? (expanded ? '\u25BE' : '\u25B8') : '\u00B7'}</button>
         <span class="ev-card-headmain">
-          ${ev.dateLabel ? `<span class="ev-date">${esc(ev.dateLabel)}</span>` : ''}
+          ${(!opts.hideDate && ev.dateLabel) ? `<span class="ev-date">${esc(ev.dateLabel)}</span>` : ''}
           <span class="ev-card-title">${esc(ev.title || 'Untitled event')}</span>
         </span>
         <details class="hop-kebab ev-kebab">
@@ -3073,8 +3085,9 @@ function renderEventTimeline(stage, filterChar) {
     const color = hop ? chapterColor(hop.chapterId) : 'var(--accent)';
     return `
       <div class="ev-row ${dim}" data-id="${ev.id}" draggable="true">
+        <div class="ev-when-gutter">${ev.dateLabel ? esc(ev.dateLabel) : ''}</div>
         <div class="ev-axis"><span class="ev-dot" style="background:${color}"></span></div>
-        ${eventCardInner(ev)}
+        ${eventCardInner(ev, { hideDate: true })}
       </div>`;
   }).join('') + `</div>`;
 
@@ -3300,7 +3313,7 @@ function renderChunkEvents(c) {
   const wrap = document.getElementById('chunkModalEvents');
   if (!wrap) return;
   const linked = (db.events || [])
-    .filter(e => e.hopId === c.id)
+    .filter(e => !e.dismissed && e.hopId === c.id)
     .sort((a, b) => (a.chronoPos ?? 0) - (b.chronoPos ?? 0));
   if (!linked.length) {
     wrap.innerHTML = `<span class="ci-count">No events linked to this hop yet.</span>`;
@@ -3368,20 +3381,24 @@ async function detectEvents() {
     }
 
     // Client-side dedup safety net: flag any detected event whose title already
-    // exists on the timeline, and collapse duplicates within the batch itself.
-    const have = new Set((db.events || []).map(e => evNormTitle(e.title)));
+    // exists on the timeline, drop any that match an event the author previously
+    // DISMISSED, and collapse duplicates within the batch itself.
+    const have = new Set((db.events || []).filter(e => !e.dismissed).map(e => evNormTitle(e.title)));
+    const dismissedKeys = new Set((db.events || []).filter(e => e.dismissed).map(e => evNormTitle(e.title)));
     const seen = new Set();
     const annotated = found.map(e => {
       const key = evNormTitle(e.title);
       const dup = !!key && (have.has(key) || seen.has(key));
       if (key) seen.add(key);
-      return { ...e, _dup: dup };
+      return { ...e, _dup: dup, _dismissed: !!key && dismissedKeys.has(key) };
     });
-    const newCount = annotated.filter(e => !e._dup).length;
-    const dupCount = annotated.length - newCount;
+    // Events the author already waved off never resurface in the review modal.
+    const visible = annotated.filter(e => !e._dismissed);
+    const newCount = visible.filter(e => !e._dup).length;
+    const dupCount = visible.length - newCount;
     // Nothing genuinely new — detection has converged. Report and stop.
     if (newCount === 0) {
-      alertModal('All events categorized — every event found is already on your timeline.', { title: 'DETECT EVENTS' });
+      alertModal('All events categorized — every event found is already on your timeline or was dismissed.', { title: 'DETECT EVENTS' });
       return;
     }
 
@@ -3402,23 +3419,27 @@ async function detectEvents() {
       return ids;
     };
 
-    const chosen = await eventReviewModal(annotated, { dupCount });
-    if (!chosen || !chosen.length) return;
+    const review = await eventReviewModal(visible, { dupCount });
+    if (!review) return; // cancelled — change nothing
+    const { chosen = [], dismissed = [] } = review;
+    if (!chosen.length && !dismissed.length) return;
     db.events = db.events || [];
-    let pos = db.events.length;
+    let pos = eventsSorted().length;
     const validHops = new Set(db.chunks.map(c => c.id));
-    chosen.forEach(ev => {
-      db.events.push({
-        id: uid(),
-        hopId: validHops.has(ev.hopId) ? ev.hopId : null,
-        title: (ev.title || '').slice(0, 200),
-        description: ev.description || '',
-        dateLabel: ev.when || '',
-        chronoPos: pos++,
-        characterIds: resolveNames(ev.characters, 'characters'),
-        locationIds: resolveNames(ev.locations, 'locations')
-      });
+    const mkEvent = (ev, isDismissed) => ({
+      id: uid(),
+      hopId: validHops.has(ev.hopId) ? ev.hopId : null,
+      title: (ev.title || '').slice(0, 200),
+      description: ev.description || '',
+      dateLabel: ev.when || '',
+      chronoPos: isDismissed ? 0 : pos++,
+      characterIds: resolveNames(ev.characters, 'characters'),
+      locationIds: resolveNames(ev.locations, 'locations'),
+      dismissed: isDismissed
     });
+    chosen.forEach(ev => db.events.push(mkEvent(ev, false)));
+    // Unchecked candidates are remembered as DISMISSED so future detections skip them.
+    dismissed.forEach(ev => db.events.push(mkEvent(ev, true)));
     save();
     renderTimelines();
   } catch (err) {
@@ -3441,7 +3462,7 @@ function eventReviewModal(events, opts = {}) {
     overlay.innerHTML = `
       <div class="ui-modal ev-review" role="dialog" aria-modal="true">
         <div class="ui-modal-title">DETECTED EVENTS</div>
-        <div class="ui-modal-msg">${events.length} event${events.length === 1 ? '' : 's'} found. Uncheck any you don't want.${dupNote}</div>
+        <div class="ui-modal-msg">${events.length} event${events.length === 1 ? '' : 's'} found. Uncheck any you don't want — they'll be remembered as dismissed and won't resurface on future detections (restore them anytime via VIEW DISMISSED).${dupNote}</div>
         <div class="ev-review-list">
           ${events.map((e, i) => `
             <label class="ev-review-item ${e._dup ? 'is-dup' : ''}">
@@ -3462,13 +3483,69 @@ function eventReviewModal(events, opts = {}) {
     document.body.appendChild(overlay);
     const done = val => { overlay.remove(); resolve(val); };
     overlay.querySelector('[data-act="ok"]').addEventListener('click', () => {
-      const picks = [...overlay.querySelectorAll('input[type=checkbox]')]
-        .filter(cb => cb.checked).map(cb => events[+cb.dataset.i]);
-      done(picks);
+      const chosen = [], dismissed = [];
+      events.forEach((e, i) => {
+        const cb = overlay.querySelector(`input[data-i="${i}"]`);
+        if (cb && cb.checked) chosen.push(e);
+        else if (!e._dup) dismissed.push(e); // unchecked & not already on timeline → dismiss
+      });
+      done({ chosen, dismissed });
     });
     overlay.querySelector('[data-act="cancel"]').addEventListener('click', () => done(null));
     overlay.addEventListener('mousedown', e => { if (e.target === overlay) done(null); });
   });
+}
+
+// DISMISSED EVENTS: candidates the author waved off during detection. They stay in
+// the DB (dismissed=true) so future detections skip them, but can be RESTORED back
+// onto the timeline or permanently DELETED here.
+function openDismissedModal() {
+  const overlay = document.createElement('div');
+  overlay.className = 'ui-modal-overlay';
+  const hopName = id => { const c = db.chunks.find(x => x.id === id); return c ? (c.title || 'Untitled hop') : ''; };
+  const close = () => overlay.remove();
+  function render() {
+    const list = dismissedEvents();
+    if (!list.length) { close(); renderTimelines(); return; }
+    overlay.innerHTML = `
+      <div class="ui-modal ev-review" role="dialog" aria-modal="true">
+        <div class="ui-modal-title">DISMISSED EVENTS</div>
+        <div class="ui-modal-msg">${list.length} dismissed event${list.length === 1 ? '' : 's'}. These are hidden from your timeline and skipped on future detections. RESTORE one to put it back, or DELETE it for good.</div>
+        <div class="ev-review-list">
+          ${list.map(e => `
+            <div class="ev-review-item is-dismissed" data-id="${e.id}">
+              <span class="ev-review-body">
+                ${e.dateLabel ? `<span class="ev-review-when">${esc(e.dateLabel)}</span>` : ''}
+                <span class="ev-review-title">${esc(e.title || 'Untitled event')}</span>
+                ${e.description ? `<span class="ev-review-desc">${esc(e.description)}</span>` : ''}
+                ${e.hopId && hopName(e.hopId) ? `<span class="ev-review-hop">\u21B7 ${esc(hopName(e.hopId))}</span>` : ''}
+              </span>
+              <span class="ev-dismiss-actions">
+                <button class="add-btn" data-act="restore" data-id="${e.id}">RESTORE</button>
+                <button class="add-btn danger" data-act="del" data-id="${e.id}">DELETE</button>
+              </span>
+            </div>`).join('')}
+        </div>
+        <div class="ui-modal-actions">
+          <button class="ui-modal-btn" data-act="done">Done</button>
+        </div>
+      </div>`;
+    overlay.querySelector('[data-act="done"]').addEventListener('click', () => { close(); renderTimelines(); });
+    overlay.querySelectorAll('[data-act="restore"]').forEach(btn => btn.addEventListener('click', () => {
+      const ev = (db.events || []).find(x => x.id === btn.dataset.id);
+      if (ev) { ev.dismissed = false; ev.chronoPos = eventsSorted().length; save(); }
+      render();
+    }));
+    overlay.querySelectorAll('[data-act="del"]').forEach(btn => btn.addEventListener('click', async () => {
+      if (!await confirmModal('Delete this dismissed event for good? This cannot be undone.', { title: 'DELETE EVENT' })) return;
+      db.events = (db.events || []).filter(x => x.id !== btn.dataset.id);
+      save();
+      render();
+    }));
+  }
+  document.body.appendChild(overlay);
+  overlay.addEventListener('mousedown', e => { if (e.target === overlay) { close(); renderTimelines(); } });
+  render();
 }
 
 // Is this hop dimmed under the current filters? (presence = explicit link OR mention)
@@ -7136,7 +7213,7 @@ async function loadProject(projectId) {
     locations: (locations.data || []).map(r => ({ id: r.id, name: r.name, aliases: r.aliases || [], summary: r.summary || '', notes: r.notes || [], color: r.color || '', category: (r.category || '').toUpperCase(), dismissedRefs: r.dismissed_refs || [] })),
     tags: (tags.data || []).map(r => ({ id: r.id, name: (r.name || '').toUpperCase(), color: r.color, summary: r.summary || '', category: (r.category || '').toUpperCase() })),
     ideas: (ideas.data || []).map(r => ({ id: r.id, title: r.title || '', body: (r.body != null ? r.body : (r.text || '')), ts: r.ts || Date.parse(r.created_at), tagIds: il.filter(j => j.idea_id === r.id).map(j => j.tag_id) })),
-    events: (events.data || []).map(r => ({ id: r.id, hopId: r.hop_id || null, title: r.title || '', description: r.description || '', dateLabel: r.date_label || '', chronoPos: r.chrono_pos ?? 0, characterIds: r.character_ids || [], locationIds: r.location_ids || [] })),
+    events: (events.data || []).map(r => ({ id: r.id, hopId: r.hop_id || null, title: r.title || '', description: r.description || '', dateLabel: r.date_label || '', chronoPos: r.chrono_pos ?? 0, characterIds: r.character_ids || [], locationIds: r.location_ids || [], dismissed: !!r.dismissed })),
     ui: (proj.data && proj.data.ui) || {}
   };
   // One-time migration: tag categories used to live in the project ui blob
@@ -7210,7 +7287,7 @@ async function persistProject() {
     const locations = (db.locations || []).map(c => ({ id: c.id, user_id: U, project_id: P, name: c.name, aliases: c.aliases || [], summary: c.summary || '', notes: c.notes || [], color: c.color || null, category: c.category || null, dismissed_refs: c.dismissedRefs || [] }));
     const tags = db.tags.map(l => ({ id: l.id, user_id: U, project_id: P, name: l.name, color: l.color, summary: l.summary || null, category: l.category || null }));
     const ideas = db.ideas.map(i => ({ id: i.id, user_id: U, project_id: P, title: i.title || null, body: i.body || null, text: (i.body || i.title || ''), ts: i.ts || Date.now() }));
-    const events = (db.events || []).map(e => ({ id: e.id, user_id: U, project_id: P, hop_id: e.hopId || null, title: e.title || '', description: e.description || '', date_label: e.dateLabel || null, chrono_pos: e.chronoPos ?? 0, character_ids: e.characterIds || [], location_ids: e.locationIds || [] }));
+    const events = (db.events || []).map(e => ({ id: e.id, user_id: U, project_id: P, hop_id: e.hopId || null, title: e.title || '', description: e.description || '', date_label: e.dateLabel || null, chrono_pos: e.chronoPos ?? 0, character_ids: e.characterIds || [], location_ids: e.locationIds || [], dismissed: !!e.dismissed }));
 
     await upsertSync('chapters', chapters, P);
     await Promise.all([upsertSync('tags', tags, P), upsertSync('characters', characters, P), upsertSync('locations', locations, P)]);

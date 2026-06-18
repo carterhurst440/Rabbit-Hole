@@ -783,11 +783,15 @@ mark.search-hit {
 }
 .detect-tool-menu .add-btn { text-align: left; width: 100%; }
 .chunk-meta { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 10px; align-items: center; }
-.meta-field { display: flex; flex-direction: column; gap: 4px; font-size: 10px; letter-spacing: 0.1em; color: var(--muted); }
+.meta-field { display: flex; flex-direction: column; gap: 4px; font-size: 10px; letter-spacing: 0.1em; color: var(--muted); min-width: 0; }
+/* Inside the event/hop meta row, fields share the row and shrink instead of a long
+   <select> option forcing the whole modal wider than the screen (horizontal scroll). */
+.chunk-meta .meta-field { flex: 1 1 160px; }
 .meta-field input, .meta-field select {
   background: var(--panel-2); border: 1px solid var(--line); color: var(--text);
-  padding: 6px 8px; font-size: 12px;
+  padding: 6px 8px; font-size: 12px; max-width: 100%; box-sizing: border-box;
 }
+.chunk-meta .meta-field select, .chunk-meta .meta-field input { width: 100%; }
 .char-chips { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
 .ent-list { display: flex; flex-direction: column; gap: 5px; width: 100%; }
 .ent-item {
@@ -831,8 +835,16 @@ mark.search-hit {
 .timeline-stage { min-height: 160px; }
 
 /* EVENT TIMELINE: a vertical chronological axis of discrete events */
-.ev-timeline { position: relative; padding: 6px 0 6px 6px; }
-.ev-row { position: relative; display: flex; gap: 14px; align-items: stretch; padding: 6px 0; cursor: grab; }
+.ev-timeline { position: relative; padding: 6px 0; }
+.ev-row { position: relative; display: flex; gap: 10px; align-items: stretch; padding: 6px 0; cursor: grab; }
+/* Approximate date/time sits in a left gutter, right-aligned against the axis line;
+   the title card sits to the right of the line. */
+.ev-when-gutter {
+  flex: 0 0 78px; align-self: flex-start; padding-top: 13px;
+  font-size: 9px; font-weight: 700; letter-spacing: 0.05em; line-height: 1.35;
+  color: var(--accent); text-transform: uppercase; text-align: right;
+  overflow-wrap: anywhere; opacity: 0.85;
+}
 .ev-row:active { cursor: grabbing; }
 .ev-row.dim { opacity: 0.3; }
 .ev-row.dragging { opacity: 0.4; }
@@ -918,6 +930,10 @@ mark.search-hit {
   display: inline-block; margin-left: 6px; font-size: 9px; font-weight: 700; letter-spacing: 0.06em;
   color: var(--muted); border: 1px solid var(--line-2); border-radius: 2px; padding: 1px 5px; vertical-align: middle;
 }
+.ev-review-item.is-dismissed { cursor: default; align-items: center; justify-content: space-between; gap: 12px; }
+.ev-review-item.is-dismissed .ev-review-body { flex: 1 1 auto; }
+.ev-dismiss-actions { flex: 0 0 auto; display: flex; flex-direction: column; gap: 6px; }
+.ev-dismiss-actions .add-btn { white-space: nowrap; }
 
 /* EVENTS list inside the hop modal */
 .chunk-ev-list { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
