@@ -256,7 +256,9 @@
       </div>
       <div class="search-bar">
         <input type="text" id="searchInput" class="search-input" placeholder="e.g. where does the locket first appear? — or — scenes about quiet betrayal" />
-        <button class="add-btn search-run" id="searchRunBtn"><span class="ai-star">✦</span> SEARCH</button>
+        <button class="add-btn search-run" id="searchRunBtn" title="Search" aria-label="Search">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+        </button>
       </div>
       <div id="searchProgress" class="search-progress" hidden></div>
       <div id="searchResults" class="search-results"></div>

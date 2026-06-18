@@ -6937,7 +6937,7 @@ function renderHome() {
     return `
       <div class="project-card ${active ? 'active' : ''}" style="--accent:${esc(p.accent || DEFAULT_ACCENT)}">
         <button class="pc-body" data-open="${p.id}">
-          <span class="pc-name">${esc(p.name)}</span>
+          <span class="pc-name">${esc(p.name)}${active ? '<span class="pc-active-tag">● ACTIVE</span>' : ''}</span>
           ${kind ? `<span class="pc-kind">${esc(kind)}</span>` : ''}
           <span class="pc-meta">${active ? 'open · ' : ''}updated ${esc(when)}</span>
         </button>
