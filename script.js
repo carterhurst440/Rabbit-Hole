@@ -6785,6 +6785,9 @@ document.addEventListener('mouseout', e => {
 /* ---- HOME: words-per-day chart ---- */
 // Range filter for the chart: 30 = last 30 active days (default), 'all' = full history.
 let wcRange = 30;
+// Sources toggled off via the legend. Their words are excluded from the bars
+// but they stay in the legend so they can be switched back on.
+let wcHidden = new Set();
 // Resolve a source key to its label + colour at render time (projectsCache may
 // have populated after the fetch).
 function wcSourceMeta(src) {
@@ -6798,19 +6801,24 @@ function renderWordsChart() {
   const el = document.getElementById('wordsChart');
   if (!el) return;
   // Only days that actually had words — no empty filler. Oldest → newest.
-  const present = new Set();
+  // Keep the full per-source breakdown so the legend can list every source.
   const entries = [...wordsChartCache.entries()].map(([key, row]) => {
-    let total = 0;
     const segs = [];
     for (const [src, words] of row.entries()) {
-      if (words > 0) { total += words; segs.push({ src, words }); }
+      if (words > 0) segs.push({ src, words });
     }
-    return { key, total, segs };
-  }).filter(d => d.total > 0).sort((a, b) => (a.key < b.key ? -1 : 1));
+    return { key, segs };
+  }).filter(d => d.segs.length).sort((a, b) => (a.key < b.key ? -1 : 1));
   const recent = wcRange === 'all' ? entries : entries.slice(-30);
-  const maxTotal = recent.reduce((m, d) => Math.max(m, d.total), 0);
 
-  if (!recent.length || maxTotal === 0) {
+  // Every source in range drives the legend; hidden ones stay listed so they
+  // can be toggled back on. Bar heights count only the visible (on) sources.
+  const present = new Set();
+  recent.forEach(d => d.segs.forEach(s => present.add(s.src)));
+  const visTotal = d => d.segs.reduce((t, s) => wcHidden.has(s.src) ? t : t + s.words, 0);
+  const maxTotal = recent.reduce((m, d) => Math.max(m, visTotal(d)), 0);
+
+  if (!recent.length || !present.size) {
     el.innerHTML = `
       <div class="wc-card">
         <div class="wc-title">Words per day</div>
@@ -6821,22 +6829,24 @@ function renderWordsChart() {
 
   // Each bar's height is its share of the busiest day (tallest = full section).
   // Segments split that bar by flex-grow proportional to each source's words.
+  const safeMax = maxTotal || 1;
   const bars = recent.map(day => {
-    const sorted = [...day.segs].sort((a, b) => b.words - a.words);
-    sorted.forEach(s => present.add(s.src));
+    const sorted = day.segs.filter(s => !wcHidden.has(s.src)).sort((a, b) => b.words - a.words);
+    const dayTotal = sorted.reduce((t, s) => t + s.words, 0);
     const stack = sorted.map(s => {
       const { color } = wcSourceMeta(s.src);
       return `<span class="wc-seg" style="flex-grow:${s.words};background:${esc(color)}"></span>`;
     }).join('');
-    const hPct = Math.max(2, (day.total / maxTotal) * 100);
-    return `<div class="wc-bar" data-day="${day.key}" data-total="${day.total}" style="height:${hPct}%">
+    const hPct = dayTotal > 0 ? Math.max(2, (dayTotal / safeMax) * 100) : 0;
+    return `<div class="wc-bar" data-day="${day.key}" data-total="${dayTotal}" style="height:${hPct}%">
       <div class="wc-stack">${stack}</div>
     </div>`;
   }).join('');
 
   const legend = [...present].map(src => {
     const { label, color } = wcSourceMeta(src);
-    return `<span class="wc-leg"><span class="wc-leg-dot" style="background:${esc(color)}"></span>${esc(label)}</span>`;
+    const off = wcHidden.has(src);
+    return `<button type="button" class="wc-leg${off ? ' off' : ''}" data-wc-src="${esc(src)}" title="Toggle ${esc(label)}"><span class="wc-leg-dot" style="background:${esc(color)}"></span>${esc(label)}</button>`;
   }).join('');
 
   el.innerHTML = `
@@ -6853,6 +6863,11 @@ function renderWordsChart() {
     </div>`;
   el.querySelectorAll('[data-wc-range]').forEach(b => b.addEventListener('click', () => {
     wcRange = b.dataset.wcRange === 'all' ? 'all' : 30;
+    renderWordsChart();
+  }));
+  el.querySelectorAll('[data-wc-src]').forEach(b => b.addEventListener('click', () => {
+    const src = b.dataset.wcSrc;
+    if (wcHidden.has(src)) wcHidden.delete(src); else wcHidden.add(src);
     renderWordsChart();
   }));
 }

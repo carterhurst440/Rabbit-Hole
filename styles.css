@@ -315,7 +315,7 @@ button, input, textarea, select { font-family: inherit; }
   background: var(--accent-dim);
 }
 .wc-bars {
-  display: flex; align-items: flex-end; justify-content: flex-start;
+  display: flex; align-items: flex-end; justify-content: flex-end;
   gap: 2px; height: 150px; flex: 1 1 auto;
 }
 .wc-bar {
@@ -334,7 +334,14 @@ button, input, textarea, select { font-family: inherit; }
   display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px;
   margin-top: 12px; font-size: 10px; color: var(--muted);
 }
-.wc-leg { display: inline-flex; align-items: center; gap: 5px; }
+.wc-leg {
+  display: inline-flex; align-items: center; gap: 5px;
+  font: inherit; font-size: 10px; color: var(--muted);
+  background: none; border: none; padding: 0; cursor: pointer;
+  transition: opacity 0.12s ease, color 0.12s ease;
+}
+.wc-leg:hover { color: var(--text); }
+.wc-leg.off { opacity: 0.4; text-decoration: line-through; }
 .wc-leg-dot {
   width: 8px; height: 8px; border-radius: 2px; flex: none;
   display: inline-block;
