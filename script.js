@@ -8524,13 +8524,14 @@ function renderPracticeList() {
 
 function prEntryHTML(h) {
   const text = (h.body || '');
-  const snippet = text.replace(/\s+/g, ' ').trim().slice(0, 240);
   const words = practiceWordCount(text);
   const heading = h.word || h.title || 'UNTITLED';
   // Word-game hops show the word as the heading; line/three games carry their
   // prompt separately, so surface it as a sub-line.
   const prompt = (!h.word && h.prompt) ? h.prompt : '';
   const durBit = h.seconds ? `<span class="pr-dot"></span><span>${esc(prMMSS(h.seconds))}</span>` : '';
+  // Roughly two lines worth of text — only longer hops need the clamp + toggle.
+  const needsClamp = text.replace(/\s+/g, ' ').trim().length > 140;
   return `
     <article class="pr-pentry" data-id="${esc(h.id)}">
       <div class="pr-pe-word">${esc(heading)}</div>
@@ -8540,10 +8541,9 @@ function prEntryHTML(h) {
         ${durBit}
         <span class="pr-dot"></span><span>${words} ${words === 1 ? 'word' : 'words'}</span>
       </div>
-      <div class="pr-pe-snip">${esc(snippet)}${text.length > 240 ? '…' : ''}</div>
-      <div class="pr-pe-full">${esc(text)}</div>
+      <div class="pr-pe-text${needsClamp ? ' clamp' : ''}">${esc(text)}</div>
       <div class="pr-pe-actions">
-        <button class="pr-pe-toggle" type="button">READ FULL HOP →</button>
+        ${needsClamp ? '<button class="pr-pe-toggle" type="button">READ FULL HOP →</button>' : ''}
         <button class="pr-pe-mini" data-act="foundation" type="button" title="Copy into a project as a starting point">USE AS FOUNDATION</button>
         <button class="pr-pe-mini danger" data-act="delete" type="button">DELETE</button>
       </div>

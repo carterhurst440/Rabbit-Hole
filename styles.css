@@ -2430,10 +2430,18 @@ button.feed-comment-user:hover { text-decoration: underline; }
   font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted-2);
 }
 .pr-pe-meta .pr-dot { width: 2px; height: 2px; border-radius: 50%; background: var(--line-2); }
-.pr-pe-snip { font-size: 12px; line-height: 1.6; color: var(--text); }
-.pr-pentry.open .pr-pe-snip { display: none; }
-.pr-pe-full { display: none; font-size: 13px; line-height: 1.8; color: var(--text); white-space: pre-wrap; }
-.pr-pentry.open .pr-pe-full { display: block; }
+/* Same font size collapsed or expanded — collapse just clamps to two lines. */
+.pr-pe-text {
+  font-size: 12px; line-height: 1.6; color: var(--text);
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.pr-pe-text.clamp {
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.pr-pentry.open .pr-pe-text.clamp {
+  display: block; -webkit-line-clamp: none; overflow: visible;
+}
 .pr-pe-actions { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
 .pr-pe-toggle {
   background: none; border: none; color: var(--accent); cursor: pointer;
