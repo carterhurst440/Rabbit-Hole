@@ -294,7 +294,7 @@ function route() {
   if (projSwitch) projSwitch.hidden = onPractice;
   if (r === 'home') { renderHome(); playHomeReveal(); fetchWordsChart().then(renderWordsChart); }
   if (r === 'search') renderSearch();
-  if (r === 'sections') renderSections();
+  if (r === 'sections') { sectionsMode = 'board'; renderSections(); }
   if (r === 'timelines') renderTimelines();
   if (r === 'characters') renderCharacters();
   if (r === 'locations') renderLocations();
@@ -1604,6 +1604,12 @@ function renderHeaderMeta() {
 // preview in display mode. Editing always happens in the chunk modal.
 const expandedChunks = new Set();
 
+// SECTIONS has two levels: the BOARD (every section as a swimlane of hop cards)
+// and the per-section DETAIL editor (today's hop list). 'board' is the default;
+// clicking a section drills into 'detail', BACK returns to 'board'. Transient so
+// navigating to SECTIONS always lands on the board.
+let sectionsMode = 'board';
+
 function chunksOf(chapterId) {
   return db.chunks
     .filter(c => c.chapterId === chapterId)
@@ -1617,7 +1623,9 @@ function isVisibleChunk(c) { return !!db.ui.showArchived || !c.archived; }
 // the SECTIONS view (that list only shows its own chapter), the whole project
 // elsewhere (timelines and entity views span every section).
 function archivedRevealCount() {
-  if (currentRoute() === 'sections') {
+  // In the per-section DETAIL editor, scope the count to the open section.
+  // On the SECTIONS board (and everywhere else) count the whole project.
+  if (currentRoute() === 'sections' && sectionsMode === 'detail') {
     const id = db.ui.activeChapter;
     return id ? db.chunks.filter(c => c.chapterId === id && c.archived).length : 0;
   }
@@ -1636,26 +1644,178 @@ function updateArchiveToggles() {
 }
 
 function renderSections() {
-  const list = document.getElementById('chapterList');
-  list.innerHTML = db.chapters
-    .sort((a, b) => a.order - b.order)
-    .map(ch => `
-      <div class="chapter-item ${ch.id === db.ui.activeChapter ? 'active' : ''}" data-id="${ch.id}">
-        <span class="ci-dot" style="background:${chapterColor(ch.id)}"></span>
-        <span class="ci-title">${esc(ch.title)}</span>
-        <span class="ci-count">${chunksOf(ch.id).filter(isVisibleChunk).length}</span>
-      </div>`).join('');
-  list.querySelectorAll('.chapter-item').forEach(el => {
-    el.addEventListener('click', () => {
-      db.ui.activeChapter = el.dataset.id; sectionSearchQuery = '';
-      list.closest('.chapter-rail')?.classList.remove('rail-open'); // collapse the mobile dropdown after picking
-      save(); renderSections();
-    });
-  });
-  const activeCh = db.chapters.find(c => c.id === db.ui.activeChapter);
-  wireRailSelectInto('chapterList', activeCh ? activeCh.title : 'Select chapter');
-  renderChunkPane();
+  const board = document.getElementById('sectionsBoard');
+  const detail = document.getElementById('sectionsDetail');
+  if (!board || !detail) return;
+  const haveActive = db.chapters.some(c => c.id === db.ui.activeChapter);
+  if (sectionsMode === 'detail' && haveActive) {
+    board.hidden = true; detail.hidden = false;
+    renderSectionDetail();
+  } else {
+    sectionsMode = 'board';
+    detail.hidden = true; board.hidden = false;
+    renderSectionsBoard();
+  }
   updateArchiveToggles();
+}
+
+// Drill into a section: set it active and show the full hop editor (detail).
+function openSectionDetail(chapterId) {
+  if (!db.chapters.some(c => c.id === chapterId)) return;
+  db.ui.activeChapter = chapterId;
+  sectionSearchQuery = '';
+  sectionsMode = 'detail';
+  save();
+  renderSections();
+}
+
+// BOARD: one swimlane per section, each holding its hop cards. Cards carry a
+// pencil (inline rename) and a kebab (full hop options); a plain click opens the
+// hop modal. Clicking the lane header drills into that section's editor.
+function renderSectionsBoard() {
+  const stage = document.getElementById('sectionsBoardStage');
+  if (!stage) return;
+  const chapters = [...db.chapters].sort((a, b) => a.order - b.order);
+  if (!chapters.length) {
+    stage.innerHTML = `<div class="pane-empty">No sections yet. Use + ADD SECTION to begin.</div>`;
+    return;
+  }
+  let nOrd = 0; // running narrative position across every lane, in reading order
+  stage.innerHTML = `<div class="kanban sb-kanban">` + chapters.map(ch => {
+    const color = chapterColor(ch.id);
+    const hops = chunksOf(ch.id).filter(isVisibleChunk);
+    const cards = hops.map(c => {
+      const ord = ++nOrd;
+      return `
+      <div class="tl-kanban-card sb-card ${c.archived ? 'archived' : ''}" data-id="${c.id}" draggable="true" style="border-left:3px solid ${color}">
+        <span class="tl-kc-ord">N${ord}</span>
+        <span class="sb-card-title">${esc(c.title) || 'Untitled hop'}</span>
+        <button class="icon-btn sb-card-edit" data-f="title-edit" title="Rename hop">${IC_PENCIL}</button>
+        ${c.archived ? '<span class="arch-badge">ARCHIVED</span>' : ''}
+        <details class="hop-kebab sb-card-kebab">
+          <summary title="Options">⋮</summary>
+          <div class="hop-menu">
+            <button class="add-btn" data-f="analyze">${hasAnalysis(c.analysis) ? IC_ANALYZE + ' VIEW ANALYSIS' : IC_ANALYZE + ' ANALYZE'}</button>
+            <button class="add-btn" data-f="post">↗ POST TO COMMUNITY</button>
+            <button class="add-btn" data-f="viewposts">▤ VIEW POSTS <span class="pc-badge">0</span></button>
+            <button class="add-btn" data-f="archive">${c.archived ? 'UNARCHIVE' : 'ARCHIVE'}</button>
+            <button class="add-btn" data-f="edit">EDIT</button>
+            <button class="add-btn danger" data-f="del">DELETE</button>
+          </div>
+        </details>
+      </div>`;
+    }).join('') || `<div class="lane-empty">No hops yet</div>`;
+    return `
+      <div class="lane tl-lane sb-lane" data-chapter="${ch.id}">
+        <div class="lane-head sb-lane-head" data-chapter="${ch.id}" title="Open this section">
+          <span class="ci-dot" style="background:${color}"></span>
+          <span class="lane-title-static" style="color:${color}">${esc(ch.title)}</span>
+          <span class="lane-count">${hops.length}</span>
+          <span class="sb-lane-open">→</span>
+        </div>
+        <div class="lane-cards tl-lane-cards" data-chapter="${ch.id}">${cards}</div>
+      </div>`;
+  }).join('') + `</div>`;
+
+  stage.querySelectorAll('.sb-lane-head').forEach(head =>
+    head.addEventListener('click', () => openSectionDetail(head.dataset.chapter)));
+  stage.querySelectorAll('.sb-card').forEach(wireBoardCard);
+  stage.querySelectorAll('.sb-lane .tl-lane-cards').forEach(wireTlLaneDnD);
+  refreshHopPostBadges();
+}
+
+// A board hop card: plain click opens the modal; the pencil renames inline; the
+// kebab runs the same hop actions as the detail list. Dragging reorders/moves
+// the hop between sections (shared tl-lane drag wiring).
+function wireBoardCard(card) {
+  const id = card.dataset.id;
+  const c = db.chunks.find(x => x.id === id);
+  if (!c) return;
+
+  card.addEventListener('click', e => {
+    if (card.classList.contains('dragging')) return;
+    if (e.target.closest('.hop-kebab > summary')) { e.stopPropagation(); return; }
+    const actEl = e.target.closest('[data-f]');
+    if (actEl) {
+      const f = actEl.dataset.f;
+      const closeKebab = () => card.querySelector('.hop-kebab[open]')?.removeAttribute('open');
+      if (f === 'title-edit') { e.stopPropagation(); inlineEditBoardCardTitle(card, c); return; }
+      if (f === 'edit') { e.stopPropagation(); closeKebab(); openChunkModal(id); return; }
+      if (f === 'archive') { e.stopPropagation(); c.archived = !c.archived; save(); renderSections(); return; }
+      if (f === 'analyze') { e.stopPropagation(); closeKebab(); analyzeChunk(c, actEl); return; }
+      if (f === 'post') { e.stopPropagation(); closeKebab(); postToCommunityModal(c); return; }
+      if (f === 'viewposts') { e.stopPropagation(); closeKebab(); managePostsModal(c); return; }
+      if (f === 'del') {
+        e.stopPropagation(); closeKebab();
+        (async () => {
+          if (!await confirmModal('Delete this hop?')) return;
+          db.chunks = db.chunks.filter(x => x.id !== id);
+          save(); renderSections();
+        })();
+        return;
+      }
+    }
+    openChunkModal(id);
+  });
+
+  card.addEventListener('dragstart', e => {
+    tlDragId = id;
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', id);
+    requestAnimationFrame(() => card.classList.add('dragging'));
+  });
+  card.addEventListener('dragend', () => {
+    card.classList.remove('dragging');
+    clearTlLaneMarkers();
+    tlDragId = null;
+  });
+
+  const kebab = card.querySelector('.hop-kebab');
+  if (kebab) kebab.addEventListener('toggle', () => { if (kebab.open) positionHopMenu(kebab); });
+}
+
+// Inline rename right on a board card (Enter/blur commits, Escape cancels).
+function inlineEditBoardCardTitle(card, c) {
+  const titleEl = card.querySelector('.sb-card-title');
+  if (!titleEl || card.querySelector('.sb-card-title-input')) return;
+  const pencil = card.querySelector('[data-f="title-edit"]');
+  const input = document.createElement('input');
+  input.className = 'sb-card-title-input';
+  input.value = c.title || '';
+  input.placeholder = 'Untitled hop';
+  titleEl.replaceWith(input);
+  if (pencil) pencil.style.display = 'none';
+  const wasDraggable = card.getAttribute('draggable');
+  card.setAttribute('draggable', 'false');
+  input.focus(); input.select();
+
+  let settled = false;
+  const settle = keep => {
+    if (settled) return; settled = true;
+    if (keep) { c.title = input.value.trim(); save(); }
+    if (wasDraggable !== null) card.setAttribute('draggable', wasDraggable);
+    const span = document.createElement('span');
+    span.className = 'sb-card-title';
+    span.innerHTML = esc(c.title) || 'Untitled hop';
+    input.replaceWith(span);
+    if (pencil) pencil.style.display = '';
+  };
+  input.addEventListener('click', e => e.stopPropagation());
+  input.addEventListener('keydown', e => {
+    e.stopPropagation();
+    if (e.key === 'Enter') { e.preventDefault(); settle(true); }
+    else if (e.key === 'Escape') { e.preventDefault(); settle(false); }
+  });
+  input.addEventListener('blur', () => settle(true));
+}
+
+// DETAIL: the full per-section hop editor (unchanged), reached by drilling in.
+function renderSectionDetail() {
+  const ch = db.chapters.find(c => c.id === db.ui.activeChapter);
+  if (!ch) { sectionsMode = 'board'; renderSections(); return; }
+  const label = document.getElementById('sectionDetailLabel');
+  if (label) { label.textContent = ch.title; label.style.color = chapterColor(ch.id); }
+  renderChunkPane();
 }
 
 function renderChunkPane() {
@@ -1702,13 +1862,13 @@ function renderChunkPane() {
 
   document.getElementById('chapTitle').addEventListener('input', e => {
     ch.title = e.target.value; save();
-    const item = document.querySelector(`.chapter-item[data-id="${ch.id}"] .ci-title`);
-    if (item) item.textContent = ch.title;
+    const label = document.getElementById('sectionDetailLabel');
+    if (label) label.textContent = ch.title;
   });
   document.getElementById('chapColor').addEventListener('input', e => {
     ch.color = e.target.value; save();
-    const dot = document.querySelector(`.chapter-item[data-id="${ch.id}"] .ci-dot`);
-    if (dot) dot.style.background = ch.color;
+    const label = document.getElementById('sectionDetailLabel');
+    if (label) label.style.color = ch.color;
   });
   wireHeadKebab(document.getElementById('chapKebab'));
   document.getElementById('sectionPreviewBtn')?.addEventListener('click', () => sectionPreviewModal(ch.id));
@@ -1717,6 +1877,7 @@ function renderChunkPane() {
     db.chunks = db.chunks.filter(c => c.chapterId !== ch.id);
     db.chapters = db.chapters.filter(c => c.id !== ch.id);
     db.ui.activeChapter = db.chapters[0]?.id || null;
+    sectionsMode = 'board'; // deleting the open section returns to the board
     save(); renderSections();
   });
 
@@ -2732,6 +2893,12 @@ document.getElementById('importSectionBtn')?.addEventListener('click', () => {
 
 document.getElementById('fullPreviewBtn')?.addEventListener('click', () => sectionPreviewModal());
 
+// BACK from a section's detail editor to the full sections board.
+document.getElementById('sectionBackBtn')?.addEventListener('click', () => {
+  sectionsMode = 'board';
+  renderSections();
+});
+
 // SHOW/HIDE ARCHIVED: shared toggle across sections, timelines, characters, tags.
 document.querySelectorAll('[data-arch]').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -2876,7 +3043,10 @@ function moveChunkToChapter(chunkId, chapterId, beforeId) {
   ordered.splice(idx, 0, ch);
   ordered.forEach((c, i) => c.orderInChapter = i);
   save();
-  renderTimelines();
+  // The kanban drag wiring is shared by the SECTIONS board and the TIMELINES
+  // view — re-render whichever one is on screen.
+  if (currentRoute() === 'sections') renderSections();
+  else renderTimelines();
 }
 
 /* ---- CHRONOLOGICAL: horizontal running timeline, cards above/below the axis ---- */

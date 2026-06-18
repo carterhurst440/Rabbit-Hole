@@ -266,27 +266,27 @@
 
     <!-- ============ SECTIONS ============ -->
     <section class="view" id="view-sections">
-      <div class="view-head">
-        <h1>SECTIONS</h1>
-        <p class="sub">Chapters and the hops inside them. This is your source of truth.</p>
-        <div class="view-head-actions">
-          <button class="add-btn solid" id="fullPreviewBtn" title="Read the whole story as one document">&#9636; FULL PREVIEW</button>
-          <button class="add-btn" id="importSectionBtn">IMPORT</button>
+      <!-- BOARD: every section as a swimlane of hop cards (top level) -->
+      <div id="sectionsBoard">
+        <div class="view-head">
+          <h1>SECTIONS</h1>
+          <p class="sub">Every section and the hops inside it. Click a section to open it.</p>
+          <div class="view-head-actions">
+            <button class="add-btn solid" id="fullPreviewBtn" title="Read the whole story as one document">&#9636; FULL PREVIEW</button>
+            <button class="add-btn" id="importSectionBtn">IMPORT</button>
+            <button class="add-btn" id="addChapterBtn">+ ADD SECTION</button>
+            <button class="add-btn arch-toggle" data-arch>SHOW ARCHIVED</button>
+          </div>
+        </div>
+        <div class="sections-board-stage" id="sectionsBoardStage"></div>
+      </div>
+      <!-- DETAIL: one section opened in the full hop editor (one level down) -->
+      <div id="sectionsDetail" hidden>
+        <div class="section-detail-head">
+          <button class="add-btn back-btn" id="sectionBackBtn" title="Back to all sections">&#8592; BACK</button>
+          <span class="section-detail-label" id="sectionDetailLabel"></span>
           <button class="add-btn arch-toggle" data-arch>SHOW ARCHIVED</button>
         </div>
-      </div>
-      <div class="sections-layout">
-        <aside class="chapter-rail">
-          <div class="rail-head">
-            <span>CHAPTERS</span>
-            <button class="add-btn" id="addChapterBtn">+ ADD</button>
-          </div>
-          <button type="button" class="rail-select" id="sectionRailSelect" aria-expanded="false">
-            <span class="rail-select-label">Select chapter</span>
-            <span class="rail-select-caret">▾</span>
-          </button>
-          <div class="chapter-list" id="chapterList"></div>
-        </aside>
         <div class="chunk-pane" id="chunkPane"></div>
       </div>
     </section>
