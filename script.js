@@ -6783,7 +6783,8 @@ document.addEventListener('mouseout', e => {
 });
 
 /* ---- HOME: words-per-day chart ---- */
-const WC_DAYS = 30;
+// Range filter for the chart: 30 = last 30 active days (default), 'all' = full history.
+let wcRange = 30;
 // Resolve a source key to its label + colour at render time (projectsCache may
 // have populated after the fetch).
 function wcSourceMeta(src) {
@@ -6796,7 +6797,7 @@ function wcSourceMeta(src) {
 function renderWordsChart() {
   const el = document.getElementById('wordsChart');
   if (!el) return;
-  // Only days that actually had words — no empty filler. Oldest → newest, last WC_DAYS active days.
+  // Only days that actually had words — no empty filler. Oldest → newest.
   const present = new Set();
   const entries = [...wordsChartCache.entries()].map(([key, row]) => {
     let total = 0;
@@ -6806,7 +6807,7 @@ function renderWordsChart() {
     }
     return { key, total, segs };
   }).filter(d => d.total > 0).sort((a, b) => (a.key < b.key ? -1 : 1));
-  const recent = entries.slice(-WC_DAYS);
+  const recent = wcRange === 'all' ? entries : entries.slice(-30);
   const maxTotal = recent.reduce((m, d) => Math.max(m, d.total), 0);
 
   if (!recent.length || maxTotal === 0) {
@@ -6840,10 +6841,20 @@ function renderWordsChart() {
 
   el.innerHTML = `
     <div class="wc-card">
-      <div class="wc-title">Words per day</div>
+      <div class="wc-head">
+        <div class="wc-title">Words per day</div>
+        <div class="wc-range">
+          <button class="wc-range-opt ${wcRange === 30 ? 'active' : ''}" data-wc-range="30">30 DAYS</button>
+          <button class="wc-range-opt ${wcRange === 'all' ? 'active' : ''}" data-wc-range="all">ALL</button>
+        </div>
+      </div>
       <div class="wc-bars">${bars}</div>
       <div class="wc-legend">${legend}</div>
     </div>`;
+  el.querySelectorAll('[data-wc-range]').forEach(b => b.addEventListener('click', () => {
+    wcRange = b.dataset.wcRange === 'all' ? 'all' : 30;
+    renderWordsChart();
+  }));
 }
 
 /* words chart hover tooltip — reuses the heatmap tip element */

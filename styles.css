@@ -293,16 +293,33 @@ button, input, textarea, select { font-family: inherit; }
   padding: 14px 16px 12px;
   display: flex; flex-direction: column;
 }
+.wc-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; margin-bottom: 12px;
+}
 .wc-title {
   font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase;
-  color: var(--muted); margin-bottom: 12px;
+  color: var(--muted);
+}
+.wc-range { display: inline-flex; gap: 4px; flex: none; }
+.wc-range-opt {
+  font-family: inherit; font-size: 9px; letter-spacing: 0.1em;
+  text-transform: uppercase; cursor: pointer;
+  padding: 4px 8px; border: 1px solid var(--line);
+  background: var(--panel-2); color: var(--muted);
+  transition: color 0.12s ease, border-color 0.12s ease;
+}
+.wc-range-opt:hover { color: var(--text); border-color: var(--accent-mid); }
+.wc-range-opt.active {
+  color: var(--accent); border-color: var(--accent-mid);
+  background: var(--accent-dim);
 }
 .wc-bars {
-  display: flex; align-items: flex-end; gap: 3px;
-  height: 150px; flex: 1 1 auto;
+  display: flex; align-items: flex-end; justify-content: flex-start;
+  gap: 2px; height: 150px; flex: 1 1 auto;
 }
 .wc-bar {
-  flex: 1 1 0; min-width: 0; cursor: default;
+  flex: 0 1 10px; max-width: 10px; min-width: 0; cursor: default;
   display: flex; align-items: flex-end;
 }
 .wc-stack {
