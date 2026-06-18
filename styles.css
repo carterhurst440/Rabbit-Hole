@@ -2019,30 +2019,42 @@ button.feed-comment-user:hover { text-decoration: underline; }
   }
   .chapter-item .ci-title { flex: 0 1 auto; max-width: 46vw; }
 
-  /* Characters & Locations: list stays hidden behind a dropdown trigger that
-     shows the current selection; tapping it reveals the searchable list. */
+  /* Characters, Locations, Sections & Tags: list stays hidden behind a dropdown
+     trigger that shows the current selection; tapping it reveals the list. */
   #view-characters .rail-select,
-  #view-locations .rail-select { display: flex; }
+  #view-locations .rail-select,
+  #view-sections .rail-select,
+  #view-tags .rail-select { display: flex; }
   #view-characters .rail-search,
   #view-locations .rail-search,
   #view-characters .chapter-list,
-  #view-locations .chapter-list { display: none; }
+  #view-locations .chapter-list,
+  #view-sections .chapter-list,
+  #view-tags .chapter-list { display: none; }
   #view-characters .chapter-rail.rail-open .rail-search,
   #view-locations .chapter-rail.rail-open .rail-search { display: block; }
   #view-characters .chapter-rail.rail-open .chapter-list,
-  #view-locations .chapter-rail.rail-open .chapter-list {
+  #view-locations .chapter-rail.rail-open .chapter-list,
+  #view-sections .chapter-rail.rail-open .chapter-list,
+  #view-tags .chapter-rail.rail-open .chapter-list {
     display: flex; flex-direction: column; flex-wrap: nowrap; gap: 0;
     max-height: 50vh; overflow-y: auto; padding: 0;
   }
   #view-characters .chapter-item,
-  #view-locations .chapter-item {
+  #view-locations .chapter-item,
+  #view-sections .chapter-rail.rail-open .chapter-item,
+  #view-tags .chapter-rail.rail-open .chapter-item {
     width: auto; border: none; border-bottom: 1px solid var(--line);
     border-radius: 0; padding: 12px 14px; justify-content: flex-start;
   }
   #view-characters .chapter-item .ci-title,
-  #view-locations .chapter-item .ci-title { flex: 1; max-width: none; }
+  #view-locations .chapter-item .ci-title,
+  #view-sections .chapter-rail.rail-open .chapter-item .ci-title,
+  #view-tags .chapter-rail.rail-open .chapter-item .ci-title { flex: 1; max-width: none; }
   #view-characters .chapter-item.active,
-  #view-locations .chapter-item.active {
+  #view-locations .chapter-item.active,
+  #view-sections .chapter-rail.rail-open .chapter-item.active,
+  #view-tags .chapter-rail.rail-open .chapter-item.active {
     border-left: 2px solid var(--accent); background: var(--panel-2);
   }
 

@@ -1646,8 +1646,14 @@ function renderSections() {
         <span class="ci-count">${chunksOf(ch.id).filter(isVisibleChunk).length}</span>
       </div>`).join('');
   list.querySelectorAll('.chapter-item').forEach(el => {
-    el.addEventListener('click', () => { db.ui.activeChapter = el.dataset.id; sectionSearchQuery = ''; save(); renderSections(); });
+    el.addEventListener('click', () => {
+      db.ui.activeChapter = el.dataset.id; sectionSearchQuery = '';
+      list.closest('.chapter-rail')?.classList.remove('rail-open'); // collapse the mobile dropdown after picking
+      save(); renderSections();
+    });
   });
+  const activeCh = db.chapters.find(c => c.id === db.ui.activeChapter);
+  wireRailSelectInto('chapterList', activeCh ? activeCh.title : 'Select chapter');
   renderChunkPane();
   updateArchiveToggles();
 }
@@ -1662,9 +1668,13 @@ function renderChunkPane() {
     <div class="chunk-card-head">
       <input type="color" class="chap-color" id="chapColor" value="${chapterColor(ch.id)}" title="Chapter accent color" />
       <input class="chunk-title-input" id="chapTitle" value="${esc(ch.title)}" />
-      ${chunks.length ? `<button class="add-btn" id="sectionPreviewBtn" title="Preview all hops as one document">\u25A4 PREVIEW</button>` : ''}
-      <button class="add-btn solid" id="addChunkBtn">+ HOP</button>
-      <button class="icon-btn" id="delChapBtn" title="Delete chapter">✕</button>
+      <details class="head-kebab" id="chapKebab">
+        <summary title="More actions" aria-label="More actions">⋮</summary>
+        <div class="head-kebab-menu">
+          ${chunks.length ? `<button class="add-btn" id="sectionPreviewBtn" title="Preview all hops as one document">\u25A4 PREVIEW</button>` : ''}
+          <button class="add-btn danger" id="delChapBtn" title="Delete chapter">DELETE</button>
+        </div>
+      </details>
     </div>`;
 
   const aiKey = 'section:' + ch.id;
@@ -1700,21 +1710,7 @@ function renderChunkPane() {
     const dot = document.querySelector(`.chapter-item[data-id="${ch.id}"] .ci-dot`);
     if (dot) dot.style.background = ch.color;
   });
-  document.getElementById('addChunkBtn').addEventListener('click', () => {
-    const id = uid();
-    // Held as a draft — only committed to the project when SAVE is clicked.
-    draftChunk = {
-      id, chapterId: ch.id, title: '', body: '',
-      orderInChapter: chunksOf(ch.id).length,
-      narrativeOrder: db.chunks.length,
-      chronoOrder: db.chunks.length,
-      chronoLabel: '',
-      characterIds: [],
-      locationIds: [],
-      tagIds: []
-    };
-    openChunkModal(id);
-  });
+  wireHeadKebab(document.getElementById('chapKebab'));
   document.getElementById('sectionPreviewBtn')?.addEventListener('click', () => sectionPreviewModal(ch.id));
   document.getElementById('delChapBtn').addEventListener('click', async () => {
     if (!await confirmModal('Delete this chapter and its hops?')) return;
@@ -3463,17 +3459,34 @@ function renderEntityList(K) {
 // (handled in renderEntityList) collapses it again. On desktop the trigger is
 // hidden via CSS and the list is always shown.
 function wireRailSelect(K) {
-  const rail = document.getElementById(K.listId)?.closest('.chapter-rail');
+  const active = db[K.coll].find(x => x.id === db.ui[K.active]);
+  wireRailSelectInto(K.listId, active ? active.name : `Select ${K.noun}`);
+}
+
+// Generic version used by Sections (chapters) and Tags, which have no `K`.
+// Sets the trigger label and toggles the list open on tap.
+function wireRailSelectInto(listId, label) {
+  const rail = document.getElementById(listId)?.closest('.chapter-rail');
   const btn = rail?.querySelector('.rail-select');
   if (!btn) return;
-  const active = db[K.coll].find(x => x.id === db.ui[K.active]);
-  const label = btn.querySelector('.rail-select-label');
-  if (label) label.textContent = active ? active.name : `Select ${K.noun}`;
+  const labelEl = btn.querySelector('.rail-select-label');
+  if (labelEl) labelEl.textContent = label;
   btn.setAttribute('aria-expanded', rail.classList.contains('rail-open') ? 'true' : 'false');
   btn.onclick = () => {
     const open = rail.classList.toggle('rail-open');
     btn.setAttribute('aria-expanded', open ? 'true' : 'false');
   };
+}
+
+// Shared dropdown for the kebab (⋮) on entity/chapter/tag head rows: closes
+// after an item is clicked and on any outside click.
+function wireHeadKebab(kebab) {
+  if (!kebab) return;
+  kebab.querySelectorAll('.head-kebab-menu .add-btn').forEach(b =>
+    b.addEventListener('click', () => kebab.removeAttribute('open')));
+  document.addEventListener('click', e => {
+    if (kebab.hasAttribute('open') && !kebab.contains(e.target)) kebab.removeAttribute('open');
+  });
 }
 
 // Filter the cast/places list by the rail search box (mobile). Re-applied
@@ -3751,14 +3764,7 @@ function renderEntityPane(K) {
     save(); renderEntityList(K);
   });
   q('[data-f="merge"]').addEventListener('click', () => openMergeModal(K, c));
-  const kebab = q('[data-f="kebabWrap"]');
-  if (kebab) {
-    kebab.querySelectorAll('.head-kebab-menu .add-btn').forEach(b =>
-      b.addEventListener('click', () => kebab.removeAttribute('open')));
-    document.addEventListener('click', e => {
-      if (kebab.hasAttribute('open') && !kebab.contains(e.target)) kebab.removeAttribute('open');
-    });
-  }
+  wireHeadKebab(q('[data-f="kebabWrap"]'));
   pane.querySelectorAll('[data-ref-toggle]').forEach(btn => {
     btn.addEventListener('click', () => {
       const id = btn.closest('.ref-row').dataset.ref;
@@ -4840,8 +4846,16 @@ function tagRowHTML(l) {
 
 function renderTags() {
   const list = document.getElementById('tagList');
+  const activeTag = db.tags.find(x => x.id === db.ui.activeTag);
+  const tagSelLabel = activeTag ? activeTag.name : 'Select tag';
+  const pickTag = el => {
+    db.ui.activeTag = el.dataset.id;
+    list.closest('.chapter-rail')?.classList.remove('rail-open'); // collapse the mobile dropdown after picking
+    save(); renderTags();
+  };
   if (!db.tags.length) {
     list.innerHTML = `<div class="pane-empty" style="border:none">No tags yet. Add tags to hops and ideas, or create one here.</div>`;
+    wireRailSelectInto('tagList', tagSelLabel);
     renderTagPane();
     return;
   }
@@ -4849,7 +4863,8 @@ function renderTags() {
   if (!cats.length) {
     list.innerHTML = db.tags.map(tagRowHTML).join('');
     list.querySelectorAll('.chapter-item').forEach(el =>
-      el.addEventListener('click', () => { db.ui.activeTag = el.dataset.id; save(); renderTags(); }));
+      el.addEventListener('click', () => pickTag(el)));
+    wireRailSelectInto('tagList', tagSelLabel);
     renderTagPane();
     return;
   }
@@ -4873,7 +4888,7 @@ function renderTags() {
         ${g.tags.map(tagRowHTML).join('') || '<div class="tag-cat-empty">No tags</div>'}
       </div>`).join('');
   list.querySelectorAll('.chapter-item').forEach(el =>
-    el.addEventListener('click', () => { db.ui.activeTag = el.dataset.id; save(); renderTags(); }));
+    el.addEventListener('click', () => pickTag(el)));
   list.querySelectorAll('[data-cat-rename]').forEach(btn =>
     btn.addEventListener('click', async e => {
       e.stopPropagation();
@@ -4888,6 +4903,7 @@ function renderTags() {
       deleteTagCat(btn.dataset.catDel);
       renderTags();
     }));
+  wireRailSelectInto('tagList', tagSelLabel);
   renderTagPane();
 }
 
