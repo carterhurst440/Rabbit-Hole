@@ -4509,24 +4509,28 @@ function renderEntityList(K) {
   const coll = db[K.coll];
   const list = document.getElementById(K.listId);
   if (!list) return;
+  // Hop count per entity, computed once. Lists are sorted by it (most-referenced
+  // first), ties broken alphabetically.
+  const hopCount = new Map(coll.map(c => [c.id, refsFor(K, c).length]));
+  const byHops = (a, b) => (hopCount.get(b.id) - hopCount.get(a.id)) || (a.name || '').localeCompare(b.name || '');
   const rowHTML = c => `
         <div class="chapter-item ${c.id === db.ui[K.active] ? 'active' : ''}" data-id="${c.id}">
           <span class="ci-dot" style="background:${c.color || 'var(--accent)'}"></span>
           <span class="ci-title">${esc(c.name)}</span>
-          <span class="ci-count">${refsFor(K, c).length}</span>
+          <span class="ci-count">${hopCount.get(c.id)}</span>
         </div>`;
   if (!coll.length) {
     list.innerHTML = `<div class="pane-empty" style="border:none">No ${K.noun}s yet.</div>`;
   } else {
     const cats = collCats(K.coll);
     if (!cats.length) {
-      list.innerHTML = coll.map(rowHTML).join('');
+      list.innerHTML = [...coll].sort(byHops).map(rowHTML).join('');
     } else {
       const groups = cats.map(cat => ({
         id: cat.id, name: cat.name,
-        items: coll.filter(e => collCatOf(K.coll, e.id) === cat.id)
+        items: coll.filter(e => collCatOf(K.coll, e.id) === cat.id).sort(byHops)
       }));
-      groups.push({ id: '', name: 'UNCATEGORIZED', items: coll.filter(e => !collCatOf(K.coll, e.id)) });
+      groups.push({ id: '', name: 'UNCATEGORIZED', items: coll.filter(e => !collCatOf(K.coll, e.id)).sort(byHops) });
       list.innerHTML = groups
         .filter(g => g.id || g.items.length)
         .map(g => `
@@ -5977,9 +5981,12 @@ function renderTags() {
     renderTagPane();
     return;
   }
+  // Hop count per tag, computed once; lists sort by it (most-used first), then name.
+  const tagHops = new Map(db.tags.map(l => [l.id, tagUsage(l.id).chunks.length]));
+  const byTagHops = (a, b) => (tagHops.get(b.id) - tagHops.get(a.id)) || (a.name || '').localeCompare(b.name || '');
   const cats = tagCats();
   if (!cats.length) {
-    list.innerHTML = db.tags.map(tagRowHTML).join('');
+    list.innerHTML = [...db.tags].sort(byTagHops).map(tagRowHTML).join('');
     list.querySelectorAll('.chapter-item').forEach(el =>
       el.addEventListener('click', () => pickTag(el)));
     wireRailSelectInto('tagList', tagSelLabel);
@@ -5988,9 +5995,9 @@ function renderTags() {
   }
   const groups = cats.map(c => ({
     id: c.id, name: c.name,
-    tags: db.tags.filter(l => tagCatOf(l.id) === c.id)
+    tags: db.tags.filter(l => tagCatOf(l.id) === c.id).sort(byTagHops)
   }));
-  const uncategorized = db.tags.filter(l => !tagCatName(tagCatOf(l.id)));
+  const uncategorized = db.tags.filter(l => !tagCatName(tagCatOf(l.id))).sort(byTagHops);
   groups.push({ id: '', name: 'UNCATEGORIZED', tags: uncategorized });
   list.innerHTML = groups
     .filter(g => g.id || g.tags.length)
