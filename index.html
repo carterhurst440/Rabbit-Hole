@@ -211,6 +211,10 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-4 10.5c.8.8 1 1.5 1 2.5h6c0-1 .2-1.7 1-2.5A6 6 0 0 0 12 3z"/></svg>
       <span>IDEAS</span>
     </a>
+    <a href="#planning" class="nav-icon" data-route="planning" title="Planning">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h9l5 5v13H5z"/><path d="M14 3v5h5"/><path d="M8 13h8M8 17h5"/></svg>
+      <span>PLANNING</span>
+    </a>
     <a href="#community" class="nav-icon" data-route="community" title="Community">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3"/><path d="M2.5 20c0-3.3 2.9-5 6.5-5s6.5 1.7 6.5 5"/><path d="M16 5.5a3 3 0 0 1 0 5.5M18 14.5c2.2.6 3.5 2 3.5 4"/></svg>
       <span>COMMUNITY</span>
@@ -411,6 +415,18 @@
       </div>
       <div class="idea-filter" id="ideaTagFilter"></div>
       <div class="idea-board" id="ideaGrid"></div>
+    </section>
+
+    <!-- ============ PLANNING ============ -->
+    <section class="view" id="view-planning" hidden>
+      <div class="view-head">
+        <h1>PLANNING</h1>
+        <p class="sub">Outlines, lore dumps, raw exposition — long-form notes. Write freely, then turn a doc into Sections, Hops, or Events.</p>
+        <div class="view-head-actions">
+          <button class="add-btn solid" id="addDocBtn">+ DOC</button>
+        </div>
+      </div>
+      <div class="planning-wrap" id="planningWrap"></div>
     </section>
 
     <!-- ============ COMMUNITY ============ -->

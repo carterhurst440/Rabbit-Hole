@@ -78,6 +78,7 @@ function seed() {
     locations: [],
     ideas: [],
     events: [],
+    docs: [],
     tags: [],
     ui: { activeChapter: chId, activeChar: null, activeLoc: null, activeTag: null }
   };
@@ -88,6 +89,7 @@ function migrate(d) {
   d.tags = d.tags || [];
   d.locations = d.locations || [];
   d.events = d.events || [];
+  d.docs = d.docs || [];
   d.ui = d.ui || {};
   (d.chunks || []).forEach(c => { if (!Array.isArray(c.tagIds)) c.tagIds = []; });
   (d.chunks || []).forEach(c => { if (!Array.isArray(c.locationIds)) c.locationIds = []; });
@@ -268,7 +270,7 @@ function wireTagEditor(container, target) {
 }
 
 /* ---------------- ROUTING ---------------- */
-const ROUTES = ['home', 'search', 'sections', 'timelines', 'characters', 'locations', 'tags', 'ideas', 'community', 'practice'];
+const ROUTES = ['home', 'search', 'sections', 'timelines', 'characters', 'locations', 'tags', 'ideas', 'planning', 'community', 'practice'];
 
 function currentRoute() {
   const h = location.hash.replace('#', '');
@@ -302,6 +304,7 @@ function route() {
   if (r === 'locations') renderLocations();
   if (r === 'tags') renderTags();
   if (r === 'ideas') renderIdeas();
+  if (r === 'planning') renderPlanning();
   if (r === 'community') renderCommunity();
   if (r === 'practice') renderPractice();
 }
@@ -7413,7 +7416,7 @@ async function seedProjectContent(projectId, data) {
 
 async function loadProject(projectId) {
   activeProjectId = projectId;
-  const [proj, chapters, chunks, characters, locations, tags, ideas, events] = await Promise.all([
+  const [proj, chapters, chunks, characters, locations, tags, ideas, events, docs] = await Promise.all([
     sb.from('projects').select('*').eq('id', projectId).single(),
     sb.from('chapters').select('*').eq('project_id', projectId),
     sb.from('chunks').select('*').eq('project_id', projectId),
@@ -7421,7 +7424,8 @@ async function loadProject(projectId) {
     sb.from('locations').select('*').eq('project_id', projectId),
     sb.from('tags').select('*').eq('project_id', projectId),
     sb.from('ideas').select('*').eq('project_id', projectId),
-    sb.from('events').select('*').eq('project_id', projectId)
+    sb.from('events').select('*').eq('project_id', projectId),
+    sb.from('planning_docs').select('*').eq('project_id', projectId)
   ]);
   const chunkIds = (chunks.data || []).map(r => r.id);
   const ideaIds = (ideas.data || []).map(r => r.id);
@@ -7448,6 +7452,7 @@ async function loadProject(projectId) {
     tags: (tags.data || []).map(r => ({ id: r.id, name: (r.name || '').toUpperCase(), color: r.color, summary: r.summary || '', category: (r.category || '').toUpperCase() })),
     ideas: (ideas.data || []).map(r => ({ id: r.id, title: r.title || '', body: (r.body != null ? r.body : (r.text || '')), ts: r.ts || Date.parse(r.created_at), tagIds: il.filter(j => j.idea_id === r.id).map(j => j.tag_id) })),
     events: (events.data || []).map(r => ({ id: r.id, hopId: r.hop_id || null, title: r.title || '', description: r.description || '', dateLabel: r.date_label || '', chronoPos: r.chrono_pos ?? 0, characterIds: r.character_ids || [], locationIds: r.location_ids || [], dismissed: !!r.dismissed })),
+    docs: (docs.data || []).map(r => ({ id: r.id, title: r.title || '', body: r.body || '', position: r.position ?? 0, ts: r.created_at ? Date.parse(r.created_at) : Date.now(), updatedAt: r.updated_at ? Date.parse(r.updated_at) : Date.now() })),
     ui: (proj.data && proj.data.ui) || {}
   };
   // One-time migration: tag categories used to live in the project ui blob
@@ -7522,10 +7527,11 @@ async function persistProject() {
     const tags = db.tags.map(l => ({ id: l.id, user_id: U, project_id: P, name: l.name, color: l.color, summary: l.summary || null, category: l.category || null }));
     const ideas = db.ideas.map(i => ({ id: i.id, user_id: U, project_id: P, title: i.title || null, body: i.body || null, text: (i.body || i.title || ''), ts: i.ts || Date.now() }));
     const events = (db.events || []).map(e => ({ id: e.id, user_id: U, project_id: P, hop_id: e.hopId || null, title: e.title || '', description: e.description || '', date_label: e.dateLabel || null, chrono_pos: e.chronoPos ?? 0, character_ids: e.characterIds || [], location_ids: e.locationIds || [], dismissed: !!e.dismissed }));
+    const docs = (db.docs || []).map((d, i) => ({ id: d.id, user_id: U, project_id: P, title: d.title || '', body: d.body || '', position: d.position ?? i, updated_at: new Date().toISOString() }));
 
     await upsertSync('chapters', chapters, P);
     await Promise.all([upsertSync('tags', tags, P), upsertSync('characters', characters, P), upsertSync('locations', locations, P)]);
-    await Promise.all([upsertSync('chunks', chunks, P), upsertSync('ideas', ideas, P), upsertSync('events', events, P)]);
+    await Promise.all([upsertSync('chunks', chunks, P), upsertSync('ideas', ideas, P), upsertSync('events', events, P), upsertSync('planning_docs', docs, P)]);
 
     const chunkTags = [], chunkChars = [], chunkLocs = [], ideaTags = [];
     db.chunks.forEach(c => {
@@ -8727,6 +8733,349 @@ function scheduleSectionImportCleanup(chapterId) {
     sectionImportJobs.delete(chapterId);
     if (currentRoute() === 'sections' && db.ui.activeChapter === chapterId) renderChunkPane();
   }, 4500);
+}
+
+/* ================= PLANNING =================
+   A workspace for long-form, unstructured docs (outlines, lore dumps, raw
+   exposition, idea drafts). Each doc is a free-text note stored in
+   `db.docs` / the planning_docs table. From an open doc you can GENERATE:
+   - Sections + Hops: reuses the import_outline engine (same as IMPORT), but
+     creates sections from the AI's grouping rather than filing into one.
+   - Events: reuses the detect_events engine, reading the doc as one source. */
+
+let activePlanId = null;            // currently-open doc id
+const planGenJobs = new Map();      // docId -> { docId, total, pct, working, sections, hops, stage, status, error }
+
+function planDocs() {
+  return (db.docs || []).slice().sort((a, b) =>
+    (a.position ?? 0) - (b.position ?? 0) || (b.updatedAt || 0) - (a.updatedAt || 0));
+}
+function planWordCount(d) {
+  const w = (d.body || '').trim();
+  return w ? w.split(/\s+/).length : 0;
+}
+
+const IC_GEN_STAR = '<svg class="aifn-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.7 5.3L19 10l-5.3 1.7L12 17l-1.7-5.3L5 10l5.3-1.7L12 3Z"/><path d="M18.5 15l.6 1.9 1.9.6-1.9.6-.6 1.9-.6-1.9-1.9-.6 1.9-.6Z"/></svg>';
+
+function renderPlanning() {
+  const wrap = document.getElementById('planningWrap');
+  if (!wrap) return;
+  const docs = planDocs();
+  if (!docs.length) {
+    activePlanId = null;
+    wrap.innerHTML = `<div class="planning-empty">No planning docs yet.<br>Click <b>+ DOC</b> to start an outline, lore dump, or any long-form notes &mdash; then turn it into Sections, Hops, or Events.</div>`;
+    return;
+  }
+  if (!activePlanId || !docs.some(d => d.id === activePlanId)) activePlanId = docs[0].id;
+  const doc = docs.find(d => d.id === activePlanId);
+  wrap.innerHTML = `
+    <aside class="plan-list" id="planList">
+      ${docs.map(d => `
+        <button class="plan-item ${d.id === activePlanId ? 'on' : ''}" data-id="${d.id}">
+          <span class="plan-item-title">${esc(d.title) || 'Untitled doc'}</span>
+          <span class="plan-item-meta">${planWordCount(d)} words</span>
+        </button>`).join('')}
+    </aside>
+    <div class="plan-editor" id="planEditor">
+      <div class="plan-editor-head">
+        <input class="plan-title-input" id="planTitleInput" placeholder="Untitled doc" value="${esc(doc.title)}" />
+        <div class="plan-editor-actions">
+          <details class="detect-tool" id="planGenMenu">
+            <summary class="add-btn">${IC_GEN_STAR} GENERATE \u25be</summary>
+            <div class="detect-tool-menu">
+              <button id="planGenSections">SECTIONS + HOPS</button>
+              <button id="planGenEvents">EVENTS</button>
+            </div>
+          </details>
+          <button class="icon-btn" id="planDeleteBtn" title="Delete doc">\u2715</button>
+        </div>
+      </div>
+      <div class="plan-genstrip" id="planGenStrip" data-plangen="${doc.id}"></div>
+      <textarea class="plan-body-input" id="planBodyInput" placeholder="Write your outline, lore, exposition, raw ideas\u2026 then GENERATE to break it apart.">${esc(doc.body)}</textarea>
+    </div>`;
+
+  wrap.querySelectorAll('.plan-item').forEach(b => b.addEventListener('click', () => {
+    if (b.dataset.id === activePlanId) return;
+    activePlanId = b.dataset.id; renderPlanning();
+  }));
+
+  const titleInput = wrap.querySelector('#planTitleInput');
+  titleInput.addEventListener('input', () => {
+    doc.title = titleInput.value; doc.updatedAt = Date.now();
+    const item = wrap.querySelector(`.plan-item.on .plan-item-title`);
+    if (item) item.textContent = titleInput.value || 'Untitled doc';
+    save();
+  });
+
+  const bodyInput = wrap.querySelector('#planBodyInput');
+  bodyInput.addEventListener('input', () => {
+    doc.body = bodyInput.value; doc.updatedAt = Date.now();
+    const meta = wrap.querySelector(`.plan-item.on .plan-item-meta`);
+    if (meta) meta.textContent = planWordCount(doc) + ' words';
+    save();
+  });
+
+  wrap.querySelector('#planDeleteBtn').addEventListener('click', () => deletePlanDoc(doc));
+  wrap.querySelector('#planGenSections').addEventListener('click', () => {
+    wrap.querySelector('#planGenMenu')?.removeAttribute('open');
+    openPlanGenerateModal(doc);
+  });
+  wrap.querySelector('#planGenEvents').addEventListener('click', () => {
+    wrap.querySelector('#planGenMenu')?.removeAttribute('open');
+    planGenerateEvents(doc);
+  });
+
+  paintPlanGen(doc.id);
+}
+
+document.getElementById('addDocBtn')?.addEventListener('click', () => {
+  if (!activeProjectId) { alertModal('Open a project first.', { title: 'ADD DOC' }); return; }
+  db.docs = db.docs || [];
+  const doc = { id: uid(), title: '', body: '', position: db.docs.length, ts: Date.now(), updatedAt: Date.now() };
+  db.docs.unshift(doc);
+  db.docs.forEach((d, i) => d.position = i);
+  activePlanId = doc.id;
+  save();
+  if (currentRoute() !== 'planning') location.hash = '#planning';
+  else renderPlanning();
+  setTimeout(() => document.getElementById('planTitleInput')?.focus(), 0);
+});
+
+async function deletePlanDoc(doc) {
+  if (!await confirmModal('Delete this planning doc? This cannot be undone.', { title: 'DELETE DOC' })) return;
+  db.docs = (db.docs || []).filter(d => d.id !== doc.id);
+  db.docs.forEach((d, i) => d.position = i);
+  if (activePlanId === doc.id) activePlanId = db.docs[0]?.id || null;
+  planGenJobs.delete(doc.id);
+  save();
+  renderPlanning();
+}
+
+/* ---- Planning -> Sections + Hops (background job, reuses import_outline) ---- */
+// Collect optional grouping instructions, then hand off to a detached job whose
+// progress strip lives in the doc editor. The doc text is sliced and outlined
+// one slice at a time; sections are created from the AI's grouping and each hop
+// is filed into its section in the loaded project (db + save).
+function openPlanGenerateModal(doc) {
+  const text = (doc.body || '').trim();
+  if (!text) { alertModal('This doc is empty \u2014 write something first.', { title: 'GENERATE' }); return; }
+  if (planGenJobs.has(doc.id)) { alertModal('A generation is already running for this doc. Let it finish first.', { title: 'GENERATE' }); return; }
+  let busy = false;
+  const overlay = document.createElement('div');
+  overlay.className = 'ui-modal-overlay';
+  overlay.innerHTML = `
+    <div class="ui-modal import-modal" role="dialog" aria-modal="true">
+      <div class="ui-modal-title">TURN INTO SECTIONS + HOPS</div>
+      <div class="im-body">
+        <div class="ui-modal-msg">RABBIT HOLE will read <b>${esc(doc.title) || 'this doc'}</b> and break it into Sections and Hops, filing them into your project. Tell it how to group and title them, or leave blank to use natural structure.</div>
+        <label class="im-field"><span class="im-label">HOW SHOULD IT BREAK THINGS OUT? (optional)</span>
+          <textarea class="ui-modal-input im-instr" id="pgInstr" rows="3" placeholder="e.g. One SECTION per act; each scene is its own HOP titled with a short summary. Or: make each bullet a HOP."></textarea>
+        </label>
+        <div class="ui-modal-actions">
+          <button class="ui-modal-btn" data-act="cancel">Cancel</button>
+          <button class="ui-modal-btn solid" data-act="ok">GENERATE</button>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const finish = () => { document.removeEventListener('keydown', onKey); overlay.remove(); };
+  function onKey(e) { if (e.key === 'Escape' && !busy) { e.preventDefault(); finish(); } }
+  document.addEventListener('keydown', onKey);
+  overlay.addEventListener('mousedown', e => { if (e.target === overlay && !busy) finish(); });
+  overlay.querySelector('[data-act="cancel"]').addEventListener('click', finish);
+  overlay.querySelector('[data-act="ok"]').addEventListener('click', () => {
+    const instructions = (overlay.querySelector('#pgInstr')?.value || '').trim();
+    busy = true; finish();
+    startPlanGen(doc, instructions);
+  });
+}
+
+function startPlanGen(doc, instructions) {
+  const job = { docId: doc.id, total: 0, pct: 0, working: true, sections: 0, hops: 0, stage: 'Starting\u2026', status: 'building', error: '' };
+  planGenJobs.set(doc.id, job);
+  if (currentRoute() !== 'planning') { activePlanId = doc.id; location.hash = '#planning'; }
+  else { activePlanId = doc.id; renderPlanning(); }
+  runPlanGenJob(doc, instructions, job);
+}
+
+async function runPlanGenJob(doc, instructions, job) {
+  const proj = projectsCache.find(p => p.id === activeProjectId);
+  const slices = sliceText(doc.body || '', IMPORT_SLICE);
+  job.total = slices.length;
+  if (!slices.length) {
+    job.status = 'done'; job.working = false; job.pct = 100; job.stage = 'Nothing to generate';
+    paintPlanGen(doc.id); schedulePlanGenCleanup(doc.id); return;
+  }
+  // Map section title -> chapter id, seeded with any sections already in the project
+  // so the AI can extend existing structure instead of duplicating it.
+  const sectionByTitle = new Map();
+  db.chapters.forEach(ch => sectionByTitle.set((ch.title || '').trim().toLowerCase(), ch.id));
+  const ensureSection = title => {
+    const t = (title || '').trim() || 'Imported';
+    const key = t.toLowerCase();
+    if (!sectionByTitle.has(key)) {
+      const id = uid();
+      db.chapters.push({ id, title: t, order: db.chapters.length, color: CHAPTER_PALETTE[db.chapters.length % CHAPTER_PALETTE.length] });
+      sectionByTitle.set(key, id);
+      job.sections++;
+    }
+    return sectionByTitle.get(key);
+  };
+  try {
+    for (let i = 0; i < slices.length; i++) {
+      job.working = true;
+      job.pct = Math.round((i / slices.length) * 100);
+      job.stage = 'Reading pass ' + (i + 1) + ' of ' + slices.length + '  \u00b7  ' +
+        job.sections + ' section' + (job.sections === 1 ? '' : 's') + ', ' +
+        job.hops + ' hop' + (job.hops === 1 ? '' : 's') + ' so far';
+      paintPlanGen(doc.id);
+      let res = null;
+      try {
+        res = await aiInvoke({
+          task: 'import_outline', text: slices[i], instructions,
+          type: proj?.type || '', genre: proj?.genre || '',
+          sectionsSoFar: db.chapters.map(c => c.title).filter(Boolean)
+        });
+      } catch (_) { res = null; }
+      const hops = res && Array.isArray(res.hops) ? res.hops : [];
+      let addedThisSlice = 0;
+      hops.forEach(h => {
+        const body = (h && h.body || '').trim();
+        const title = (h && h.title || '').trim();
+        if (!body && !title) return;
+        const chId = ensureSection(h.section);
+        db.chunks.push({
+          id: uid(), chapterId: chId, title: title || 'Untitled', body,
+          orderInChapter: chunksOf(chId).length,
+          narrativeOrder: db.chunks.length,
+          chronoOrder: db.chunks.length,
+          chronoLabel: '',
+          characterIds: [], locationIds: [], tagIds: []
+        });
+        job.hops++; addedThisSlice++;
+      });
+      if (addedThisSlice) save();
+      job.working = false;
+      job.pct = Math.round(((i + 1) / slices.length) * 100);
+      paintPlanGen(doc.id);
+    }
+    if (job.hops) recordWritingActivity();
+    job.status = 'done'; job.working = false; job.pct = 100;
+    job.stage = job.hops
+      ? 'Done \u2014 ' + job.sections + ' section' + (job.sections === 1 ? '' : 's') + ', ' + job.hops + ' hop' + (job.hops === 1 ? '' : 's') + ' added to your project'
+      : 'No hops could be built \u2014 try adjusting your instructions';
+    paintPlanGen(doc.id);
+    schedulePlanGenCleanup(doc.id);
+  } catch (err) {
+    job.status = 'error'; job.working = false;
+    job.error = (err && err.message) ? err.message : 'Generation failed';
+    paintPlanGen(doc.id);
+  }
+}
+
+function planGenProgressHTML(job) {
+  if (job.status === 'error') {
+    return `<div class="pc-up-bar"><div class="pc-up-fill pc-up-fill-err" style="width:100%"></div></div>
+      <div class="pc-up-stage">${esc(job.error || 'Generation failed')}</div>
+      <button class="add-btn pg-dismiss" data-pgdismiss="${job.docId}">DISMISS</button>`;
+  }
+  const cta = job.status === 'done' && job.hops
+    ? `<button class="add-btn pg-goto" data-pggoto="${job.docId}">VIEW SECTIONS \u2192</button>` : '';
+  return `<div class="pc-up-bar ${job.working ? 'is-working' : ''}"><div class="pc-up-fill" style="width:${job.pct}%"></div></div>
+    <div class="pc-up-stage">${esc(job.stage)}</div>${cta}`;
+}
+
+function paintPlanGen(docId) {
+  if (currentRoute() !== 'planning' || activePlanId !== docId) return;
+  const el = document.querySelector('[data-plangen="' + docId + '"]');
+  if (!el) return;
+  const job = planGenJobs.get(docId);
+  if (!job) { el.innerHTML = ''; return; }
+  el.innerHTML = planGenProgressHTML(job);
+  const dz = el.querySelector('[data-pgdismiss]');
+  if (dz) dz.addEventListener('click', () => { planGenJobs.delete(docId); paintPlanGen(docId); });
+  const goto = el.querySelector('[data-pggoto]');
+  if (goto) goto.addEventListener('click', () => { location.hash = '#sections'; });
+}
+
+function schedulePlanGenCleanup(docId) {
+  setTimeout(() => {
+    const j = planGenJobs.get(docId);
+    if (!j || j.status !== 'done') return;
+    planGenJobs.delete(docId);
+    paintPlanGen(docId);
+  }, 9000);
+}
+
+/* ---- Planning -> Events (reuses detect_events, reading the doc as one source) ---- */
+async function planGenerateEvents(doc) {
+  const text = (doc.body || '').trim();
+  if (!text) { alertModal('This doc is empty \u2014 write something first.', { title: 'DETECT EVENTS' }); return; }
+  const menu = document.getElementById('planGenMenu');
+  const btn = menu ? menu.querySelector('summary') : null;
+  const original = btn ? aiBtnStart(btn, IC_GEN_STAR, 'SCANNING\u2026') : null;
+  try {
+    const hops = [{ id: null, title: doc.title || 'Planning doc', section: 'Planning', body: text }];
+    const existing = (db.events || []).map(e => ({ title: e.title, when: e.dateLabel || '' }));
+    const characters = (db.characters || []).map(c => ({ name: c.name, aliases: c.aliases || [] }));
+    const locations = (db.locations || []).map(l => ({ name: l.name, aliases: l.aliases || [] }));
+    const { events: found = [] } = await aiInvoke({ task: 'detect_events', hops, existing, characters, locations });
+    if (btn) aiBtnDone(btn, original);
+    if (!found.length) { alertModal('No events were detected in this doc.', { title: 'DETECT EVENTS' }); return; }
+
+    const have = new Set((db.events || []).filter(e => !e.dismissed).map(e => evNormTitle(e.title)));
+    const dismissedKeys = new Set((db.events || []).filter(e => e.dismissed).map(e => evNormTitle(e.title)));
+    const seen = new Set();
+    const annotated = found.map(e => {
+      const key = evNormTitle(e.title);
+      const dup = !!key && (have.has(key) || seen.has(key));
+      if (key) seen.add(key);
+      return { ...e, _dup: dup, _dismissed: !!key && dismissedKeys.has(key) };
+    });
+    const visible = annotated.filter(e => !e._dismissed);
+    const newCount = visible.filter(e => !e._dup).length;
+    const dupCount = visible.length - newCount;
+    if (newCount === 0) { alertModal('Every event found is already on your timeline or was dismissed.', { title: 'DETECT EVENTS' }); return; }
+
+    const resolveNames = (names, coll) => {
+      if (!Array.isArray(names) || !names.length) return [];
+      const ents = db[coll] || [];
+      const ids = [];
+      names.forEach(nm => {
+        const key = (nm || '').trim().toLowerCase();
+        if (!key) return;
+        const ent = ents.find(e =>
+          (e.name || '').trim().toLowerCase() === key ||
+          (Array.isArray(e.aliases) && e.aliases.some(a => (a || '').trim().toLowerCase() === key)));
+        if (ent && !ids.includes(ent.id)) ids.push(ent.id);
+      });
+      return ids;
+    };
+
+    const review = await eventReviewModal(visible, { dupCount });
+    if (!review) return;
+    const { chosen = [], dismissed = [] } = review;
+    if (!chosen.length && !dismissed.length) return;
+    db.events = db.events || [];
+    let pos = eventsSorted().length;
+    const mkEvent = (ev, isDismissed) => ({
+      id: uid(), hopId: null,
+      title: (ev.title || '').slice(0, 200),
+      description: ev.description || '',
+      dateLabel: ev.when || '',
+      chronoPos: isDismissed ? 0 : pos++,
+      characterIds: resolveNames(ev.characters, 'characters'),
+      locationIds: resolveNames(ev.locations, 'locations'),
+      dismissed: isDismissed
+    });
+    chosen.forEach(ev => db.events.push(mkEvent(ev, false)));
+    dismissed.forEach(ev => db.events.push(mkEvent(ev, true)));
+    save();
+    alertModal(chosen.length + ' event' + (chosen.length === 1 ? '' : 's') + ' added to your timeline.', { title: 'EVENTS' });
+  } catch (err) {
+    if (btn) aiBtnDone(btn, original);
+    alertModal('Event detection failed.\n\n' + (err.message || ''), { title: 'DETECT EVENTS' });
+  }
 }
 
 // The project-creation upload step. Resolves with a `db`-shaped data object to
