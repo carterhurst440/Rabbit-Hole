@@ -8841,14 +8841,15 @@ function docEditModal() {
   overlay.className = 'ui-modal-overlay';
   overlay.innerHTML = `
     <div class="ui-modal doc-edit-modal" role="dialog" aria-modal="true">
+      <button class="ui-modal-x" data-act="cancel" aria-label="Close" title="Close">&times;</button>
       <div class="ui-modal-title">NEW DOC</div>
       <div class="ie-field">
         <span class="ie-label">TITLE</span>
         <input class="ie-name" type="text" maxlength="160" placeholder="Doc title\u2026" />
       </div>
-      <div class="ie-field">
+      <div class="ie-field doc-body-field">
         <span class="ie-label">BODY</span>
-        <textarea class="ie-body" rows="9" placeholder="Outline, lore dump, raw exposition\u2026"></textarea>
+        <textarea class="ie-body" placeholder="Outline, lore dump, raw exposition\u2026"></textarea>
       </div>
       <div class="ui-modal-actions">
         <span class="ie-spacer"></span>
@@ -8864,7 +8865,7 @@ function docEditModal() {
   function onKey(e) { if (e.key === 'Escape') { e.preventDefault(); close(); } }
   document.addEventListener('keydown', onKey);
   overlay.addEventListener('mousedown', e => { if (e.target === overlay) close(); });
-  overlay.querySelector('[data-act="cancel"]').addEventListener('click', close);
+  overlay.querySelectorAll('[data-act="cancel"]').forEach(b => b.addEventListener('click', close));
 
   overlay.querySelector('[data-act="save"]').addEventListener('click', () => {
     const title = nameInput.value.trim();

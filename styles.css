@@ -1709,6 +1709,10 @@ textarea.ui-modal-input { resize: vertical; min-height: 84px; line-height: 1.5; 
 .idea-edit-modal .ie-gen:disabled { opacity: 0.6; cursor: default; }
 .idea-edit-modal .ie-actions { display: flex; align-items: center; gap: 8px; }
 .idea-edit-modal .ie-spacer, .doc-edit-modal .ie-spacer { flex: 1; }
+/* Doc modal fills the screen height; the BODY field grows to take the slack. */
+.doc-edit-modal { height: calc(100vh - 48px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); max-height: none; }
+.doc-edit-modal .doc-body-field { flex: 1 1 auto; min-height: 0; }
+.doc-edit-modal .doc-body-field .ie-body { flex: 1 1 auto; min-height: 0; height: 100%; resize: none; }
 .ui-modal-btn.danger.ghost { background: transparent; border-color: var(--line-2); color: #c0584e; }
 .ui-modal-btn.danger.ghost:hover { border-color: #c0584e; background: rgba(192,88,78,0.1); color: #c0584e; }
 
