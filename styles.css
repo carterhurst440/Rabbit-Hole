@@ -922,7 +922,13 @@ mark.search-hit {
 .tl-tab-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
 .tl-tab-count { font-size: 10px; color: var(--muted); border-left: 1px solid var(--line-2); padding-left: 7px; }
 .tl-tab.on .tl-tab-count { color: var(--accent); border-left-color: color-mix(in srgb, var(--accent) 40%, transparent); }
-.tl-tab-manage { font-size: 14px; line-height: 1; padding: 5px 10px; color: var(--accent); }
+.tl-tab-manage {
+  font-size: 14px; line-height: 1; padding: 5px 12px; color: var(--accent);
+  position: sticky; left: 0; z-index: 2; scroll-snap-align: none;
+  background: var(--panel-2); border-color: var(--accent);
+  box-shadow: 8px 0 10px -6px var(--bg, rgba(0,0,0,0.6));
+}
+.tl-tab-manage:hover { color: var(--text-bright); background: var(--accent-dim); }
 
 /* TIMELINES manage modal */
 .tl-manage-modal { width: min(560px, 92vw); text-align: left; }
@@ -2858,6 +2864,26 @@ button.feed-comment-user:hover { text-decoration: underline; }
 .plan-ctx-toggle.on .plan-ctx-dot { background: var(--accent); border-color: var(--accent); box-shadow: 0 0 6px var(--accent); }
 .plan-item-ctx { color: var(--accent); margin-right: 5px; font-size: 11px; }
 .plan-item.is-ctx { border-left: 2px solid var(--accent); }
+
+/* Multi-select chips used in the planning GENERATE / DETECT modals. */
+.plan-pick-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 2px; }
+.plan-pick {
+  background: var(--panel-2); border: 1px solid var(--line-2); color: var(--muted);
+  font-family: inherit; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+  padding: 7px 13px; border-radius: 14px; cursor: pointer; white-space: nowrap;
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
+}
+.plan-pick:hover { border-color: var(--accent); color: var(--text-bright); }
+.plan-pick.on { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+
+/* Grouped results in the planning DETECT review modal. */
+.plan-detect-modal { max-width: 560px; }
+.plan-detect-body { max-height: 56vh; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
+.plan-detect-group-head {
+  font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent);
+  margin: 0 0 6px; padding-bottom: 4px; border-bottom: 1px solid var(--line-2);
+}
+.plan-detect-group .detect-row.is-dup { opacity: 0.6; }
 .plan-body-input {
   flex: 1; min-height: 340px; resize: vertical; width: 100%; box-sizing: border-box;
   background: var(--panel-2); border: 1px solid var(--line); color: var(--text);
