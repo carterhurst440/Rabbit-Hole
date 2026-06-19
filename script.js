@@ -1876,7 +1876,6 @@ function renderChunkPane() {
     <div class="chunk-card-head">
       <input type="color" class="chap-color" id="chapColor" value="${chapterColor(ch.id)}" title="Chapter accent color" />
       <input class="chunk-title-input" id="chapTitle" value="${esc(ch.title)}" />
-      ${chunks.length ? `<button class="add-btn section-preview-top" id="sectionPreviewTopBtn" title="Preview all hops as one document">\u25A4 PREVIEW</button>` : ''}
       <details class="head-kebab" id="chapKebab">
         <summary title="More actions" aria-label="More actions">⋮</summary>
         <div class="head-kebab-menu">
@@ -1933,7 +1932,14 @@ function renderChunkPane() {
   const summaryEl = pane.querySelector('details.section-summary');
   if (summaryEl) summaryEl.addEventListener('toggle', () => { sectionSummaryOpen = summaryEl.open; });
   document.getElementById('sectionPreviewBtn')?.addEventListener('click', () => sectionPreviewModal(ch.id));
-  document.getElementById('sectionPreviewTopBtn')?.addEventListener('click', () => sectionPreviewModal(ch.id));
+  // The desktop PREVIEW button lives up in the page-title row (.section-detail-head),
+  // in line with the chapter title. Show it only when there are hops to preview and
+  // point it at this chapter.
+  const headPreview = document.getElementById('sectionPreviewHeadBtn');
+  if (headPreview) {
+    headPreview.hidden = !chunks.length;
+    headPreview.onclick = () => sectionPreviewModal(ch.id);
+  }
   document.getElementById('delChapBtn').addEventListener('click', async () => {
     if (!await confirmModal('Delete this chapter and its hops?')) return;
     db.chunks = db.chunks.filter(c => c.chapterId !== ch.id);
