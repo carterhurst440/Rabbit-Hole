@@ -3168,6 +3168,18 @@ document.getElementById('addEventBtn')?.addEventListener('click', () => openEven
 document.getElementById('detectEventsBtn')?.addEventListener('click', detectEvents);
 document.getElementById('generateOrderBtn')?.addEventListener('click', generateEventOrder);
 document.getElementById('viewDismissedBtn')?.addEventListener('click', openDismissedModal);
+document.getElementById('addTimelineBtn')?.addEventListener('click', addTimelineFlow);
+
+// Prompt for a name, create a timeline, and switch to it. Wired to the top-bar
+// ADD TIMELINE button (the tab strip no longer carries an inline + control).
+async function addTimelineFlow() {
+  const name = await promptModal('Name this timeline:', '', { title: 'NEW TIMELINE', okText: 'Create' });
+  if (name == null || !name.trim()) return;
+  const t = addTimeline(name.trim());
+  db.ui.activeTimeline = t.id;
+  save();
+  renderTimelines();
+}
 document.getElementById('eventViewToggle')?.addEventListener('click', e => {
   const btn = e.target.closest('.ev-view-btn');
   if (!btn) return;
@@ -3263,9 +3275,9 @@ function renderTimelineTabs() {
   };
   const allCount = (db.events || []).filter(e => !e.dismissed).length;
   wrap.innerHTML =
-    `<button class="tl-tab tl-tab-manage" data-act="manage" title="Add / manage timelines">＋</button>` +
     tab('', 'ALL', '', allCount) +
-    timelinesSorted().map(t => tab(t.id, t.name || 'Untitled', t.color || 'var(--accent)', timelineEventCount(t.id))).join('');
+    timelinesSorted().map(t => tab(t.id, t.name || 'Untitled', t.color || 'var(--accent)', timelineEventCount(t.id))).join('') +
+    `<button class="tl-tab tl-tab-manage" data-act="manage" title="Manage timelines">\u2699</button>`;
   wrap.querySelectorAll('.tl-tab[data-tl]').forEach(btn =>
     btn.addEventListener('click', () => {
       db.ui.activeTimeline = btn.dataset.tl;
