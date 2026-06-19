@@ -3268,6 +3268,10 @@ function deleteTimeline(id) {
 function renderTimelineTabs() {
   const wrap = document.getElementById('timelineTabs');
   if (!wrap) return;
+  // The timeline picker only applies to the chronological view; in BY SECTION
+  // mode events are grouped by section, so hide it entirely.
+  if (evView === 'section') { wrap.hidden = true; wrap.innerHTML = ''; return; }
+  wrap.hidden = false;
   const active = activeTimelineId();
   const tab = (id, label, color, count) => {
     const dot = color ? `<span class="tl-tab-dot" style="background:${color}"></span>` : '';
@@ -3277,6 +3281,7 @@ function renderTimelineTabs() {
   wrap.innerHTML =
     tab('', 'ALL', '', allCount) +
     timelinesSorted().map(t => tab(t.id, t.name || 'Untitled', t.color || 'var(--accent)', timelineEventCount(t.id))).join('') +
+    `<button class="tl-tab tl-tab-add" data-act="add" title="Add a new timeline" aria-label="Add timeline">\u2295</button>` +
     `<button class="tl-tab tl-tab-manage" data-act="manage" title="Manage timelines">\u2699</button>`;
   wrap.querySelectorAll('.tl-tab[data-tl]').forEach(btn =>
     btn.addEventListener('click', () => {
@@ -3284,6 +3289,7 @@ function renderTimelineTabs() {
       save();
       renderTimelines();
     }));
+  wrap.querySelector('[data-act="add"]')?.addEventListener('click', addTimelineFlow);
   wrap.querySelector('[data-act="manage"]')?.addEventListener('click', openTimelineManageModal);
 }
 

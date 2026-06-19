@@ -923,6 +923,8 @@ mark.search-hit {
 .tl-tab-count { font-size: 10px; color: var(--muted); border-left: 1px solid var(--line-2); padding-left: 7px; }
 .tl-tab.on .tl-tab-count { color: var(--accent); border-left-color: color-mix(in srgb, var(--accent) 40%, transparent); }
 .tl-tab-manage { font-size: 14px; line-height: 1; padding: 5px 10px; color: var(--accent); }
+.tl-tab-add { font-size: 16px; line-height: 1; padding: 5px 10px; color: var(--accent); }
+.tl-tab-add:hover { border-color: var(--accent); background: var(--accent-dim); }
 
 /* TIMELINES manage modal */
 .tl-manage-modal { width: min(560px, 92vw); text-align: left; }
