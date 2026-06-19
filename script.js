@@ -2284,7 +2284,9 @@ async function generateChunkBody(chunk, btn) {
     let text = (reply || '').trim().replace(/^["'\u201c\u2018]+|["'\u201d\u2019]+$/g, '').trim();
     if (!text) { alertModal('No body text came back. Try again.', { title: 'GENERATE BODY' }); return; }
     chunk.body = text;
-    if (typeof setEditorContent === 'function') setEditorContent(text);
+    const bodyEl = document.getElementById('chunkModalBody');
+    if (bodyEl) typeWriter(bodyEl, text, { onDone: () => setEditorContent(text) });
+    else if (typeof setEditorContent === 'function') setEditorContent(text);
 
     // Link any picked characters/locations/tags to the hop so the selection sticks.
     const linkInto = (field, ids) => {
@@ -2419,7 +2421,9 @@ async function rewriteChunkBody(chunk, btn) {
     let text = (reply || '').trim().replace(/^["'\u201c\u2018]+|["'\u201d\u2019]+$/g, '').trim();
     if (!text) { alertModal('No body text came back. Try again.', { title: 'RE-WRITE' }); return; }
     chunk.body = text;
-    if (typeof setEditorContent === 'function') setEditorContent(text);
+    const bodyEl = document.getElementById('chunkModalBody');
+    if (bodyEl) typeWriter(bodyEl, text, { onDone: () => setEditorContent(text) });
+    else if (typeof setEditorContent === 'function') setEditorContent(text);
     save(); markChunkDirty();
   } catch (err) {
     aiBtnDone(btn, original);
@@ -4205,6 +4209,35 @@ function setEditorContent(text) {
   if (el) el.innerHTML = highlightNames(text || '', entityHighlightTerms());
 }
 
+// Lightweight "typing" reveal for AI output: stream `text` into `el` in small
+// batches (~30fps) so generated prose appears as if typed, instead of popping in
+// all at once. Plain-text only — it sets textContent, which respects the
+// editor's pre-wrap newlines. Pass onDone to swap in rich rendering once the
+// reveal finishes (e.g. re-apply name highlighting on the body editor). Aims for
+// a steady ~3s regardless of length so a long hop body never drags. Bails if the
+// target leaves the DOM (modal closed / re-rendered) so it never writes into a
+// stale or replaced node. Returns cancel() which finishes the reveal instantly.
+function typeWriter(el, text, opts = {}) {
+  text = String(text == null ? '' : text);
+  const onDone = opts.onDone;
+  if (!el) { if (onDone) onDone(); return () => {}; }
+  const perTick = Math.max(1, Math.ceil(text.length / 90));
+  let i = 0, done = false;
+  const finish = () => {
+    if (done) return; done = true;
+    clearInterval(timer);
+    if (onDone) onDone(); else el.textContent = text;
+  };
+  const timer = setInterval(() => {
+    if (!el.isConnected) { clearInterval(timer); done = true; return; }
+    i = Math.min(text.length, i + perTick);
+    el.textContent = text.slice(0, i);
+    el.scrollTop = el.scrollHeight;
+    if (i >= text.length) finish();
+  }, 33);
+  return finish;
+}
+
 // Re-paint the editor from its own current text, optionally keeping the caret.
 function renderEditorHighlights(opts) {
   const el = document.getElementById('chunkModalBody');
@@ -4764,7 +4797,7 @@ function renderEntityPane(K) {
     ${entitySearchBlockHTML(K.noun + ':' + c.id, K.noun)}
     <div class="char-block">
       <h3>SUMMARY</h3>
-      <div class="char-summary">${c.summary ? esc(c.summary) : '<span style="color:var(--muted)">No summary yet.</span>'}</div>
+      <div class="char-summary" id="entitySummaryBox">${c.summary ? esc(c.summary) : '<span style="color:var(--muted)">No summary yet.</span>'}</div>
       <div style="margin-top:10px;display:flex;gap:8px">
         <button class="add-btn" data-f="gen" title="AI: summarize from every chunk that references this ${K.noun}">${IC_GENERATE} GENERATE</button>
         <button class="add-btn" data-f="editsum">EDIT MANUALLY</button>
@@ -5238,6 +5271,7 @@ async function generateEntitySummary(K, c, btn) {
       chunks: refs.map(r => ({ title: r.title, body: r.body }))
     });
     c.summary = reply || ''; save(); renderEntityPane(K);
+    if (reply) { const sumEl = document.getElementById('entitySummaryBox'); if (sumEl) typeWriter(sumEl, reply); }
   } catch (err) {
     aiBtnDone(btn, original);
     alertModal('Could not generate summary.\n\n' + (err.message || ''), { title: 'AI SUMMARY' });
@@ -6092,6 +6126,7 @@ async function generateTagSummary(l, btn) {
       chunks: chunks.map(c => ({ title: c.title, body: c.body }))
     });
     l.summary = reply || ''; save(); renderTagPane();
+    if (reply) { const sumEl = document.getElementById('tagSummary'); if (sumEl) typeWriter(sumEl, reply); }
   } catch (err) {
     aiBtnDone(btn, original);
     alertModal('Could not generate summary.\n\n' + (err.message || ''), { title: 'TAG SUMMARY' });
