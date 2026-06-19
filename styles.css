@@ -939,6 +939,12 @@ mark.search-hit {
 .tl-manage-add { align-self: flex-start; margin-top: 4px; }
 .ev-tl-new { border-style: dashed; color: var(--accent); }
 
+/* Per-event ADD TO TIMELINE picker modal */
+.tl-pick-modal { width: min(480px, 92vw); text-align: left; }
+.tl-pick-sub { color: var(--muted); font-size: 12px; margin: -4px 0 12px; }
+.tl-pick-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.tl-pick-empty { color: var(--muted); font-size: 12px; width: 100%; }
+
 /* EVENTS by section: kanban swimlanes (reuses .kanban/.lane) */
 .ev-kanban .ev-lane { max-height: calc(100vh - 320px); }
 .ev-lane-cards { display: flex; flex-direction: column; gap: 8px; }

@@ -3210,10 +3210,11 @@ function openTimelineManageModal() {
   document.addEventListener('keydown', onKey);
   overlay.addEventListener('mousedown', e => { if (e.target === overlay) close(); });
   overlay.querySelector('[data-act="close"]').addEventListener('click', close);
-  overlay.querySelector('[data-act="add"]').addEventListener('click', () => {
-    const t = addTimeline('New timeline');
+  overlay.querySelector('[data-act="add"]').addEventListener('click', async () => {
+    const name = await promptModal('Name this timeline:', '', { title: 'NEW TIMELINE', okText: 'Save' });
+    if (!name || !name.trim()) return;
+    addTimeline(name.trim());
     drawList();
-    listEl.querySelector(`.tl-manage-row[data-id="${t.id}"] .tl-manage-name`)?.focus();
   });
 
   function drawList() {
@@ -3246,6 +3247,60 @@ function openTimelineManageModal() {
     });
   }
   drawList();
+}
+
+// Per-event timeline picker (opened from an event kebab): toggle membership
+// across one or many timelines at once, or create a new one inline.
+function openEventTimelineModal(eventId) {
+  const ev = (db.events || []).find(e => e.id === eventId);
+  if (!ev) return;
+  if (!Array.isArray(ev.timelineIds)) ev.timelineIds = [];
+  const overlay = document.createElement('div');
+  overlay.className = 'ui-modal-overlay';
+  overlay.innerHTML = `
+    <div class="ui-modal tl-pick-modal" role="dialog" aria-modal="true">
+      <button class="ui-modal-x" data-act="close" aria-label="Close" title="Close">&times;</button>
+      <div class="ui-modal-title">ADD TO TIMELINE</div>
+      <div class="tl-pick-sub">${esc(ev.title || 'Untitled event')}</div>
+      <div class="ui-modal-scroll">
+        <div class="ev-chip-row tl-pick-chips"></div>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const chipsEl = overlay.querySelector('.tl-pick-chips');
+  const close = () => { document.removeEventListener('keydown', onKey); overlay.remove(); renderTimelines(); };
+  function onKey(e) { if (e.key === 'Escape') { e.preventDefault(); close(); } }
+  document.addEventListener('keydown', onKey);
+  overlay.addEventListener('mousedown', e => { if (e.target === overlay) close(); });
+  overlay.querySelector('[data-act="close"]').addEventListener('click', close);
+
+  function draw() {
+    const tls = timelinesSorted();
+    const chips = tls.map(t => {
+      const on = ev.timelineIds.includes(t.id);
+      return `<button type="button" class="ev-char-chip ${on ? 'on' : ''}" data-tlid="${t.id}" style="--cc:${t.color || 'var(--accent)'}">${esc(t.name || 'Untitled')}</button>`;
+    }).join('');
+    const empty = tls.length ? '' : `<span class="tl-pick-empty">No timelines yet — create one below.</span>`;
+    chipsEl.innerHTML = empty + chips + `<button type="button" class="ev-char-chip ev-tl-new" data-act="newtl">＋ NEW TIMELINE</button>`;
+    chipsEl.querySelectorAll('.ev-char-chip[data-tlid]').forEach(chip => {
+      chip.addEventListener('click', () => {
+        const id = chip.dataset.tlid;
+        const i = ev.timelineIds.indexOf(id);
+        if (i >= 0) ev.timelineIds.splice(i, 1); else ev.timelineIds.push(id);
+        chip.classList.toggle('on');
+        save();
+      });
+    });
+    chipsEl.querySelector('[data-act="newtl"]')?.addEventListener('click', async () => {
+      const name = await promptModal('Name this timeline:', '', { title: 'NEW TIMELINE', okText: 'Save' });
+      if (!name || !name.trim()) return;
+      const t = addTimeline(name.trim());
+      ev.timelineIds.push(t.id);
+      save();
+      draw();
+    });
+  }
+  draw();
 }
 
 function renderTimelines() {
@@ -3307,6 +3362,7 @@ function eventCardInner(ev, opts = {}) {
           <summary title="Options">\u22EE</summary>
           <div class="hop-menu">
             <button class="add-btn" data-act="edit">EDIT</button>
+            <button class="add-btn" data-act="timeline">ADD TO TIMELINE</button>
             <button class="add-btn danger" data-act="del">DELETE</button>
           </div>
         </details>
@@ -3338,6 +3394,7 @@ function wireEventCard(cardEl, id) {
       const act = actEl.dataset.act;
       if (act === 'toggle') { e.stopPropagation(); toggleEvExpand(id); return; }
       if (act === 'edit') { e.stopPropagation(); closeKebab(); openEventModal(id); return; }
+      if (act === 'timeline') { e.stopPropagation(); closeKebab(); openEventTimelineModal(id); return; }
       if (act === 'del') {
         e.stopPropagation(); closeKebab();
         (async () => {
