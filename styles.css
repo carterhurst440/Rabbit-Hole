@@ -905,8 +905,10 @@ mark.search-hit {
 .ev-view-btn.active { background: var(--accent-dim); color: var(--accent); }
 
 /* TIMELINE tab strip — ALL + one tab per named timeline + manage (＋) */
+.timeline-picker { margin-bottom: 16px; }
+.timeline-picker-label { font-size: 11px; letter-spacing: 0.12em; color: var(--muted); margin-bottom: 8px; }
 .timeline-tabs {
-  display: flex; flex-wrap: nowrap; gap: 6px; margin-bottom: 14px;
+  display: flex; flex-wrap: nowrap; gap: 6px; margin-bottom: 0;
   overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch;
   scrollbar-width: none; scroll-snap-type: x proximity;
 }
@@ -923,8 +925,6 @@ mark.search-hit {
 .tl-tab-count { font-size: 10px; color: var(--muted); border-left: 1px solid var(--line-2); padding-left: 7px; }
 .tl-tab.on .tl-tab-count { color: var(--accent); border-left-color: color-mix(in srgb, var(--accent) 40%, transparent); }
 .tl-tab-manage { font-size: 14px; line-height: 1; padding: 5px 10px; color: var(--accent); }
-.tl-tab-add { font-size: 16px; line-height: 1; padding: 5px 10px; color: var(--accent); }
-.tl-tab-add:hover { border-color: var(--accent); background: var(--accent-dim); }
 
 /* TIMELINES manage modal */
 .tl-manage-modal { width: min(560px, 92vw); text-align: left; }

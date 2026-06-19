@@ -3268,10 +3268,11 @@ function deleteTimeline(id) {
 function renderTimelineTabs() {
   const wrap = document.getElementById('timelineTabs');
   if (!wrap) return;
+  const picker = document.getElementById('timelinePicker');
   // The timeline picker only applies to the chronological view; in BY SECTION
-  // mode events are grouped by section, so hide it entirely.
-  if (evView === 'section') { wrap.hidden = true; wrap.innerHTML = ''; return; }
-  wrap.hidden = false;
+  // mode events are grouped by section, so hide it (label included) entirely.
+  if (evView === 'section') { if (picker) picker.hidden = true; wrap.innerHTML = ''; return; }
+  if (picker) picker.hidden = false;
   const active = activeTimelineId();
   const tab = (id, label, color, count) => {
     const dot = color ? `<span class="tl-tab-dot" style="background:${color}"></span>` : '';
@@ -3280,17 +3281,13 @@ function renderTimelineTabs() {
   const allCount = (db.events || []).filter(e => !e.dismissed).length;
   wrap.innerHTML =
     tab('', 'ALL', '', allCount) +
-    timelinesSorted().map(t => tab(t.id, t.name || 'Untitled', t.color || 'var(--accent)', timelineEventCount(t.id))).join('') +
-    `<button class="tl-tab tl-tab-add" data-act="add" title="Add a new timeline" aria-label="Add timeline">\u2295</button>` +
-    `<button class="tl-tab tl-tab-manage" data-act="manage" title="Manage timelines">\u2699</button>`;
+    timelinesSorted().map(t => tab(t.id, t.name || 'Untitled', t.color || 'var(--accent)', timelineEventCount(t.id))).join('');
   wrap.querySelectorAll('.tl-tab[data-tl]').forEach(btn =>
     btn.addEventListener('click', () => {
       db.ui.activeTimeline = btn.dataset.tl;
       save();
       renderTimelines();
     }));
-  wrap.querySelector('[data-act="add"]')?.addEventListener('click', addTimelineFlow);
-  wrap.querySelector('[data-act="manage"]')?.addEventListener('click', openTimelineManageModal);
 }
 
 // Manage modal: add / rename (inline) / recolor (swatches) / delete timelines.
@@ -3509,7 +3506,7 @@ function wireEventCard(cardEl, id) {
         return;
       }
     }
-    if (e.target.closest('.ev-card-headmain')) { toggleEvExpand(id); return; }
+    if (e.target.closest('.ev-card-headmain')) { openEventModal(id); return; }
   });
 }
 
