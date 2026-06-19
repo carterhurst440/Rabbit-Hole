@@ -385,10 +385,11 @@ button, input, textarea, select { font-family: inherit; }
 }
 .pc-kind { font-size: 11px; color: var(--accent); letter-spacing: 0.08em; text-transform: uppercase; }
 .pc-meta { font-size: 11px; color: var(--muted); letter-spacing: 0.06em; }
-.pc-actions { display: flex; border-top: 1px solid var(--line); }
+.pc-actions { display: flex; border-top: 1px solid var(--line); overflow: hidden; }
 .pc-btn {
-  flex: 1; background: none; border: none; cursor: pointer; font-family: inherit;
-  padding: 9px; font-size: 10px; letter-spacing: 0.12em; color: var(--muted);
+  flex: 1 1 0; min-width: 0; background: none; border: none; cursor: pointer; font-family: inherit;
+  padding: 9px 4px; font-size: 10px; letter-spacing: 0.06em; color: var(--muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .pc-btn:hover { background: var(--panel-2); color: var(--accent); }
 .pc-btn.danger:hover { color: #d8746a; }
@@ -661,6 +662,11 @@ button, input, textarea, select { font-family: inherit; }
   box-shadow: 0 12px 32px rgba(0,0,0,0.5);
 }
 .head-kebab-menu .add-btn { text-align: left; width: 100%; }
+/* SECTION DETAIL: PREVIEW lives top-right on desktop; folds into the kebab on
+   narrow screens so the title input keeps its width. */
+.section-preview-top { flex: 0 0 auto; white-space: nowrap; }
+@media (max-width: 760px) { .section-preview-top { display: none; } }
+@media (min-width: 761px) { #chapKebab #sectionPreviewBtn { display: none; } }
 .alias-input { width: 100%; box-sizing: border-box; }
 .section-search-row { display: flex; gap: 8px; align-items: center; margin: 0 0 10px; }
 .section-search {

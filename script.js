@@ -1611,6 +1611,10 @@ const expandedChunks = new Set();
 // clicking a section drills into 'detail', BACK returns to 'board'. Transient so
 // navigating to SECTIONS always lands on the board.
 let sectionsMode = 'board';
+// Section OVERVIEW (characters/locations/tags/events panel) open state. Collapsed
+// by default, and remembered across re-renders so expanding a hop — which re-renders
+// the whole pane — never reopens it.
+let sectionSummaryOpen = false;
 
 function chunksOf(chapterId) {
   return db.chunks
@@ -1851,7 +1855,7 @@ function sectionSummaryHTML(ch) {
   };
 
   return `
-    <details class="section-summary" open>
+    <details class="section-summary"${sectionSummaryOpen ? ' open' : ''}>
       <summary>SECTION OVERVIEW</summary>
       <div class="ss-grid">
         <div class="ss-row"><span class="ss-label">CHARACTERS</span><span class="ss-vals">${entChips(charSet, 'characters')}</span></div>
@@ -1872,6 +1876,7 @@ function renderChunkPane() {
     <div class="chunk-card-head">
       <input type="color" class="chap-color" id="chapColor" value="${chapterColor(ch.id)}" title="Chapter accent color" />
       <input class="chunk-title-input" id="chapTitle" value="${esc(ch.title)}" />
+      ${chunks.length ? `<button class="add-btn section-preview-top" id="sectionPreviewTopBtn" title="Preview all hops as one document">\u25A4 PREVIEW</button>` : ''}
       <details class="head-kebab" id="chapKebab">
         <summary title="More actions" aria-label="More actions">⋮</summary>
         <div class="head-kebab-menu">
@@ -1923,7 +1928,12 @@ function renderChunkPane() {
     if (label) label.style.color = ch.color;
   });
   wireHeadKebab(document.getElementById('chapKebab'));
+  // Remember whether the author opened the SECTION OVERVIEW so a hop expand (which
+  // re-renders this whole pane) does not snap it back open or closed.
+  const summaryEl = pane.querySelector('details.section-summary');
+  if (summaryEl) summaryEl.addEventListener('toggle', () => { sectionSummaryOpen = summaryEl.open; });
   document.getElementById('sectionPreviewBtn')?.addEventListener('click', () => sectionPreviewModal(ch.id));
+  document.getElementById('sectionPreviewTopBtn')?.addEventListener('click', () => sectionPreviewModal(ch.id));
   document.getElementById('delChapBtn').addEventListener('click', async () => {
     if (!await confirmModal('Delete this chapter and its hops?')) return;
     db.chunks = db.chunks.filter(c => c.chapterId !== ch.id);
@@ -2921,6 +2931,7 @@ window.addEventListener('scroll', () => {
 // surfacing in a hop but positioned independently on the chronological axis.
 document.getElementById('addEventBtn')?.addEventListener('click', () => openEventModal(null));
 document.getElementById('detectEventsBtn')?.addEventListener('click', detectEvents);
+document.getElementById('generateOrderBtn')?.addEventListener('click', generateEventOrder);
 document.getElementById('viewDismissedBtn')?.addEventListener('click', openDismissedModal);
 document.getElementById('eventViewToggle')?.addEventListener('click', e => {
   const btn = e.target.closest('.ev-view-btn');
@@ -3445,6 +3456,51 @@ async function detectEvents() {
   } catch (err) {
     aiBtnDone(btn, original);
     alertModal('Event detection failed.\n\n' + (err.message || ''), { title: 'DETECT EVENTS' });
+  }
+}
+
+/* ---- GENERATE ORDER: sort EXISTING events into in-world chronological order ----
+   Adds nothing new. Hands the current events (title + when + description) to the
+   sort-events function and reassigns chronoPos from the returned ordering. Manual
+   dot-dragging still overrides afterward. */
+async function generateEventOrder() {
+  const btn = document.getElementById('generateOrderBtn');
+  const active = eventsSorted();
+  if (active.length < 2) {
+    alertModal('Add at least two events before generating an order.', { title: 'GENERATE ORDER' });
+    return;
+  }
+  const original = aiBtnStart(btn, IC_DETECT, 'ORDERING…');
+  try {
+    const payload = active.map(e => ({
+      id: e.id,
+      title: e.title || '',
+      when: e.dateLabel || '',
+      description: (e.description || '').slice(0, 400)
+    }));
+    const tier = (currentProfile && currentProfile.ai_tier) || 'standard';
+    const { data, error } = await sb.functions.invoke('sort-events', { body: { events: payload, tier } });
+    if (error) {
+      let detail = error.message || 'request failed';
+      try { const ctx = await error.context?.json?.(); if (ctx?.error) detail = ctx.error; } catch (_) {}
+      throw new Error(detail);
+    }
+    if (data && data.error) throw new Error(data.error);
+    const order = Array.isArray(data && data.order) ? data.order : [];
+    aiBtnDone(btn, original);
+    if (!order.length) { alertModal('Could not determine an order. Try again.', { title: 'GENERATE ORDER' }); return; }
+    // Reassign chronoPos by the returned ranking; any id the sorter omitted keeps
+    // its current relative position appended at the end.
+    const rank = new Map(order.map((id, i) => [id, i]));
+    const fallback = active.length;
+    const reordered = [...active].sort((a, b) =>
+      (rank.has(a.id) ? rank.get(a.id) : fallback) - (rank.has(b.id) ? rank.get(b.id) : fallback));
+    reordered.forEach((e, i) => { const ev = db.events.find(x => x.id === e.id); if (ev) ev.chronoPos = i; });
+    save();
+    renderTimelines();
+  } catch (err) {
+    aiBtnDone(btn, original);
+    alertModal('Generate order failed.\n\n' + (err.message || ''), { title: 'GENERATE ORDER' });
   }
 }
 
