@@ -78,9 +78,10 @@ function seed() {
     locations: [],
     ideas: [],
     events: [],
+    timelines: [],
     docs: [],
     tags: [],
-    ui: { activeChapter: chId, activeChar: null, activeLoc: null, activeTag: null }
+    ui: { activeChapter: chId, activeChar: null, activeLoc: null, activeTag: null, activeTimeline: '' }
   };
 }
 
@@ -89,8 +90,11 @@ function migrate(d) {
   d.tags = d.tags || [];
   d.locations = d.locations || [];
   d.events = d.events || [];
+  d.timelines = d.timelines || [];
   d.docs = d.docs || [];
   d.ui = d.ui || {};
+  if (typeof d.ui.activeTimeline !== 'string') d.ui.activeTimeline = '';
+  (d.events || []).forEach(e => { if (!Array.isArray(e.timelineIds)) e.timelineIds = []; });
   (d.chunks || []).forEach(c => { if (!Array.isArray(c.tagIds)) c.tagIds = []; });
   (d.chunks || []).forEach(c => { if (!Array.isArray(c.locationIds)) c.locationIds = []; });
   (d.ideas || []).forEach(i => {
@@ -3125,7 +3129,127 @@ document.querySelectorAll('[data-arch]').forEach(btn => {
 function chapterTitle(id) { return db.chapters.find(c => c.id === id)?.title || '—'; }
 
 let tlDragId = null;
+/* ---- Multiple timelines: named timelines + per-event membership ----
+   Events carry a timelineIds[] set; an event can belong to many timelines (or
+   none). The Timeline view has a tab strip — ALL plus one tab per timeline —
+   that filters the chrono axis / kanban to the selected timeline. */
+const TIMELINE_PALETTE = CHAPTER_PALETTE;
+function timelinesSorted() {
+  return [...(db.timelines || [])].sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+}
+// The selected timeline id, or '' for ALL. Falls back to ALL if the stored id
+// no longer exists (e.g. deleted, or switched projects).
+function activeTimelineId() {
+  const id = db.ui.activeTimeline || '';
+  if (id && !(db.timelines || []).some(t => t.id === id)) return '';
+  return id;
+}
+function visibleTimelineEvents() {
+  const tl = activeTimelineId();
+  const evs = eventsSorted();
+  return tl ? evs.filter(e => (e.timelineIds || []).includes(tl)) : evs;
+}
+function timelineEventCount(id) {
+  return (db.events || []).filter(e => !e.dismissed && (e.timelineIds || []).includes(id)).length;
+}
+function addTimeline(name) {
+  db.timelines = db.timelines || [];
+  const t = { id: uid(), name: (name || 'New timeline'), color: TIMELINE_PALETTE[db.timelines.length % TIMELINE_PALETTE.length], position: db.timelines.length };
+  db.timelines.push(t);
+  save();
+  return t;
+}
+function deleteTimeline(id) {
+  db.timelines = (db.timelines || []).filter(t => t.id !== id);
+  (db.events || []).forEach(e => { if (Array.isArray(e.timelineIds)) e.timelineIds = e.timelineIds.filter(x => x !== id); });
+  if (db.ui.activeTimeline === id) db.ui.activeTimeline = '';
+  db.timelines.forEach((t, i) => t.position = i);
+  save();
+}
+
+// The ALL/timeline tab strip above the event stage.
+function renderTimelineTabs() {
+  const wrap = document.getElementById('timelineTabs');
+  if (!wrap) return;
+  const active = activeTimelineId();
+  const tab = (id, label, color, count) => {
+    const dot = color ? `<span class="tl-tab-dot" style="background:${color}"></span>` : '';
+    return `<button class="tl-tab ${id === active ? 'on' : ''}" data-tl="${esc(id)}">${dot}<span class="tl-tab-label">${esc(label)}</span><span class="tl-tab-count">${count}</span></button>`;
+  };
+  const allCount = (db.events || []).filter(e => !e.dismissed).length;
+  wrap.innerHTML =
+    tab('', 'ALL', '', allCount) +
+    timelinesSorted().map(t => tab(t.id, t.name || 'Untitled', t.color || 'var(--accent)', timelineEventCount(t.id))).join('') +
+    `<button class="tl-tab tl-tab-manage" data-act="manage" title="Manage timelines">＋</button>`;
+  wrap.querySelectorAll('.tl-tab[data-tl]').forEach(btn =>
+    btn.addEventListener('click', () => {
+      db.ui.activeTimeline = btn.dataset.tl;
+      save();
+      renderTimelines();
+    }));
+  wrap.querySelector('[data-act="manage"]')?.addEventListener('click', openTimelineManageModal);
+}
+
+// Manage modal: add / rename (inline) / recolor (swatches) / delete timelines.
+function openTimelineManageModal() {
+  const overlay = document.createElement('div');
+  overlay.className = 'ui-modal-overlay';
+  overlay.innerHTML = `
+    <div class="ui-modal tl-manage-modal" role="dialog" aria-modal="true">
+      <button class="ui-modal-x" data-act="close" aria-label="Close" title="Close">&times;</button>
+      <div class="ui-modal-title">TIMELINES</div>
+      <div class="ui-modal-scroll">
+        <div class="tl-manage-list"></div>
+        <button class="ui-modal-btn solid tl-manage-add" data-act="add">＋ ADD TIMELINE</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const listEl = overlay.querySelector('.tl-manage-list');
+  const close = () => { document.removeEventListener('keydown', onKey); overlay.remove(); renderTimelines(); };
+  function onKey(e) { if (e.key === 'Escape') { e.preventDefault(); close(); } }
+  document.addEventListener('keydown', onKey);
+  overlay.addEventListener('mousedown', e => { if (e.target === overlay) close(); });
+  overlay.querySelector('[data-act="close"]').addEventListener('click', close);
+  overlay.querySelector('[data-act="add"]').addEventListener('click', () => {
+    const t = addTimeline('New timeline');
+    drawList();
+    listEl.querySelector(`.tl-manage-row[data-id="${t.id}"] .tl-manage-name`)?.focus();
+  });
+
+  function drawList() {
+    const tls = timelinesSorted();
+    listEl.innerHTML = tls.length ? tls.map(t => `
+      <div class="tl-manage-row" data-id="${t.id}">
+        <span class="tl-manage-dot" style="background:${t.color || 'var(--accent)'}"></span>
+        <input class="tl-manage-name" value="${esc(t.name || '')}" maxlength="80" placeholder="Timeline name…" />
+        <div class="tl-manage-swatches">${TIMELINE_PALETTE.map(c => `<button type="button" class="tl-sw ${c === t.color ? 'on' : ''}" data-color="${c}" style="--sw:${c}" title="${c}"></button>`).join('')}</div>
+        <button class="tl-manage-del" data-act="del" title="Delete timeline">✕</button>
+      </div>`).join('') : `<div class="tl-manage-empty">No timelines yet. Add one to group events.</div>`;
+    listEl.querySelectorAll('.tl-manage-row').forEach(row => {
+      const id = row.dataset.id;
+      const t = (db.timelines || []).find(x => x.id === id);
+      if (!t) return;
+      row.querySelector('.tl-manage-name').addEventListener('input', e => { t.name = e.target.value; save(); });
+      row.querySelectorAll('.tl-sw').forEach(sw => sw.addEventListener('click', () => {
+        t.color = sw.dataset.color;
+        row.querySelector('.tl-manage-dot').style.background = t.color;
+        row.querySelectorAll('.tl-sw').forEach(s => s.classList.toggle('on', s === sw));
+        save();
+      }));
+      row.querySelector('[data-act="del"]').addEventListener('click', async () => {
+        const n = timelineEventCount(id);
+        const msg = n ? `Delete this timeline? ${n} event${n === 1 ? '' : 's'} will be removed from it (the events themselves stay).` : 'Delete this timeline?';
+        if (!await confirmModal(msg, { title: 'DELETE TIMELINE', okText: 'Delete', danger: true })) return;
+        deleteTimeline(id);
+        drawList();
+      });
+    });
+  }
+  drawList();
+}
+
 function renderTimelines() {
+  renderTimelineTabs();
   // populate character filter
   const sel = document.getElementById('timelineCharFilter');
   const prev = sel.value;
@@ -3231,9 +3355,9 @@ function wireEventCard(cardEl, id) {
 
 function renderEventTimeline(stage, filterChar) {
   if (evView === 'section') return renderEventKanban(stage, filterChar);
-  const events = eventsSorted();
+  const events = visibleTimelineEvents();
   if (!events.length) {
-    stage.innerHTML = `<div class="pane-empty">No events yet. Add one by hand, or DETECT EVENTS to pull moments fixed in time straight from your writing.</div>`;
+    stage.innerHTML = `<div class="pane-empty">${activeTimelineId() ? 'No events in this timeline yet. Add an event, or open an event and assign it to this timeline.' : 'No events yet. Add one by hand, or DETECT EVENTS to pull moments fixed in time straight from your writing.'}</div>`;
     return;
   }
   stage.innerHTML = `<div class="ev-timeline">` + events.map(ev => {
@@ -3269,9 +3393,9 @@ function renderEventTimeline(stage, filterChar) {
 // BY SECTION: one swimlane per section holding the events whose linked hop lives
 // in that section; events with no hop link gather in an UNLINKED lane.
 function renderEventKanban(stage, filterChar) {
-  const events = eventsSorted();
+  const events = visibleTimelineEvents();
   if (!events.length) {
-    stage.innerHTML = `<div class="pane-empty">No events yet. Add one by hand, or DETECT EVENTS to pull moments fixed in time straight from your writing.</div>`;
+    stage.innerHTML = `<div class="pane-empty">${activeTimelineId() ? 'No events in this timeline yet. Add an event, or open an event and assign it to this timeline.' : 'No events yet. Add one by hand, or DETECT EVENTS to pull moments fixed in time straight from your writing.'}</div>`;
     return;
   }
   const chapters = [...db.chapters].sort((a, b) => a.order - b.order);
@@ -3366,8 +3490,8 @@ function openEventModal(eventId, presetHopId = null) {
   modalEventId = eventId;
   // Edit a copy so cancelling discards changes; a brand-new event starts blank.
   eventDraft = existing
-    ? { ...existing, characterIds: [...(existing.characterIds || [])], locationIds: [...(existing.locationIds || [])] }
-    : { id: uid(), hopId: presetHopId || null, title: '', description: '', dateLabel: '', chronoPos: (db.events || []).length, characterIds: [], locationIds: [] };
+    ? { ...existing, characterIds: [...(existing.characterIds || [])], locationIds: [...(existing.locationIds || [])], timelineIds: [...(existing.timelineIds || [])] }
+    : { id: uid(), hopId: presetHopId || null, title: '', description: '', dateLabel: '', chronoPos: (db.events || []).length, characterIds: [], locationIds: [], timelineIds: activeTimelineId() ? [activeTimelineId()] : [] };
 
   document.getElementById('eventModalKicker').textContent = existing ? 'EVENT' : 'NEW EVENT';
   document.getElementById('eventModalTitle').value = eventDraft.title || '';
@@ -3384,9 +3508,38 @@ function openEventModal(eventId, presetHopId = null) {
 
   renderEventChars();
   renderEventLocs();
+  renderEventTimelines();
 
   document.getElementById('eventModalOverlay').hidden = false;
   document.getElementById('eventModalTitle').focus();
+}
+
+// Timeline membership chips in the event modal. Toggling adds/removes the event
+// from that timeline; a trailing chip creates a new timeline inline.
+function renderEventTimelines() {
+  const wrap = document.getElementById('eventModalTimelines');
+  if (!wrap) return;
+  const chips = timelinesSorted().map(t => {
+    const on = (eventDraft.timelineIds || []).includes(t.id);
+    return `<button type="button" class="ev-char-chip ${on ? 'on' : ''}" data-tlid="${t.id}" style="--cc:${t.color || 'var(--accent)'}">${esc(t.name || 'Untitled')}</button>`;
+  }).join('');
+  wrap.innerHTML = chips + `<button type="button" class="ev-char-chip ev-tl-new" data-act="newtl">＋ NEW TIMELINE</button>`;
+  wrap.querySelectorAll('.ev-char-chip[data-tlid]').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const id = chip.dataset.tlid;
+      const arr = eventDraft.timelineIds || (eventDraft.timelineIds = []);
+      const i = arr.indexOf(id);
+      if (i >= 0) arr.splice(i, 1); else arr.push(id);
+      chip.classList.toggle('on');
+    });
+  });
+  wrap.querySelector('[data-act="newtl"]')?.addEventListener('click', async () => {
+    const name = await promptModal('Timeline name:', '', { title: 'NEW TIMELINE', okText: 'Add' });
+    if (!name || !name.trim()) return;
+    const t = addTimeline(name.trim());
+    (eventDraft.timelineIds || (eventDraft.timelineIds = [])).push(t.id);
+    renderEventTimelines();
+  });
 }
 
 function renderEventChars() {
@@ -3592,6 +3745,7 @@ async function detectEvents() {
       chronoPos: isDismissed ? 0 : pos++,
       characterIds: resolveNames(ev.characters, 'characters'),
       locationIds: resolveNames(ev.locations, 'locations'),
+      timelineIds: (!isDismissed && activeTimelineId()) ? [activeTimelineId()] : [],
       dismissed: isDismissed
     });
     chosen.forEach(ev => db.events.push(mkEvent(ev, false)));
@@ -7423,7 +7577,7 @@ async function seedProjectContent(projectId, data) {
 
 async function loadProject(projectId) {
   activeProjectId = projectId;
-  const [proj, chapters, chunks, characters, locations, tags, ideas, events, docs] = await Promise.all([
+  const [proj, chapters, chunks, characters, locations, tags, ideas, events, docs, timelines] = await Promise.all([
     sb.from('projects').select('*').eq('id', projectId).single(),
     sb.from('chapters').select('*').eq('project_id', projectId),
     sb.from('chunks').select('*').eq('project_id', projectId),
@@ -7432,7 +7586,8 @@ async function loadProject(projectId) {
     sb.from('tags').select('*').eq('project_id', projectId),
     sb.from('ideas').select('*').eq('project_id', projectId),
     sb.from('events').select('*').eq('project_id', projectId),
-    sb.from('planning_docs').select('*').eq('project_id', projectId)
+    sb.from('planning_docs').select('*').eq('project_id', projectId),
+    sb.from('timelines').select('*').eq('project_id', projectId)
   ]);
   const chunkIds = (chunks.data || []).map(r => r.id);
   const ideaIds = (ideas.data || []).map(r => r.id);
@@ -7458,7 +7613,8 @@ async function loadProject(projectId) {
     locations: (locations.data || []).map(r => ({ id: r.id, name: r.name, aliases: r.aliases || [], summary: r.summary || '', notes: r.notes || [], color: r.color || '', category: (r.category || '').toUpperCase(), dismissedRefs: r.dismissed_refs || [] })),
     tags: (tags.data || []).map(r => ({ id: r.id, name: (r.name || '').toUpperCase(), color: r.color, summary: r.summary || '', category: (r.category || '').toUpperCase() })),
     ideas: (ideas.data || []).map(r => ({ id: r.id, title: r.title || '', body: (r.body != null ? r.body : (r.text || '')), ts: r.ts || Date.parse(r.created_at), tagIds: il.filter(j => j.idea_id === r.id).map(j => j.tag_id) })),
-    events: (events.data || []).map(r => ({ id: r.id, hopId: r.hop_id || null, title: r.title || '', description: r.description || '', dateLabel: r.date_label || '', chronoPos: r.chrono_pos ?? 0, characterIds: r.character_ids || [], locationIds: r.location_ids || [], dismissed: !!r.dismissed })),
+    events: (events.data || []).map(r => ({ id: r.id, hopId: r.hop_id || null, title: r.title || '', description: r.description || '', dateLabel: r.date_label || '', chronoPos: r.chrono_pos ?? 0, characterIds: r.character_ids || [], locationIds: r.location_ids || [], timelineIds: r.timeline_ids || [], dismissed: !!r.dismissed })),
+    timelines: (timelines.data || []).map(r => ({ id: r.id, name: r.name || '', color: r.color || '', position: r.position ?? 0 })),
     docs: (docs.data || []).map(r => ({ id: r.id, title: r.title || '', body: r.body || '', position: r.position ?? 0, ts: r.created_at ? Date.parse(r.created_at) : Date.now(), updatedAt: r.updated_at ? Date.parse(r.updated_at) : Date.now() })),
     ui: (proj.data && proj.data.ui) || {}
   };
@@ -7533,11 +7689,12 @@ async function persistProject() {
     const locations = (db.locations || []).map(c => ({ id: c.id, user_id: U, project_id: P, name: c.name, aliases: c.aliases || [], summary: c.summary || '', notes: c.notes || [], color: c.color || null, category: c.category || null, dismissed_refs: c.dismissedRefs || [] }));
     const tags = db.tags.map(l => ({ id: l.id, user_id: U, project_id: P, name: l.name, color: l.color, summary: l.summary || null, category: l.category || null }));
     const ideas = db.ideas.map(i => ({ id: i.id, user_id: U, project_id: P, title: i.title || null, body: i.body || null, text: (i.body || i.title || ''), ts: i.ts || Date.now() }));
-    const events = (db.events || []).map(e => ({ id: e.id, user_id: U, project_id: P, hop_id: e.hopId || null, title: e.title || '', description: e.description || '', date_label: e.dateLabel || null, chrono_pos: e.chronoPos ?? 0, character_ids: e.characterIds || [], location_ids: e.locationIds || [], dismissed: !!e.dismissed }));
+    const events = (db.events || []).map(e => ({ id: e.id, user_id: U, project_id: P, hop_id: e.hopId || null, title: e.title || '', description: e.description || '', date_label: e.dateLabel || null, chrono_pos: e.chronoPos ?? 0, character_ids: e.characterIds || [], location_ids: e.locationIds || [], timeline_ids: e.timelineIds || [], dismissed: !!e.dismissed }));
+    const timelines = (db.timelines || []).map((t, i) => ({ id: t.id, user_id: U, project_id: P, name: t.name || '', color: t.color || null, position: t.position ?? i, updated_at: new Date().toISOString() }));
     const docs = (db.docs || []).map((d, i) => ({ id: d.id, user_id: U, project_id: P, title: d.title || '', body: d.body || '', position: d.position ?? i, updated_at: new Date().toISOString() }));
 
     await upsertSync('chapters', chapters, P);
-    await Promise.all([upsertSync('tags', tags, P), upsertSync('characters', characters, P), upsertSync('locations', locations, P)]);
+    await Promise.all([upsertSync('tags', tags, P), upsertSync('characters', characters, P), upsertSync('locations', locations, P), upsertSync('timelines', timelines, P)]);
     await Promise.all([upsertSync('chunks', chunks, P), upsertSync('ideas', ideas, P), upsertSync('events', events, P), upsertSync('planning_docs', docs, P)]);
 
     const chunkTags = [], chunkChars = [], chunkLocs = [], ideaTags = [];
@@ -9118,6 +9275,7 @@ async function planGenerateEvents(doc) {
       chronoPos: isDismissed ? 0 : pos++,
       characterIds: resolveNames(ev.characters, 'characters'),
       locationIds: resolveNames(ev.locations, 'locations'),
+      timelineIds: (!isDismissed && activeTimelineId()) ? [activeTimelineId()] : [],
       dismissed: isDismissed
     });
     chosen.forEach(ev => db.events.push(mkEvent(ev, false)));
