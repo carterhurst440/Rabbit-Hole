@@ -162,6 +162,10 @@ button, input, textarea, select { font-family: inherit; }
 }
 .drawer-overlay.show { opacity: 1; pointer-events: auto; }
 
+/* ---------- mobile bottom tab bar (entity quick-nav) ---------- */
+/* Hidden on desktop; the icon rail handles navigation there. */
+.tabbar { display: none; }
+
 /* ---------- header project selector ---------- */
 .header-project select {
   appearance: none; -webkit-appearance: none;
@@ -1772,6 +1776,7 @@ body.locked .app-header,
 body.locked .app-main,
 body.locked .drawer,
 body.locked .drawer-overlay,
+body.locked .tabbar,
 body.locked .ai-sidecar,
 body.locked .ai-overlay { display: none !important; }
 
@@ -2321,8 +2326,31 @@ button.feed-comment-user:hover { text-decoration: underline; }
   .header-project select { max-width: 120px; }
   .account-menu { width: min(280px, calc(100vw - 24px)); right: 12px; }
 
-  /* tighten the page gutters so nothing scrolls sideways */
-  .app-main { padding: 18px 14px calc(72px + env(safe-area-inset-bottom)); }
+  /* tighten the page gutters so nothing scrolls sideways; reserve room so the
+     bottom tab bar never covers the last bit of page content */
+  .app-main { padding: 18px 14px calc(86px + env(safe-area-inset-bottom)); }
+
+  /* The five entity views live on the bottom tab bar now, so drop them from
+     the slide-out drawer to keep that menu short. */
+  .nav-tabbar-dup { display: none; }
+
+  /* Floating bottom bar: the five entity views, one tap away. */
+  .tabbar {
+    display: flex; justify-content: space-around; align-items: stretch;
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 35;
+    background: var(--panel); border-top: 1px solid var(--line);
+    padding-bottom: env(safe-area-inset-bottom);
+    box-shadow: 0 -6px 24px rgba(0,0,0,0.35);
+  }
+  .tabbar-item {
+    flex: 1 1 0; display: flex; flex-direction: column; align-items: center; gap: 4px;
+    padding: 9px 2px 8px; color: var(--muted); text-decoration: none;
+    border-top: 2px solid transparent; min-width: 0;
+  }
+  .tabbar-item svg { width: 21px; height: 21px; display: block; }
+  .tabbar-item span { font-size: 8.5px; letter-spacing: 0.06em; }
+  .tabbar-item.active { color: var(--accent); border-top-color: var(--accent); }
+  .tabbar-item:active { background: var(--panel-2); }
 
   /* streak bar wraps: count on top, progress cells below */
   .streak-bar { flex-wrap: wrap; gap: 10px 16px; }

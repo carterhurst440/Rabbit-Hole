@@ -286,7 +286,7 @@ function route() {
   ROUTES.forEach(name => {
     document.getElementById('view-' + name).hidden = name !== r;
   });
-  document.querySelectorAll('.nav-icon[data-route]').forEach(a => {
+  document.querySelectorAll('.nav-icon[data-route], .tabbar-item[data-route]').forEach(a => {
     a.classList.toggle('active', a.dataset.route === r);
   });
   closeDrawer();
