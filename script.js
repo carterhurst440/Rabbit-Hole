@@ -2232,19 +2232,152 @@ async function generateChunkBody(chunk, btn) {
   if (!title) { alertModal('Give the hop a title first — the body is generated from it.', { title: 'TITLE IT FIRST' }); return; }
   if ((typeof getEditorText === 'function' ? getEditorText() : chunk.body || '').trim() &&
       !await confirmModal('This will replace the existing body text. Is that okay?', { title: 'REPLACE BODY', okText: 'Replace', danger: false })) return;
+  // Collect an optional steering prompt and optional character/location/event/tag
+  // picks before drafting. Everything is optional — an empty spec writes from the
+  // title alone, exactly like before.
+  const spec = await generateBodyPromptModal(chunk, title);
+  if (spec == null) return;   // cancelled
   const original = aiBtnStart(btn, IC_GENERATE, 'WRITING…');
   try {
     const proj = projectsCache.find(p => p.id === activeProjectId);
-    const { body: text } = await aiInvoke({ task: 'generate_body', kind: 'hop', title, type: proj?.type || '', genre: proj?.genre || '', section: chapterTitle(chunk.chapterId), ...projectGenContext(chunk.id) });
+    const gen = projectGenContext(chunk.id);
+
+    // Resolve the chosen ids into the rich detail the model can lean on.
+    const charMap = new Map((db.characters || []).map(c => [c.id, c]));
+    const locMap = new Map((db.locations || []).map(l => [l.id, l]));
+    const evMap = new Map((db.events || []).map(e => [e.id, e]));
+    const tagMap = new Map((db.tags || []).map(t => [t.id, t]));
+    const selChars = (spec.characterIds || []).map(id => charMap.get(id)).filter(Boolean);
+    const selLocs = (spec.locationIds || []).map(id => locMap.get(id)).filter(Boolean);
+    const selEvents = (spec.eventIds || []).map(id => evMap.get(id)).filter(Boolean);
+    const selTags = (spec.tagIds || []).map(id => tagMap.get(id)).filter(Boolean);
+
+    const segs = [
+      'Write the body prose for a single hop (one scene or beat) in my book. ' +
+      'Output ONLY the prose for the hop body — no preamble, no title line, no surrounding quotes, ' +
+      'no commentary, no markdown. Stay consistent with the rest of the manuscript.',
+      `\nHOP TITLE: ${title}`
+    ];
+    if (chunk.chapterId) segs.push(`SECTION: ${chapterTitle(chunk.chapterId)}`);
+    if (proj?.type || proj?.genre) segs.push(`PROJECT: ${[proj?.type, proj?.genre].filter(Boolean).join(' / ')}`);
+    if (spec.prompt) segs.push(`\nHOW I WANT IT WRITTEN:\n${spec.prompt}`);
+    if (selChars.length) segs.push('\nCHARACTERS TO FEATURE:\n' + selChars.map(c =>
+      `- ${c.name}${(c.aliases || []).length ? ` (aka ${c.aliases.join(', ')})` : ''}${c.summary ? `: ${c.summary}` : ''}`).join('\n'));
+    if (selLocs.length) segs.push('\nLOCATIONS TO USE:\n' + selLocs.map(l =>
+      `- ${l.name}${l.summary ? `: ${l.summary}` : ''}`).join('\n'));
+    if (selEvents.length) segs.push('\nEVENTS THIS HOP SHOULD REFLECT:\n' + selEvents.map(e =>
+      `- ${e.title}${e.dateLabel ? ` [${e.dateLabel}]` : ''}${e.description ? `: ${e.description}` : ''}`).join('\n'));
+    if (selTags.length) segs.push('\nTAGS / THEMES TO HONOR: ' + selTags.map(t => t.name).join(', '));
+
+    const { reply } = await aiInvoke({
+      task: 'chat',
+      messages: [{ role: 'user', content: segs.join('\n') }],
+      context: {
+        project: proj?.name || '',
+        type: proj?.type || '',
+        genre: proj?.genre || '',
+        chapters: gen.chapters,
+        characters: (db.characters || []).map(c => ({ name: c.name })).filter(c => c.name)
+      }
+    });
     aiBtnDone(btn, original);
+    let text = (reply || '').trim().replace(/^["'\u201c\u2018]+|["'\u201d\u2019]+$/g, '').trim();
     if (!text) { alertModal('No body text came back. Try again.', { title: 'GENERATE BODY' }); return; }
     chunk.body = text;
     if (typeof setEditorContent === 'function') setEditorContent(text);
+
+    // Link any picked characters/locations/tags to the hop so the selection sticks.
+    const linkInto = (field, ids) => {
+      if (!Array.isArray(chunk[field])) chunk[field] = [];
+      ids.forEach(id => { if (id && !chunk[field].includes(id)) chunk[field].push(id); });
+    };
+    linkInto('characterIds', spec.characterIds);
+    linkInto('locationIds', spec.locationIds);
+    linkInto('tagIds', spec.tagIds);
+
     save(); markChunkDirty();
   } catch (err) {
     aiBtnDone(btn, original);
     alertModal('Body generation failed.\n\n' + (err.message || ''), { title: 'GENERATE BODY' });
   }
+}
+
+// GENERATE BODY setup screen: a free-text steering prompt plus optional toggle-chip
+// pickers for characters, locations, events, and tags. Pre-checks whatever is already
+// linked to the hop. Resolves to { prompt, characterIds, locationIds, eventIds, tagIds }
+// or null if cancelled. Cmd/Ctrl+Enter generates.
+function generateBodyPromptModal(chunk, title) {
+  return new Promise(resolve => {
+    const chars = (db.characters || []).filter(c => c.name);
+    const locs = (db.locations || []).filter(l => l.name);
+    const events = (db.events || []).filter(e => !e.dismissed && e.title);
+    const tags = (db.tags || []).filter(t => t.name);
+
+    const preChars = new Set(chunk.characterIds || []);
+    const preLocs = new Set(chunk.locationIds || []);
+    const preTags = new Set(chunk.tagIds || []);
+    const preEvents = new Set(events.filter(e => e.hopId === chunk.id).map(e => e.id));
+
+    const countLabel = n => n ? `${n} selected` : 'optional';
+    const section = (items, label, pre, kind) => items.length ? `
+      <details class="gb-dd" data-kind="${kind}">
+        <summary class="gb-dd-sum">
+          <span class="gb-dd-label">${label}</span>
+          <span class="gb-dd-count" data-count="${kind}">${countLabel(pre.size)}</span>
+          <span class="gb-dd-caret">▾</span>
+        </summary>
+        <div class="gb-chips" data-kind="${kind}">
+          ${items.map(it => `<button type="button" class="gb-chip${pre.has(it.id) ? ' on' : ''}"${it.color ? ` style="--chip:${esc(it.color)}"` : ''} data-id="${it.id}">${esc(it.name || it.title)}</button>`).join('')}
+        </div>
+      </details>` : '';
+
+    const overlay = document.createElement('div');
+    overlay.className = 'ui-modal-overlay';
+    overlay.innerHTML = `
+      <div class="ui-modal genbody-modal" role="dialog" aria-modal="true">
+        <button class="ui-modal-x" data-act="cancel" aria-label="Close" title="Close">&times;</button>
+        <div class="ui-modal-title">${IC_GENERATE} GENERATE BODY</div>
+        <div class="ui-modal-scroll">
+          <div class="ui-modal-msg">Drafting the body for <strong>${esc(title)}</strong>. Describe how you want it written, and optionally pick characters, locations, events, or tags to weave in. Leave it all blank to generate from the title alone.</div>
+          <textarea class="ui-modal-input genbody-prompt" rows="4" placeholder="e.g. tense, close third person from Ava&rsquo;s POV; build dread; end on a cliffhanger…"></textarea>
+          ${section(chars, 'CHARACTERS', preChars, 'char')}
+          ${section(locs, 'LOCATIONS', preLocs, 'loc')}
+          ${section(events, 'EVENTS', preEvents, 'event')}
+          ${section(tags, 'TAGS', preTags, 'tag')}
+        </div>
+        <div class="ui-modal-actions">
+          <button class="ui-modal-btn" data-act="cancel">Cancel</button>
+          <button class="ui-modal-btn solid" data-act="ok">${IC_GENERATE} GENERATE</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    const ta = overlay.querySelector('textarea');
+    overlay.querySelectorAll('.gb-chip').forEach(c =>
+      c.addEventListener('click', () => {
+        c.classList.toggle('on');
+        const dd = c.closest('.gb-dd');
+        const badge = dd && dd.querySelector('.gb-dd-count');
+        if (badge) badge.textContent = countLabel(dd.querySelectorAll('.gb-chip.on').length);
+      }));
+    const pick = kind => [...overlay.querySelectorAll(`.gb-chips[data-kind="${kind}"] .gb-chip.on`)].map(c => c.dataset.id);
+    const done = val => { document.removeEventListener('keydown', onKey); overlay.remove(); resolve(val); };
+    const submit = () => done({
+      prompt: ta.value.trim(),
+      characterIds: pick('char'),
+      locationIds: pick('loc'),
+      eventIds: pick('event'),
+      tagIds: pick('tag')
+    });
+    overlay.querySelector('[data-act="ok"]').addEventListener('click', submit);
+    overlay.querySelectorAll('[data-act="cancel"]').forEach(b => b.addEventListener('click', () => done(null)));
+    overlay.addEventListener('mousedown', e => { if (e.target === overlay) done(null); });
+    function onKey(e) {
+      if (e.key === 'Escape') { e.preventDefault(); done(null); }
+      else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); submit(); }
+    }
+    document.addEventListener('keydown', onKey);
+    ta.focus();
+  });
 }
 
 // RE-WRITE: revise an existing hop body from a free-text instruction. Opens a
