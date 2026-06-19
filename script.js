@@ -1694,8 +1694,10 @@ function renderSectionsBoard() {
     return;
   }
   let nOrd = 0; // running narrative position across every lane, in reading order
-  stage.innerHTML = `<div class="kanban sb-kanban">` + chapters.map(ch => {
+  stage.innerHTML = `<div class="kanban sb-kanban">` + chapters.map((ch, ci) => {
     const color = chapterColor(ch.id);
+    const canLeft = ci > 0;
+    const canRight = ci < chapters.length - 1;
     const hops = chunksOf(ch.id).filter(isVisibleChunk);
     const cards = hops.map(c => {
       const ord = ++nOrd;
@@ -1724,6 +1726,10 @@ function renderSectionsBoard() {
           <span class="ci-dot" style="background:${color}"></span>
           <span class="lane-title-static" style="color:${color}">${esc(ch.title)}</span>
           <span class="lane-count">${hops.length}</span>
+          <span class="sb-lane-reorder">
+            <button class="icon-btn sb-lane-move" data-move="-1" title="Move section earlier" ${canLeft ? '' : 'disabled'}>\u2039</button>
+            <button class="icon-btn sb-lane-move" data-move="1" title="Move section later" ${canRight ? '' : 'disabled'}>\u203A</button>
+          </span>
           <span class="sb-lane-open">→</span>
         </div>
         <div class="lane-cards tl-lane-cards" data-chapter="${ch.id}">${cards}</div>
@@ -1731,10 +1737,28 @@ function renderSectionsBoard() {
   }).join('') + `</div>`;
 
   stage.querySelectorAll('.sb-lane-head').forEach(head =>
-    head.addEventListener('click', () => openSectionDetail(head.dataset.chapter)));
+    head.addEventListener('click', e => {
+      const mv = e.target.closest('[data-move]');
+      if (mv) { e.stopPropagation(); if (!mv.disabled) moveChapter(head.dataset.chapter, +mv.dataset.move); return; }
+      openSectionDetail(head.dataset.chapter);
+    }));
   stage.querySelectorAll('.sb-card').forEach(wireBoardCard);
   stage.querySelectorAll('.sb-lane .tl-lane-cards').forEach(wireTlLaneDnD);
   refreshHopPostBadges();
+}
+
+// Move a section one slot earlier (dir -1) or later (dir +1) in reading order.
+// Normalizes every chapter's `order` afterward so positions stay contiguous.
+function moveChapter(id, dir) {
+  const chs = [...db.chapters].sort((a, b) => a.order - b.order);
+  const idx = chs.findIndex(c => c.id === id);
+  if (idx < 0) return;
+  const swap = idx + dir;
+  if (swap < 0 || swap >= chs.length) return;
+  [chs[idx], chs[swap]] = [chs[swap], chs[idx]];
+  chs.forEach((c, i) => { c.order = i; });
+  save();
+  renderSections();
 }
 
 // A board hop card: plain click opens the modal; the pencil renames inline; the
