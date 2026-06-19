@@ -1686,19 +1686,20 @@ textarea.ui-modal-input { resize: vertical; min-height: 84px; line-height: 1.5; 
 .idea-actions { display: flex; gap: 4px; align-items: center; }
 
 /* ---------- IDEA EDIT MODAL ---------- */
-.idea-edit-modal { width: min(560px, 92vw); text-align: left; gap: 14px; }
-.idea-edit-modal .ie-field { display: flex; flex-direction: column; gap: 6px; }
+.idea-edit-modal, .doc-edit-modal { width: min(560px, 92vw); text-align: left; gap: 14px; }
+.idea-edit-modal .ie-field, .doc-edit-modal .ie-field { display: flex; flex-direction: column; gap: 6px; }
 .idea-edit-modal .ie-label-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.idea-edit-modal .ie-label { font-size: 10px; letter-spacing: 0.14em; color: var(--muted); }
-.idea-edit-modal .ie-name {
+.idea-edit-modal .ie-label, .doc-edit-modal .ie-label { font-size: 10px; letter-spacing: 0.14em; color: var(--muted); }
+.idea-edit-modal .ie-name, .doc-edit-modal .ie-name {
   background: var(--panel-2); border: 1px solid var(--line); color: var(--text-bright);
   font-family: inherit; font-size: 14px; font-weight: 700; padding: 9px 10px; letter-spacing: 0.02em;
 }
-.idea-edit-modal .ie-body {
+.idea-edit-modal .ie-body, .doc-edit-modal .ie-body {
   background: var(--panel-2); border: 1px solid var(--line); color: var(--text);
   font-family: inherit; padding: 9px 10px; font-size: 13px; line-height: 1.55; resize: vertical; min-height: 120px;
 }
-.idea-edit-modal .ie-name:focus, .idea-edit-modal .ie-body:focus { outline: none; border-color: var(--accent-mid); }
+.idea-edit-modal .ie-name:focus, .idea-edit-modal .ie-body:focus,
+.doc-edit-modal .ie-name:focus, .doc-edit-modal .ie-body:focus { outline: none; border-color: var(--accent-mid); }
 .idea-edit-modal .ie-gen {
   display: inline-flex; align-items: center; gap: 5px; background: transparent;
   border: 1px solid var(--line-2); color: var(--accent); font-family: inherit;
@@ -1707,7 +1708,7 @@ textarea.ui-modal-input { resize: vertical; min-height: 84px; line-height: 1.5; 
 .idea-edit-modal .ie-gen:hover { border-color: var(--accent); background: rgba(227,168,105,0.08); }
 .idea-edit-modal .ie-gen:disabled { opacity: 0.6; cursor: default; }
 .idea-edit-modal .ie-actions { display: flex; align-items: center; gap: 8px; }
-.idea-edit-modal .ie-spacer { flex: 1; }
+.idea-edit-modal .ie-spacer, .doc-edit-modal .ie-spacer { flex: 1; }
 .ui-modal-btn.danger.ghost { background: transparent; border-color: var(--line-2); color: #c0584e; }
 .ui-modal-btn.danger.ghost:hover { border-color: #c0584e; background: rgba(192,88,78,0.1); color: #c0584e; }
 

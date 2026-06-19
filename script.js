@@ -8830,16 +8830,60 @@ function renderPlanning() {
 
 document.getElementById('addDocBtn')?.addEventListener('click', () => {
   if (!activeProjectId) { alertModal('Open a project first.', { title: 'ADD DOC' }); return; }
-  db.docs = db.docs || [];
-  const doc = { id: uid(), title: '', body: '', position: db.docs.length, ts: Date.now(), updatedAt: Date.now() };
-  db.docs.unshift(doc);
-  db.docs.forEach((d, i) => d.position = i);
-  activePlanId = doc.id;
-  save();
-  if (currentRoute() !== 'planning') location.hash = '#planning';
-  else renderPlanning();
-  setTimeout(() => document.getElementById('planTitleInput')?.focus(), 0);
+  docEditModal();
 });
+
+// New doc creation via a lightweight modal (title + body only), modeled on the
+// add-hop / idea-edit modals. No inline editor on create — the doc lands in the
+// list and opens in the planning editor after save.
+function docEditModal() {
+  const overlay = document.createElement('div');
+  overlay.className = 'ui-modal-overlay';
+  overlay.innerHTML = `
+    <div class="ui-modal doc-edit-modal" role="dialog" aria-modal="true">
+      <div class="ui-modal-title">NEW DOC</div>
+      <div class="ie-field">
+        <span class="ie-label">TITLE</span>
+        <input class="ie-name" type="text" maxlength="160" placeholder="Doc title\u2026" />
+      </div>
+      <div class="ie-field">
+        <span class="ie-label">BODY</span>
+        <textarea class="ie-body" rows="9" placeholder="Outline, lore dump, raw exposition\u2026"></textarea>
+      </div>
+      <div class="ui-modal-actions">
+        <span class="ie-spacer"></span>
+        <button class="ui-modal-btn" data-act="cancel">Cancel</button>
+        <button class="ui-modal-btn solid" data-act="save">Add</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  const nameInput = overlay.querySelector('.ie-name');
+  const bodyInput = overlay.querySelector('.ie-body');
+  const close = () => { document.removeEventListener('keydown', onKey); overlay.remove(); };
+  function onKey(e) { if (e.key === 'Escape') { e.preventDefault(); close(); } }
+  document.addEventListener('keydown', onKey);
+  overlay.addEventListener('mousedown', e => { if (e.target === overlay) close(); });
+  overlay.querySelector('[data-act="cancel"]').addEventListener('click', close);
+
+  overlay.querySelector('[data-act="save"]').addEventListener('click', () => {
+    const title = nameInput.value.trim();
+    const body = bodyInput.value;
+    if (!title && !body.trim()) { close(); return; }
+    db.docs = db.docs || [];
+    const doc = { id: uid(), title, body, position: 0, ts: Date.now(), updatedAt: Date.now() };
+    db.docs.unshift(doc);
+    db.docs.forEach((d, i) => d.position = i);
+    activePlanId = doc.id;
+    recordWritingActivity();
+    save();
+    close();
+    if (currentRoute() !== 'planning') location.hash = '#planning';
+    else renderPlanning();
+  });
+
+  setTimeout(() => nameInput.focus(), 0);
+}
 
 async function deletePlanDoc(doc) {
   if (!await confirmModal('Delete this planning doc? This cannot be undone.', { title: 'DELETE DOC' })) return;
