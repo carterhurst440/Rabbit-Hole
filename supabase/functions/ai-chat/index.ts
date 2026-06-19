@@ -11,10 +11,13 @@
 //   loc_summary       { name, aliases, chunks }        -> { reply }
 //   detect_characters { chunks, existing }             -> { characters: [{ name, aliases }] }
 //   detect_locations  { chunks, existing }             -> { locations: [{ name, aliases }] }
+//   detect_events     { hops:[{id,title,section,body}], existing:[{title,when}], characters:[{name,aliases}], locations:[{name,aliases}] } -> { events: [{ title, description, when, hopId, characters:[name], locations:[name] }] }
 //   suggest_tags      { chunk, existing }              -> { assign: [string], suggest: [string] }
 //   suggest_ideas     { chunks, type, genre }          -> { ideas: [string] }
 //   idea_title        { body }                          -> { title: string }
-//   generate_body     { title, kind, type, genre, section, chapters, characters, locations, context:[{title,body,section}] } -> { body: string }
+//   generate_body     { title, kind, type, genre, section, chapters, characters, locations, context:[{title,body,section}], contextDocs:[{title,body}] } -> { body: string }
+//   NOTE: tag_summary / char_summary / loc_summary / generate_body also accept optional contextDocs:[{title,body}]
+//         (author-flagged "USE AS CONTEXT" planning docs) folded into the prompt for continuity.
 //   suggest_chunks    { chunks, type, genre, chapters, characters, locations }
 //                                                      -> { chunks: [{ title, chapter, description }] }
 //   analyze_chunk     { chunk, context, type, genre, characters, locations }
@@ -48,6 +51,7 @@ const DEFAULT_MODEL = SONNET;
 const TASK_MODELS: Record<string, { floor: string; optimal: string }> = {
   detect_characters: { floor: HAIKU, optimal: SONNET },
   detect_locations: { floor: HAIKU, optimal: SONNET },
+  detect_events: { floor: HAIKU, optimal: SONNET },
   suggest_tags: { floor: HAIKU, optimal: SONNET },
   idea_title: { floor: HAIKU, optimal: SONNET },
   import_outline: { floor: HAIKU, optimal: SONNET },
@@ -85,6 +89,7 @@ Deno.serve(async (req) => {
     if (task === "loc_summary") return await doLocSummary(apiKey, body);
     if (task === "detect_characters") return await doDetect(apiKey, body);
     if (task === "detect_locations") return await doDetectLocations(apiKey, body);
+    if (task === "detect_events") return await doDetectEvents(apiKey, body);
     if (task === "suggest_tags") return await doSuggestTags(apiKey, body);
     if (task === "suggest_ideas") return await doSuggestIdeas(apiKey, body);
     if (task === "idea_title") return await doIdeaTitle(apiKey, body);
@@ -137,7 +142,7 @@ async function doPracticeCoach(
   return json({ reply });
 }
 
-async function doTagSummary(apiKey: string, body: { tagName?: string; chunks?: Chunk[] }) {
+async function doTagSummary(apiKey: string, body: { tagName?: string; chunks?: Chunk[]; contextDocs?: { title?: string; body?: string }[] }) {
   const chunks = body.chunks || [];
   if (!chunks.length) return json({ error: "No tagged chunks to summarize." }, 400);
   const system =
@@ -145,12 +150,12 @@ async function doTagSummary(apiKey: string, body: { tagName?: string; chunks?: C
     "Given a tag and every excerpt the author filed under it, write a concise thematic summary " +
     "(3-5 sentences) that captures what this tag represents in the story — the recurring motif, " +
     "thread, or idea that binds these excerpts. Refer to concrete details. No preamble.";
-  const user = `TAG: ${body.tagName || "(untitled)"}\n\nEXCERPTS:\n\n${joinChunks(chunks)}`;
+  const user = `TAG: ${body.tagName || "(untitled)"}\n\nEXCERPTS:\n\n${joinChunks(chunks)}` + contextDocsBlock(body.contextDocs);
   const reply = await callClaude(apiKey, { model: (body as any)._model, system, messages: [{ role: "user", content: user }], max_tokens: 600 });
   return json({ reply });
 }
 
-async function doCharSummary(apiKey: string, body: { name?: string; aliases?: string[]; chunks?: Chunk[] }) {
+async function doCharSummary(apiKey: string, body: { name?: string; aliases?: string[]; chunks?: Chunk[]; contextDocs?: { title?: string; body?: string }[] }) {
   const chunks = body.chunks || [];
   if (!chunks.length) return json({ error: "No reference chunks for this character." }, 400);
   const aliases = (body.aliases || []).filter(Boolean);
@@ -161,7 +166,7 @@ async function doCharSummary(apiKey: string, body: { name?: string; aliases?: st
   const user =
     `CHARACTER: ${body.name || "(unnamed)"}` +
     (aliases.length ? `\nALSO KNOWN AS: ${aliases.join(", ")}` : "") +
-    `\n\nEXCERPTS:\n\n${joinChunks(chunks)}`;
+    `\n\nEXCERPTS:\n\n${joinChunks(chunks)}` + contextDocsBlock(body.contextDocs);
   const reply = await callClaude(apiKey, { model: (body as any)._model, system, messages: [{ role: "user", content: user }], max_tokens: 700 });
   return json({ reply });
 }
@@ -249,7 +254,7 @@ async function doCharArc(apiKey: string, body: { name?: string; aliases?: string
   return json({ arc, principles });
 }
 
-async function doLocSummary(apiKey: string, body: { name?: string; aliases?: string[]; chunks?: Chunk[] }) {
+async function doLocSummary(apiKey: string, body: { name?: string; aliases?: string[]; chunks?: Chunk[]; contextDocs?: { title?: string; body?: string }[] }) {
   const chunks = body.chunks || [];
   if (!chunks.length) return json({ error: "No reference chunks for this location." }, 400);
   const aliases = (body.aliases || []).filter(Boolean);
@@ -261,7 +266,7 @@ async function doLocSummary(apiKey: string, body: { name?: string; aliases?: str
   const user =
     `LOCATION: ${body.name || "(unnamed)"}` +
     (aliases.length ? `\nALSO KNOWN AS: ${aliases.join(", ")}` : "") +
-    `\n\nEXCERPTS:\n\n${joinChunks(chunks)}`;
+    `\n\nEXCERPTS:\n\n${joinChunks(chunks)}` + contextDocsBlock(body.contextDocs);
   const reply = await callClaude(apiKey, { model: (body as any)._model, system, messages: [{ role: "user", content: user }], max_tokens: 700 });
   return json({ reply });
 }
@@ -326,6 +331,99 @@ async function doDetectLocations(apiKey: string, body: { chunks?: Chunk[]; exist
         }))
     : [];
   return json({ locations });
+}
+
+async function doDetectEvents(
+  apiKey: string,
+  body: {
+    hops?: { id?: string; title?: string; section?: string; body?: string }[];
+    existing?: { title?: string; when?: string }[];
+    characters?: { name?: string; aliases?: string[] }[];
+    locations?: { name?: string; aliases?: string[] }[];
+  },
+) {
+  const hops = (Array.isArray(body.hops) ? body.hops : []).filter((h) => h && (h.body || "").trim());
+  if (!hops.length) return json({ error: "No hop text to scan." }, 400);
+  const manuscript = hops
+    .map((h, i) => `--- HOP ${i + 1} | id=${h.id || ""} | section=${h.section || ""} | title=${h.title || ""} ---\n${h.body || ""}`)
+    .join("\n\n");
+  // Events already on the author's timeline — the model should NOT re-report these.
+  const existing = (Array.isArray(body.existing) ? body.existing : [])
+    .map((e) => (typeof e?.title === "string" ? e.title.trim() : ""))
+    .filter(Boolean);
+  const existingBlock = existing.length
+    ? `\n\nThese events are ALREADY on the author's timeline. Do NOT report them again, and do not report trivial rephrasings of them:\n${existing.map((t) => `- ${t}`).join("\n")}`
+    : "";
+  // Rosters of known characters / locations so the model can affiliate each event
+  // using the author's exact entity names (with aliases for matching).
+  const rosterLine = (e: { name?: string; aliases?: string[] }) => {
+    const name = (e?.name || "").trim();
+    if (!name) return "";
+    const al = (Array.isArray(e?.aliases) ? e.aliases : []).map((a) => (a || "").trim()).filter(Boolean);
+    return `- ${name}${al.length ? ` (aka ${al.join(", ")})` : ""}`;
+  };
+  const charRoster = (Array.isArray(body.characters) ? body.characters : []).map(rosterLine).filter(Boolean);
+  const locRoster = (Array.isArray(body.locations) ? body.locations : []).map(rosterLine).filter(Boolean);
+  const rosterBlock =
+    (charRoster.length
+      ? `\n\nKNOWN CHARACTERS — when an event involves one of these people, list them by their EXACT name (the part before any "aka"):\n${charRoster.join("\n")}`
+      : "") +
+    (locRoster.length
+      ? `\n\nKNOWN LOCATIONS — when an event happens at one of these places, list it by its EXACT name:\n${locRoster.join("\n")}`
+      : "");
+  const system =
+    "You are an EVENT extractor inside RABBIT HOLE, a book workbench. " +
+    "An EVENT is a LARGE-SCALE, CONSEQUENTIAL plot event — a turning point that moves the whole story, shifts the " +
+    "world, or changes the stakes for many characters. Think headline-worthy beats: 'Explosion on the Moon', 'Rap " +
+    "Concert', 'Union Swarm', a war breaking out, a coup, a death that reshapes the plot, a major discovery, a " +
+    "city falling, a public reveal. Each event should be something a reader would name as a key moment in the book.\n\n" +
+    "CRITICAL — STAY HIGH-LEVEL. Do NOT log small character beats, routine actions, private moments, mood, or " +
+    "incremental scene business. Examples of what to EXCLUDE: 'Ava works on music in her room', 'Tom makes coffee', " +
+    "'they have a conversation', 'character feels sad', 'someone walks to the store'. These are not events — they are " +
+    "scene texture. Only surface the consequential, plot-moving occurrences. When in doubt, LEAVE IT OUT. It is far " +
+    "better to return a handful of genuinely major events than a long list of minor ones. Aim for the events a back-" +
+    "cover blurb or chapter summary would mention.\n\n" +
+    "STABILITY — this extraction must be repeatable. Run after run on the same manuscript should yield the same major " +
+    "events. Already-tracked events are listed below; never re-report them or trivial rephrasings, and if every major " +
+    "event in the text is already tracked, return an empty array. " +
+    "Events are anchored in time, distinct from themes, settings, or general description. " +
+    "CRUCIAL: when a character RECALLS or MENTIONS a past (or future) occurrence — a memory, a flashback to a war, a " +
+    "prophecy of a death — log the EVENT ITSELF (e.g. 'The war begins'), NOT the act of remembering. That event is " +
+    "anchored to its own point in the chronology even though it surfaces inside the hop where it is recalled. " +
+    "For each event provide: title (short, concrete, headline-style, e.g. 'Explosion on the Moon'); description (1-2 sentences of what " +
+    "happens); when (any explicit or implied time marker — a date, age, season, or relative phrase like 'thirty " +
+    "years before the war'; empty string if the text gives none); hopId (the id= value of the hop where this " +
+    "event appears or is recalled — use exactly one of the provided id values, or an empty string if it does not " +
+    "clearly belong to a single hop); characters (an array of the names of any KNOWN CHARACTERS who take part in " +
+    "this event — use the EXACT names from the KNOWN CHARACTERS list, an empty array if none apply or no list is " +
+    "given); and locations (an array of the names of any KNOWN LOCATIONS where this event takes place — use the " +
+    "EXACT names from the KNOWN LOCATIONS list, an empty array if none apply or no list is given). Only use names " +
+    "that appear in the provided lists; never invent character or location names. " +
+    "Do not invent events unsupported by the text. Merge obvious duplicates. If nothing qualifies, return an empty " +
+    `array. Respond with ONLY a JSON object of the form {"events":[{"title":"","description":"","when":"","hopId":"","characters":[],"locations":[]}]}. ` +
+    "No markdown, no commentary.";
+  const raw = await callClaude(apiKey, { model: (body as any)._model, system, messages: [{ role: "user", content: `HOPS:\n\n${manuscript}${existingBlock}${rosterBlock}` }], max_tokens: 4000 });
+  const validIds = new Set(hops.map((h) => h.id).filter(Boolean) as string[]);
+  // Salvage events tolerantly: the model may wrap them in {"events":[...]}, emit a
+  // bare [...] array, fence them in markdown, or get truncated by the token cap.
+  // Event objects are flat (no nested braces), so scanning for individual {...}
+  // blocks and parsing each one independently recovers every complete object and
+  // simply drops a trailing truncated one.
+  const rawEvents = extractFlatObjects(raw);
+  const strList = (v: unknown) =>
+    Array.isArray(v) ? v.filter((x) => typeof x === "string").map((x) => (x as string).trim()).filter(Boolean) : [];
+  const events = (rawEvents as { title?: unknown; description?: unknown; when?: unknown; hopId?: unknown; characters?: unknown; locations?: unknown }[])
+        .filter((e) => e && (typeof e.title === "string" || typeof e.description === "string"))
+        .map((e) => ({
+          title: typeof e.title === "string" ? e.title.trim() : "",
+          description: typeof e.description === "string" ? e.description.trim() : "",
+          when: typeof e.when === "string" ? e.when.trim() : "",
+          hopId: typeof e.hopId === "string" && validIds.has(e.hopId) ? e.hopId : "",
+          characters: strList(e.characters),
+          locations: strList(e.locations),
+        }))
+        .filter((e) => e.title || e.description);
+  return json({ events });
 }
 
 async function doSuggestTags(apiKey: string, body: { chunk?: Chunk; existing?: string[] }) {
@@ -409,6 +507,7 @@ async function doGenerateBody(
   body: {
     title?: string; kind?: string; type?: string; genre?: string; section?: string;
     chapters?: string[]; characters?: string[]; locations?: string[]; context?: Chunk[];
+    contextDocs?: { title?: string; body?: string }[];
   },
 ) {
   const title = (body.title || "").trim();
@@ -439,6 +538,7 @@ async function doGenerateBody(
     (locations.length ? `LOCATIONS: ${locations.join(", ")}\n` : "") +
     (body.section ? `THIS HOP BELONGS TO SECTION: ${body.section}\n` : "") +
     (context.length ? `\n${kind === "hop" ? "SURROUNDING MANUSCRIPT" : "WORK SO FAR"} (for context only):\n\n${joinChunks(context)}\n` : "") +
+    contextDocsBlock(body.contextDocs) +
     `\nTITLE:\n${title}`;
   const raw = await callClaude(apiKey, { model: (body as any)._model, system, messages: [{ role: "user", content: user }], max_tokens: kind === "hop" ? 900 : 320 });
   const parsed = parseJsonObject(raw);
@@ -785,7 +885,19 @@ function joinChunks(chunks: Chunk[]): string {
     .join("\n\n");
 }
 
-function parseJsonObject(s: string): { characters?: unknown[]; locations?: unknown[]; ideas?: unknown[]; assign?: unknown[]; suggest?: unknown[]; chunks?: unknown[]; strengths?: unknown[]; suggestions?: unknown[]; arc?: unknown[]; principles?: unknown[]; relationships?: unknown[]; matches?: unknown[]; sections?: unknown[]; hops?: unknown[]; items?: unknown[]; title?: unknown; body?: unknown } | null {
+// Author-flagged planning/lore docs (the "USE AS CONTEXT" toggle on the PLANNING
+// page). Appended to GENERATE-style prompts so the model honors the author's
+// canon for continuity. Returns "" when nothing is flagged.
+function contextDocsBlock(docs?: { title?: string; body?: string }[]): string {
+  const valid = (docs || []).filter((d) => d && (d.body || "").trim());
+  if (!valid.length) return "";
+  const block = valid
+    .map((d, i) => `--- reference doc ${i + 1}${d.title ? `: ${d.title}` : ""} ---\n${(d.body || "").trim()}`)
+    .join("\n\n");
+  return `\n\nAUTHOR REFERENCE DOCS (planning, outline, and lore the author flagged as context — treat as canon and honor for continuity; do not quote verbatim or summarize these docs themselves):\n\n${block}`;
+}
+
+function parseJsonObject(s: string): { characters?: unknown[]; locations?: unknown[]; events?: unknown[]; ideas?: unknown[]; assign?: unknown[]; suggest?: unknown[]; chunks?: unknown[]; strengths?: unknown[]; suggestions?: unknown[]; arc?: unknown[]; principles?: unknown[]; relationships?: unknown[]; matches?: unknown[]; sections?: unknown[]; hops?: unknown[]; items?: unknown[]; title?: unknown; body?: unknown } | null {
   try {
     const start = s.indexOf("{");
     const end = s.lastIndexOf("}");
@@ -794,6 +906,26 @@ function parseJsonObject(s: string): { characters?: unknown[]; locations?: unkno
   } catch {
     return null;
   }
+}
+
+// Pull every flat (non-nested) JSON object out of a raw model reply, parsing each
+// independently. Tolerant of {"events":[...]} wrappers, bare [...] arrays, markdown
+// fences, stray prose, and truncated output (a trailing incomplete object is simply
+// skipped because it never closes its brace). Only valid for objects whose values
+// contain no nested braces — true for our flat event shape.
+function extractFlatObjects(raw: string): Record<string, unknown>[] {
+  const out: Record<string, unknown>[] = [];
+  const re = /\{[^{}]*\}/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(raw)) !== null) {
+    try {
+      const o = JSON.parse(m[0]);
+      if (o && typeof o === "object" && !Array.isArray(o)) out.push(o as Record<string, unknown>);
+    } catch {
+      // ignore non-JSON braces
+    }
+  }
+  return out;
 }
 
 function buildSystem(ctx: Ctx): string {
@@ -819,3 +951,4 @@ function json(body: unknown, status = 200): Response {
     headers: { ...CORS, "content-type": "application/json" },
   });
 }
+

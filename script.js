@@ -2275,6 +2275,9 @@ async function generateChunkBody(chunk, btn) {
     if (selEvents.length) segs.push('\nEVENTS THIS HOP SHOULD REFLECT:\n' + selEvents.map(e =>
       `- ${e.title}${e.dateLabel ? ` [${e.dateLabel}]` : ''}${e.description ? `: ${e.description}` : ''}`).join('\n'));
     if (selTags.length) segs.push('\nTAGS / THEMES TO HONOR: ' + selTags.map(t => t.name).join(', '));
+    const ctxDocs = contextDocs();
+    if (ctxDocs.length) segs.push('\nAUTHOR REFERENCE DOCS (planning, outline, and lore flagged as context — treat as canon and honor for continuity; do not quote verbatim):\n' +
+      ctxDocs.map((d, i) => `--- reference doc ${i + 1}${d.title ? `: ${d.title}` : ''} ---\n${(d.body || '').trim()}`).join('\n\n'));
 
     const { reply } = await aiInvoke({
       task: 'chat',
@@ -5486,7 +5489,8 @@ async function generateEntitySummary(K, c, btn) {
       task: K.sumTask,
       name: c.name,
       aliases: c.aliases || [],
-      chunks: refs.map(r => ({ title: r.title, body: r.body }))
+      chunks: refs.map(r => ({ title: r.title, body: r.body })),
+      contextDocs: contextDocs()
     });
     c.summary = reply || ''; save(); renderEntityPane(K);
     if (reply) { const sumEl = document.getElementById('entitySummaryBox'); if (sumEl) typeWriter(sumEl, reply); }
@@ -6344,7 +6348,8 @@ async function generateTagSummary(l, btn) {
     const { reply } = await aiInvoke({
       task: 'tag_summary',
       tagName: l.name,
-      chunks: chunks.map(c => ({ title: c.title, body: c.body }))
+      chunks: chunks.map(c => ({ title: c.title, body: c.body })),
+      contextDocs: contextDocs()
     });
     l.summary = reply || ''; save(); renderTagPane();
     if (reply) { const sumEl = document.getElementById('tagSummary'); if (sumEl) typeWriter(sumEl, reply); }
@@ -6737,7 +6742,7 @@ function ideaEditModal(idea, opts = {}) {
     const prev = aiBtnStart(genBodyBtn, IC_GENERATE, '…');
     try {
       const proj = projectsCache.find(p => p.id === activeProjectId);
-      const { body: text } = await aiInvoke({ task: 'generate_body', kind: 'idea', title, type: proj?.type || '', genre: proj?.genre || '', ...projectGenContext(null) });
+      const { body: text } = await aiInvoke({ task: 'generate_body', kind: 'idea', title, type: proj?.type || '', genre: proj?.genre || '', contextDocs: contextDocs(), ...projectGenContext(null) });
       if (text) bodyInput.value = text;
     } catch (err) {
       alertModal(err.message || 'Could not generate body text.', { title: 'GENERATE FAILED' });
@@ -7672,7 +7677,7 @@ async function loadProject(projectId) {
     ideas: (ideas.data || []).map(r => ({ id: r.id, title: r.title || '', body: (r.body != null ? r.body : (r.text || '')), ts: r.ts || Date.parse(r.created_at), tagIds: il.filter(j => j.idea_id === r.id).map(j => j.tag_id) })),
     events: (events.data || []).map(r => ({ id: r.id, hopId: r.hop_id || null, title: r.title || '', description: r.description || '', dateLabel: r.date_label || '', chronoPos: r.chrono_pos ?? 0, characterIds: r.character_ids || [], locationIds: r.location_ids || [], timelineIds: r.timeline_ids || [], dismissed: !!r.dismissed })),
     timelines: (timelines.data || []).map(r => ({ id: r.id, name: r.name || '', color: r.color || '', position: r.position ?? 0 })),
-    docs: (docs.data || []).map(r => ({ id: r.id, title: r.title || '', body: r.body || '', position: r.position ?? 0, ts: r.created_at ? Date.parse(r.created_at) : Date.now(), updatedAt: r.updated_at ? Date.parse(r.updated_at) : Date.now() })),
+    docs: (docs.data || []).map(r => ({ id: r.id, title: r.title || '', body: r.body || '', position: r.position ?? 0, useAsContext: !!r.use_as_context, ts: r.created_at ? Date.parse(r.created_at) : Date.now(), updatedAt: r.updated_at ? Date.parse(r.updated_at) : Date.now() })),
     ui: (proj.data && proj.data.ui) || {}
   };
   // One-time migration: tag categories used to live in the project ui blob
@@ -7748,7 +7753,7 @@ async function persistProject() {
     const ideas = db.ideas.map(i => ({ id: i.id, user_id: U, project_id: P, title: i.title || null, body: i.body || null, text: (i.body || i.title || ''), ts: i.ts || Date.now() }));
     const events = (db.events || []).map(e => ({ id: e.id, user_id: U, project_id: P, hop_id: e.hopId || null, title: e.title || '', description: e.description || '', date_label: e.dateLabel || null, chrono_pos: e.chronoPos ?? 0, character_ids: e.characterIds || [], location_ids: e.locationIds || [], timeline_ids: e.timelineIds || [], dismissed: !!e.dismissed }));
     const timelines = (db.timelines || []).map((t, i) => ({ id: t.id, user_id: U, project_id: P, name: t.name || '', color: t.color || null, position: t.position ?? i, updated_at: new Date().toISOString() }));
-    const docs = (db.docs || []).map((d, i) => ({ id: d.id, user_id: U, project_id: P, title: d.title || '', body: d.body || '', position: d.position ?? i, updated_at: new Date().toISOString() }));
+    const docs = (db.docs || []).map((d, i) => ({ id: d.id, user_id: U, project_id: P, title: d.title || '', body: d.body || '', position: d.position ?? i, use_as_context: !!d.useAsContext, updated_at: new Date().toISOString() }));
 
     await upsertSync('chapters', chapters, P);
     await Promise.all([upsertSync('tags', tags, P), upsertSync('characters', characters, P), upsertSync('locations', locations, P), upsertSync('timelines', timelines, P)]);
@@ -8976,6 +8981,15 @@ function planWordCount(d) {
   return w ? w.split(/\s+/).length : 0;
 }
 
+// Docs the author flagged "USE AS CONTEXT" — fed into every GENERATE task (hop
+// body, idea body, character/location/tag summaries) so the model honors the
+// author's planning canon. Returns [{ title, body }] for docs with real text.
+function contextDocs() {
+  return (db.docs || [])
+    .filter(d => d.useAsContext && (d.body || '').trim())
+    .map(d => ({ title: d.title || '', body: d.body || '' }));
+}
+
 const IC_GEN_STAR = '<svg class="aifn-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.7 5.3L19 10l-5.3 1.7L12 17l-1.7-5.3L5 10l5.3-1.7L12 3Z"/><path d="M18.5 15l.6 1.9 1.9.6-1.9.6-.6 1.9-.6-1.9-1.9-.6 1.9-.6Z"/></svg>';
 
 function renderPlanning() {
@@ -8992,8 +9006,8 @@ function renderPlanning() {
   wrap.innerHTML = `
     <aside class="plan-list" id="planList">
       ${docs.map(d => `
-        <button class="plan-item ${d.id === activePlanId ? 'on' : ''}" data-id="${d.id}">
-          <span class="plan-item-title">${esc(d.title) || 'Untitled doc'}</span>
+        <button class="plan-item ${d.id === activePlanId ? 'on' : ''} ${d.useAsContext ? 'is-ctx' : ''}" data-id="${d.id}">
+          <span class="plan-item-title">${d.useAsContext ? '<span class="plan-item-ctx" title="Used as context">\u25c8</span>' : ''}${esc(d.title) || 'Untitled doc'}</span>
           <span class="plan-item-meta">${planWordCount(d)} words</span>
         </button>`).join('')}
     </aside>
@@ -9001,6 +9015,9 @@ function renderPlanning() {
       <div class="plan-editor-head">
         <input class="plan-title-input" id="planTitleInput" placeholder="Untitled doc" value="${esc(doc.title)}" />
         <div class="plan-editor-actions">
+          <button class="plan-ctx-toggle ${doc.useAsContext ? 'on' : ''}" id="planCtxToggle" role="switch" aria-checked="${doc.useAsContext ? 'true' : 'false'}" title="Include this doc as context for all GENERATE tasks">
+            <span class="plan-ctx-dot"></span>USE AS CONTEXT
+          </button>
           <details class="detect-tool" id="planGenMenu">
             <summary class="add-btn">${IC_GEN_STAR} GENERATE \u25be</summary>
             <div class="detect-tool-menu">
@@ -9033,6 +9050,21 @@ function renderPlanning() {
     doc.body = bodyInput.value; doc.updatedAt = Date.now();
     const meta = wrap.querySelector(`.plan-item.on .plan-item-meta`);
     if (meta) meta.textContent = planWordCount(doc) + ' words';
+    save();
+  });
+
+  const ctxToggle = wrap.querySelector('#planCtxToggle');
+  ctxToggle?.addEventListener('click', () => {
+    doc.useAsContext = !doc.useAsContext;
+    doc.updatedAt = Date.now();
+    ctxToggle.classList.toggle('on', doc.useAsContext);
+    ctxToggle.setAttribute('aria-checked', doc.useAsContext ? 'true' : 'false');
+    const item = wrap.querySelector('.plan-item.on');
+    if (item) {
+      item.classList.toggle('is-ctx', doc.useAsContext);
+      const titleSpan = item.querySelector('.plan-item-title');
+      if (titleSpan) titleSpan.innerHTML = (doc.useAsContext ? '<span class="plan-item-ctx" title="Used as context">\u25c8</span>' : '') + (esc(doc.title) || 'Untitled doc');
+    }
     save();
   });
 
@@ -9093,7 +9125,7 @@ function docEditModal() {
     const body = bodyInput.value;
     if (!title && !body.trim()) { close(); return; }
     db.docs = db.docs || [];
-    const doc = { id: uid(), title, body, position: 0, ts: Date.now(), updatedAt: Date.now() };
+    const doc = { id: uid(), title, body, position: 0, useAsContext: false, ts: Date.now(), updatedAt: Date.now() };
     db.docs.unshift(doc);
     db.docs.forEach((d, i) => d.position = i);
     activePlanId = doc.id;

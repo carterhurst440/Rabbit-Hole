@@ -905,12 +905,17 @@ mark.search-hit {
 .ev-view-btn.active { background: var(--accent-dim); color: var(--accent); }
 
 /* TIMELINE tab strip — ALL + one tab per named timeline + manage (＋) */
-.timeline-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+.timeline-tabs {
+  display: flex; flex-wrap: nowrap; gap: 6px; margin-bottom: 14px;
+  overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch;
+  scrollbar-width: none; scroll-snap-type: x proximity;
+}
+.timeline-tabs::-webkit-scrollbar { display: none; }
 .tl-tab {
-  display: inline-flex; align-items: center; gap: 7px;
+  display: inline-flex; align-items: center; gap: 7px; flex: none; scroll-snap-align: start;
   background: var(--panel-2); border: 1px solid var(--line-2); color: var(--muted);
   font-family: inherit; font-size: 11px; letter-spacing: 0.06em; padding: 6px 11px;
-  border-radius: 14px; cursor: pointer;
+  border-radius: 14px; cursor: pointer; white-space: nowrap;
 }
 .tl-tab:hover { color: var(--text-bright); border-color: var(--line); }
 .tl-tab.on { color: var(--text-bright); border-color: var(--accent); background: var(--accent-dim); }
@@ -2835,6 +2840,24 @@ button.feed-comment-user:hover { text-decoration: underline; }
 .plan-title-input:focus { border-bottom-color: var(--accent); }
 .plan-editor-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .plan-editor-actions .detect-tool > summary { display: inline-flex; align-items: center; gap: 6px; }
+
+/* USE AS CONTEXT toggle — flags a doc to be fed into every GENERATE task */
+.plan-ctx-toggle {
+  display: inline-flex; align-items: center; gap: 7px; flex: none;
+  background: var(--panel-2); border: 1px solid var(--line-2); color: var(--muted);
+  font-family: inherit; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+  padding: 6px 11px; border-radius: 14px; cursor: pointer; white-space: nowrap;
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
+}
+.plan-ctx-toggle:hover { border-color: var(--accent); color: var(--text-bright); }
+.plan-ctx-dot {
+  width: 9px; height: 9px; border-radius: 50%; flex: none;
+  background: transparent; border: 1.5px solid var(--muted-2); transition: all 0.12s;
+}
+.plan-ctx-toggle.on { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+.plan-ctx-toggle.on .plan-ctx-dot { background: var(--accent); border-color: var(--accent); box-shadow: 0 0 6px var(--accent); }
+.plan-item-ctx { color: var(--accent); margin-right: 5px; font-size: 11px; }
+.plan-item.is-ctx { border-left: 2px solid var(--accent); }
 .plan-body-input {
   flex: 1; min-height: 340px; resize: vertical; width: 100%; box-sizing: border-box;
   background: var(--panel-2); border: 1px solid var(--line); color: var(--text);
