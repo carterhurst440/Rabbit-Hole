@@ -3991,8 +3991,12 @@ function openChunkModal(chunkId) {
   const addEvBtn = document.getElementById('chunkModalAddEvent');
   if (addEvBtn) addEvBtn.onclick = () => openEventModal(null, c.id);
 
+  // The DETECT pop-down's summary is the visible button; selecting an option
+  // closes the menu and runs the work, so the working state must live on the
+  // summary (the chosen menu item is hidden once the pop-down collapses).
+  const detectSummary = document.getElementById('chunkDetectMenu')?.querySelector('summary');
   const gt = document.getElementById('chunkModalGenTags');
-  gt.onclick = () => { document.getElementById('chunkDetectMenu')?.removeAttribute('open'); generateChunkTags(c, gt); };
+  gt.onclick = () => { document.getElementById('chunkDetectMenu')?.removeAttribute('open'); generateChunkTags(c, detectSummary); };
   // Close the DETECT pop-down on an outside click (wired once for the element).
   const dm = document.getElementById('chunkDetectMenu');
   if (dm && !dm._outsideWired) {
@@ -4017,9 +4021,9 @@ function openChunkModal(chunkId) {
   const detectMenu = document.getElementById('chunkDetectMenu');
   const closeDetect = () => detectMenu && detectMenu.removeAttribute('open');
   const dc = document.getElementById('chunkDetectChars');
-  dc.onclick = () => { closeDetect(); detectChunkEntities(ENTITY_KINDS.character, c, dc); };
+  dc.onclick = () => { closeDetect(); detectChunkEntities(ENTITY_KINDS.character, c, detectSummary); };
   const dl = document.getElementById('chunkDetectLocs');
-  dl.onclick = () => { closeDetect(); detectChunkEntities(ENTITY_KINDS.location, c, dl); };
+  dl.onclick = () => { closeDetect(); detectChunkEntities(ENTITY_KINDS.location, c, detectSummary); };
 
   const sv = document.getElementById('chunkModalSave');
   sv.onclick = () => {

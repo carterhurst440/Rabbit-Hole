@@ -778,6 +778,9 @@ mark.search-hit {
 }
 .detect-tool > summary::-webkit-details-marker { display: none; }
 .detect-tool[open] > summary { color: var(--accent); border-color: var(--accent); }
+/* While a detection runs, the working state lives on the summary; block clicks so
+   the pop-down can't be re-toggled mid-run (summary ignores the disabled prop). */
+.detect-tool > summary.ai-working { pointer-events: none; }
 .detect-caret { font-size: 9px; line-height: 1; opacity: 0.8; }
 /* Opens UPWARD: the tall body editor is always above the tools row, so the menu
    never falls below the modal's scroll fold (as a downward menu can). */
