@@ -563,6 +563,12 @@ button, input, textarea, select { font-family: inherit; }
   margin: 0 0 16px;
 }
 .entity-back:hover { border-color: var(--accent); color: var(--accent); }
+/* + ADD split button: a <details> dropdown offering entity vs. category. */
+.add-menu { position: relative; display: inline-block; }
+.add-menu > summary { list-style: none; cursor: pointer; }
+.add-menu > summary::-webkit-details-marker { display: none; }
+.add-menu > summary::marker { content: ''; }
+.add-menu[open] > summary { border-color: var(--accent); color: var(--accent); }
 /* Per-row ⋮ menu on the master lists. */
 .ci-kebab { position: relative; flex: 0 0 auto; margin-left: 2px; }
 .ci-kebab > summary {

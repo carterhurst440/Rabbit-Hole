@@ -4834,13 +4834,13 @@ function reorderChunk(orderKey, draggedId, beforeId) {
 const ENTITY_KINDS = {
   character: {
     coll: 'characters', link: 'characterIds', active: 'activeChar', scannedKey: 'detectScannedIds',
-    listId: 'charList', paneId: 'charPane', detectId: 'detectCharsBtn', addId: 'addCharBtn', searchId: 'charSearch',
+    listId: 'charList', paneId: 'charPane', detectId: 'detectCharsBtn', addId: 'addCharBtn', addCatId: 'addCharCatBtn', searchId: 'charSearch',
     detectTask: 'detect_characters', resultKey: 'characters', sumTask: 'char_summary',
     noun: 'character', NOUN: 'CHARACTER', NOUNS: 'CHARACTERS', newName: 'New character'
   },
   location: {
     coll: 'locations', link: 'locationIds', active: 'activeLoc', scannedKey: 'detectScannedLocs',
-    listId: 'locList', paneId: 'locPane', detectId: 'detectLocsBtn', addId: 'addLocBtn', searchId: 'locSearch',
+    listId: 'locList', paneId: 'locPane', detectId: 'detectLocsBtn', addId: 'addLocBtn', addCatId: 'addLocCatBtn', searchId: 'locSearch',
     detectTask: 'detect_locations', resultKey: 'locations', sumTask: 'loc_summary',
     noun: 'location', NOUN: 'LOCATION', NOUNS: 'LOCATIONS', newName: 'New location'
   }
@@ -6088,15 +6088,28 @@ async function renameEntityEverywhere(K, c, oldName, newName) {
   save(); renderEntityList(K);
 }
 
+// Create a new entity, optionally pre-assigned to a category, and open its detail.
+function addEntity(K, category) {
+  const id = uid();
+  const color = CHAPTER_PALETTE[db[K.coll].length % CHAPTER_PALETTE.length];
+  const e = { id, name: K.newName, aliases: [], summary: '', notes: [], color, dismissedRefs: [] };
+  if (category) e.category = category;
+  db[K.coll].push(e);
+  db.ui[K.active] = id; save();
+  openEntityDetail(`view-${K.coll}`);
+  renderEntityList(K);
+}
+
 function wireEntityRail(K) {
   const addBtn = document.getElementById(K.addId);
-  if (addBtn) addBtn.addEventListener('click', () => {
-    const id = uid();
-    const color = CHAPTER_PALETTE[db[K.coll].length % CHAPTER_PALETTE.length];
-    db[K.coll].push({ id, name: K.newName, aliases: [], summary: '', notes: [], color, dismissedRefs: [] });
-    db.ui[K.active] = id; save();
-    openEntityDetail(`view-${K.coll}`);
-    renderEntityList(K);
+  if (addBtn) addBtn.addEventListener('click', () => addEntity(K));
+  // + CATEGORY: name a new category, then drop a starter entity into it so the
+  // group is visible (categories are derived from the rows that use them).
+  const addCatBtn = document.getElementById(K.addCatId);
+  if (addCatBtn) addCatBtn.addEventListener('click', async () => {
+    const name = await promptModal('Category name:', '', { title: 'NEW CATEGORY', okText: 'Create' });
+    if (!name || !name.trim()) return;
+    addEntity(K, name.trim().toUpperCase());
   });
   const detectBtn = document.getElementById(K.detectId);
   if (detectBtn) detectBtn.addEventListener('click', () => detectEntities(K));
@@ -6581,14 +6594,24 @@ async function generateTagSummary(l, btn) {
   }
 }
 
-document.getElementById('addTagBtn').addEventListener('click', () => {
+function addTag(category) {
   const lab = { id: uid(), name: 'NEW TAG', color: CHAPTER_PALETTE[db.tags.length % CHAPTER_PALETTE.length] };
+  if (category) lab.category = category;
   db.tags.push(lab);
   db.ui.activeTag = lab.id;
   save();
   openEntityDetail('view-tags');
   renderTags();
+}
+document.getElementById('addTagBtn').addEventListener('click', () => addTag());
+// + CATEGORY for tags: name it, then seed a starter tag so the group shows.
+document.getElementById('addTagCatBtn').addEventListener('click', async () => {
+  const name = await promptModal('Category name:', '', { title: 'NEW CATEGORY', okText: 'Create' });
+  if (!name || !name.trim()) return;
+  addTag(name.trim().toUpperCase());
 });
+// The + ADD split menus close after a choice and on any outside click.
+document.querySelectorAll('[data-add-menu]').forEach(wireHeadKebab);
 
 /* =====================================================================
    IDEA BACKLOG
