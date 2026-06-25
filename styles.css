@@ -1166,7 +1166,9 @@ mark.search-hit {
 .ui-modal-overlay {
   position: fixed; inset: 0; z-index: 120;
   background: rgba(0,0,0,0.65);
-  display: flex; align-items: center; justify-content: center; padding: 24px;
+  display: flex; align-items: center; justify-content: center;
+  /* Keep the modal clear of the status bar / notch / home indicator on phones. */
+  padding: calc(24px + env(safe-area-inset-top)) 24px calc(24px + env(safe-area-inset-bottom));
 }
 .ui-modal {
   position: relative;
@@ -1174,7 +1176,8 @@ mark.search-hit {
   width: 100%; max-width: 420px; padding: 22px;
   display: flex; flex-direction: column; gap: 14px;
   box-shadow: 0 20px 60px rgba(0,0,0,0.6);
-  max-height: calc(100vh - 48px); overflow-y: auto;
+  max-height: calc(100vh - 48px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  overflow-y: auto;
 }
 /* Scrollable middle region: title and actions stay pinned, body scrolls. */
 .ui-modal-scroll {
