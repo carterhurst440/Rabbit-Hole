@@ -357,84 +357,62 @@
     </section>
 
     <!-- ============ CHARACTERS ============ -->
-    <section class="view" id="view-characters" hidden>
-      <div class="view-head">
-        <h1>CHARACTERS</h1>
-        <p class="sub">Summaries built from every hop that references them, plus your own notes.</p>
-        <div class="view-head-actions">
-          <button class="add-btn arch-toggle" data-arch>SHOW ARCHIVED</button>
-        </div>
-      </div>
-      <div class="sections-layout">
-        <aside class="chapter-rail">
-          <div class="rail-head">
-            <span>CAST</span>
-            <div class="rail-actions">
-              <button class="add-btn" id="detectCharsBtn" title="AI: detect characters from your hops"><svg class="aifn-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8V5.5a1.5 1.5 0 0 1 1.5-1.5H8"/><path d="M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8"/><path d="M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16"/><path d="M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16"/><circle cx="12" cy="12" r="2.6"/></svg> DETECT</button>
-              <button class="add-btn" id="addCharBtn">+ ADD</button>
-            </div>
+    <section class="view" id="view-characters" data-emode="list" hidden>
+      <div class="entity-list-level">
+        <div class="view-head">
+          <h1>CHARACTERS</h1>
+          <p class="sub">Summaries built from every hop that references them, plus your own notes.</p>
+          <div class="view-head-actions">
+            <button class="add-btn" id="detectCharsBtn" title="AI: detect characters from your hops"><svg class="aifn-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8V5.5a1.5 1.5 0 0 1 1.5-1.5H8"/><path d="M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8"/><path d="M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16"/><path d="M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16"/><circle cx="12" cy="12" r="2.6"/></svg> DETECT</button>
+            <button class="add-btn" id="addCharBtn">+ ADD</button>
+            <button class="add-btn arch-toggle" data-arch>SHOW ARCHIVED</button>
           </div>
-          <button type="button" class="rail-select" id="charRailSelect" aria-expanded="false">
-            <span class="rail-select-label">Select character</span>
-            <span class="rail-select-caret">▾</span>
-          </button>
-          <input type="text" class="rail-search" id="charSearch" placeholder="Search cast…" />
-          <div class="chapter-list" id="charList"></div>
-        </aside>
+        </div>
+        <input type="text" class="entity-search" id="charSearch" placeholder="Search cast…" />
+        <div class="entity-grid" id="charList"></div>
+      </div>
+      <div class="entity-detail-level">
+        <button type="button" class="entity-back" data-eback>‹ BACK TO CAST</button>
         <div class="chunk-pane" id="charPane"></div>
       </div>
     </section>
 
     <!-- ============ LOCATIONS ============ -->
-    <section class="view" id="view-locations" hidden>
-      <div class="view-head">
-        <h1>LOCATIONS</h1>
-        <p class="sub">Settings and places built from every chunk that references them, plus your own notes.</p>
-        <div class="view-head-actions">
-          <button class="add-btn arch-toggle" data-arch>SHOW ARCHIVED</button>
-        </div>
-      </div>
-      <div class="sections-layout">
-        <aside class="chapter-rail">
-          <div class="rail-head">
-            <span>PLACES</span>
-            <div class="rail-actions">
-              <button class="add-btn" id="detectLocsBtn" title="AI: detect locations from your hops"><svg class="aifn-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8V5.5a1.5 1.5 0 0 1 1.5-1.5H8"/><path d="M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8"/><path d="M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16"/><path d="M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16"/><circle cx="12" cy="12" r="2.6"/></svg> DETECT</button>
-              <button class="add-btn" id="addLocBtn">+ ADD</button>
-            </div>
+    <section class="view" id="view-locations" data-emode="list" hidden>
+      <div class="entity-list-level">
+        <div class="view-head">
+          <h1>LOCATIONS</h1>
+          <p class="sub">Settings and places built from every chunk that references them, plus your own notes.</p>
+          <div class="view-head-actions">
+            <button class="add-btn" id="detectLocsBtn" title="AI: detect locations from your hops"><svg class="aifn-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8V5.5a1.5 1.5 0 0 1 1.5-1.5H8"/><path d="M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8"/><path d="M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16"/><path d="M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16"/><circle cx="12" cy="12" r="2.6"/></svg> DETECT</button>
+            <button class="add-btn" id="addLocBtn">+ ADD</button>
+            <button class="add-btn arch-toggle" data-arch>SHOW ARCHIVED</button>
           </div>
-          <button type="button" class="rail-select" id="locRailSelect" aria-expanded="false">
-            <span class="rail-select-label">Select location</span>
-            <span class="rail-select-caret">▾</span>
-          </button>
-          <input type="text" class="rail-search" id="locSearch" placeholder="Search places…" />
-          <div class="chapter-list" id="locList"></div>
-        </aside>
+        </div>
+        <input type="text" class="entity-search" id="locSearch" placeholder="Search places…" />
+        <div class="entity-grid" id="locList"></div>
+      </div>
+      <div class="entity-detail-level">
+        <button type="button" class="entity-back" data-eback>‹ BACK TO PLACES</button>
         <div class="chunk-pane" id="locPane"></div>
       </div>
     </section>
 
     <!-- ============ TAGS ============ -->
-    <section class="view" id="view-tags" hidden>
-      <div class="view-head">
-        <h1>TAGS</h1>
-        <p class="sub">Manual tags. Rename here and it updates everywhere; see every hop and idea using each one.</p>
-        <button class="add-btn arch-toggle" data-arch>SHOW ARCHIVED</button>
-      </div>
-      <div class="sections-layout">
-        <aside class="chapter-rail">
-          <div class="rail-head">
-            <span>TAGS</span>
-            <span class="rail-head-actions">
-              <button class="add-btn" id="addTagBtn">+ ADD</button>
-            </span>
+    <section class="view" id="view-tags" data-emode="list" hidden>
+      <div class="entity-list-level">
+        <div class="view-head">
+          <h1>TAGS</h1>
+          <p class="sub">Manual tags. Rename here and it updates everywhere; see every hop and idea using each one.</p>
+          <div class="view-head-actions">
+            <button class="add-btn" id="addTagBtn">+ ADD</button>
+            <button class="add-btn arch-toggle" data-arch>SHOW ARCHIVED</button>
           </div>
-          <button type="button" class="rail-select" id="tagRailSelect" aria-expanded="false">
-            <span class="rail-select-label">Select tag</span>
-            <span class="rail-select-caret">▾</span>
-          </button>
-          <div class="chapter-list" id="tagList"></div>
-        </aside>
+        </div>
+        <div class="entity-grid" id="tagList"></div>
+      </div>
+      <div class="entity-detail-level">
+        <button type="button" class="entity-back" data-eback>‹ BACK TO TAGS</button>
         <div class="chunk-pane" id="tagPane"></div>
       </div>
     </section>

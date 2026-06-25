@@ -304,9 +304,9 @@ function route() {
   if (r === 'search') renderSearch();
   if (r === 'sections') { sectionsMode = 'board'; renderSections(); }
   if (r === 'timelines') renderTimelines();
-  if (r === 'characters') renderCharacters();
-  if (r === 'locations') renderLocations();
-  if (r === 'tags') renderTags();
+  if (r === 'characters') { entityViewMode['view-characters'] = 'list'; renderCharacters(); }
+  if (r === 'locations') { entityViewMode['view-locations'] = 'list'; renderLocations(); }
+  if (r === 'tags') { entityViewMode['view-tags'] = 'list'; renderTags(); }
   if (r === 'ideas') renderIdeas();
   if (r === 'planning') renderPlanning();
   if (r === 'community') renderCommunity();
@@ -3186,6 +3186,13 @@ window.addEventListener('scroll', () => {
     applyRailSearch(id === 'charSearch' ? ENTITY_KINDS.character : ENTITY_KINDS.location));
 });
 
+// Entity detail BACK buttons return to the master list for that view.
+document.querySelectorAll('[data-eback]').forEach(btn =>
+  btn.addEventListener('click', () => {
+    const view = btn.closest('.view');
+    if (view) backToEntityList(view.id);
+  }));
+
 // TIMELINE is an EVENT timeline: discrete events fixed in time, each optionally
 // surfacing in a hop but positioned independently on the chronological axis.
 document.getElementById('addEventBtn')?.addEventListener('click', () => openEventModal(null));
@@ -4839,6 +4846,19 @@ const ENTITY_KINDS = {
   }
 };
 
+// Each entity page (characters/locations/tags) is a two-level view: a master
+// list ('list' mode) and a single-entity detail ('detail' mode). Clicking an
+// item opens detail; the BACK button returns to the list. Keyed by view id.
+const entityViewMode = { 'view-characters': 'list', 'view-locations': 'list', 'view-tags': 'list' };
+
+function applyEntityMode(viewId) {
+  const view = document.getElementById(viewId);
+  if (view) view.setAttribute('data-emode', entityViewMode[viewId] || 'list');
+}
+
+function openEntityDetail(viewId) { entityViewMode[viewId] = 'detail'; applyEntityMode(viewId); }
+function backToEntityList(viewId) { entityViewMode[viewId] = 'list'; applyEntityMode(viewId); }
+
 function renderCharacters() { renderEntityList(ENTITY_KINDS.character); }
 function renderLocations() { renderEntityList(ENTITY_KINDS.location); }
 
@@ -4897,16 +4917,17 @@ function renderEntityList(K) {
         }));
     }
   }
+  const viewId = `view-${K.coll}`;
   list.querySelectorAll('.chapter-item').forEach(el => {
     el.addEventListener('click', () => {
       if (db.ui[K.active] !== el.dataset.id) expandedRefs.clear();
       db.ui[K.active] = el.dataset.id; save();
-      list.closest('.chapter-rail')?.classList.remove('rail-open'); // collapse the mobile dropdown after picking
+      openEntityDetail(viewId);
       renderEntityList(K);
     });
   });
-  wireRailSelect(K);
   applyRailSearch(K);
+  applyEntityMode(viewId);
   renderEntityPane(K);
 }
 
@@ -5219,7 +5240,9 @@ function renderEntityPane(K) {
     db.chunks.forEach(ch => { ch[K.link] = (ch[K.link] || []).filter(id => id !== c.id); });
     db[K.coll] = db[K.coll].filter(x => x.id !== c.id);
     db.ui[K.active] = db[K.coll][0]?.id || null;
-    save(); renderEntityList(K);
+    save();
+    backToEntityList(`view-${K.coll}`);
+    renderEntityList(K);
   });
   q('[data-f="merge"]').addEventListener('click', () => openMergeModal(K, c));
   wireHeadKebab(q('[data-f="kebabWrap"]'));
@@ -6034,7 +6057,9 @@ function wireEntityRail(K) {
     const id = uid();
     const color = CHAPTER_PALETTE[db[K.coll].length % CHAPTER_PALETTE.length];
     db[K.coll].push({ id, name: K.newName, aliases: [], summary: '', notes: [], color, dismissedRefs: [] });
-    db.ui[K.active] = id; save(); renderEntityList(K);
+    db.ui[K.active] = id; save();
+    openEntityDetail(`view-${K.coll}`);
+    renderEntityList(K);
   });
   const detectBtn = document.getElementById(K.detectId);
   if (detectBtn) detectBtn.addEventListener('click', () => detectEntities(K));
@@ -6306,16 +6331,14 @@ function tagRowHTML(l) {
 
 function renderTags() {
   const list = document.getElementById('tagList');
-  const activeTag = db.tags.find(x => x.id === db.ui.activeTag);
-  const tagSelLabel = activeTag ? activeTag.name : 'Select tag';
   const pickTag = el => {
     db.ui.activeTag = el.dataset.id;
-    list.closest('.chapter-rail')?.classList.remove('rail-open'); // collapse the mobile dropdown after picking
+    openEntityDetail('view-tags');
     save(); renderTags();
   };
   if (!db.tags.length) {
     list.innerHTML = `<div class="pane-empty" style="border:none">No tags yet. Add tags to hops and ideas, or create one here.</div>`;
-    wireRailSelectInto('tagList', tagSelLabel);
+    applyEntityMode('view-tags');
     renderTagPane();
     return;
   }
@@ -6327,7 +6350,7 @@ function renderTags() {
     list.innerHTML = [...db.tags].sort(byTagHops).map(tagRowHTML).join('');
     list.querySelectorAll('.chapter-item').forEach(el =>
       el.addEventListener('click', () => pickTag(el)));
-    wireRailSelectInto('tagList', tagSelLabel);
+    applyEntityMode('view-tags');
     renderTagPane();
     return;
   }
@@ -6366,7 +6389,7 @@ function renderTags() {
       deleteTagCat(btn.dataset.catDel);
       renderTags();
     }));
-  wireRailSelectInto('tagList', tagSelLabel);
+  applyEntityMode('view-tags');
   renderTagPane();
 }
 
@@ -6451,7 +6474,9 @@ function renderTagPane() {
     db.ideas.forEach(i => { if (i.tagIds) i.tagIds = i.tagIds.filter(id => id !== l.id); });
     db.tags = db.tags.filter(x => x.id !== l.id);
     db.ui.activeTag = db.tags[0]?.id || null;
-    save(); renderTags();
+    save();
+    backToEntityList('view-tags');
+    renderTags();
   });
   document.getElementById('genTagSummaryBtn').addEventListener('click', e => generateTagSummary(l, e.currentTarget));
   document.getElementById('editTagSummaryBtn').addEventListener('click', async () => {
@@ -6486,7 +6511,9 @@ document.getElementById('addTagBtn').addEventListener('click', () => {
   const lab = { id: uid(), name: 'NEW TAG', color: CHAPTER_PALETTE[db.tags.length % CHAPTER_PALETTE.length] };
   db.tags.push(lab);
   db.ui.activeTag = lab.id;
-  save(); renderTags();
+  save();
+  openEntityDetail('view-tags');
+  renderTags();
 });
 
 /* =====================================================================
