@@ -563,6 +563,15 @@ button, input, textarea, select { font-family: inherit; }
   margin: 0 0 16px;
 }
 .entity-back:hover { border-color: var(--accent); color: var(--accent); }
+/* Per-row ⋮ menu on the master lists. */
+.ci-kebab { position: relative; flex: 0 0 auto; margin-left: 2px; }
+.ci-kebab > summary {
+  list-style: none; cursor: pointer; color: var(--muted);
+  font-size: 16px; line-height: 1; padding: 2px 6px; user-select: none; border-radius: 4px;
+}
+.ci-kebab > summary::-webkit-details-marker { display: none; }
+.ci-kebab > summary:hover { color: var(--accent); background: var(--panel-2); }
+.ci-kebab[open] > summary { color: var(--accent); }
 /* Desktop: pin the rail and let its list scroll inside the panel instead of
    running the whole CAST/SECTIONS list down the page body. */
 @media (min-width: 821px) {

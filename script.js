@@ -4875,6 +4875,13 @@ function renderEntityList(K) {
           <span class="ci-dot" style="background:${c.color || 'var(--accent)'}"></span>
           <span class="ci-title">${esc(c.name)}</span>
           <span class="ci-count">${hopCount.get(c.id)}</span>
+          <details class="ci-kebab" data-ci-kebab>
+            <summary title="More actions" aria-label="More actions">⋮</summary>
+            <div class="head-kebab-menu">
+              <button class="add-btn" data-erename="${c.id}">RENAME</button>
+              <button class="add-btn danger" data-edel="${c.id}">DELETE</button>
+            </div>
+          </details>
         </div>`;
   if (!coll.length) {
     list.innerHTML = `<div class="pane-empty" style="border:none">No ${K.noun}s yet.</div>`;
@@ -4926,9 +4933,39 @@ function renderEntityList(K) {
       renderEntityList(K);
     });
   });
+  wireEntityRowKebabs(K, list);
   applyRailSearch(K);
   applyEntityMode(viewId);
   renderEntityPane(K);
+}
+
+// Per-row ⋮ menu on the master list: RENAME / DELETE without opening detail.
+// The kebab toggle and its buttons stopPropagation so the row's open-detail
+// click never fires.
+function wireEntityRowKebabs(K, list) {
+  list.querySelectorAll('[data-ci-kebab]').forEach(kebab => {
+    kebab.querySelector('summary')?.addEventListener('click', e => e.stopPropagation());
+    wireHeadKebab(kebab);
+  });
+  list.querySelectorAll('[data-erename]').forEach(btn =>
+    btn.addEventListener('click', async e => {
+      e.stopPropagation();
+      const c = db[K.coll].find(x => x.id === btn.dataset.erename);
+      if (!c) return;
+      const next = await promptModal(`${K.NOUN} name:`, c.name || '', { title: `RENAME ${K.NOUN}`, okText: 'Save' });
+      if (next && next.trim()) { c.name = next.trim(); save(); renderEntityList(K); }
+    }));
+  list.querySelectorAll('[data-edel]').forEach(btn =>
+    btn.addEventListener('click', async e => {
+      e.stopPropagation();
+      const c = db[K.coll].find(x => x.id === btn.dataset.edel);
+      if (!c) return;
+      if (!await confirmModal(`Delete this ${K.noun}?`)) return;
+      db.chunks.forEach(ch => { ch[K.link] = (ch[K.link] || []).filter(id => id !== c.id); });
+      db[K.coll] = db[K.coll].filter(x => x.id !== c.id);
+      if (db.ui[K.active] === c.id) db.ui[K.active] = db[K.coll][0]?.id || null;
+      save(); renderEntityList(K);
+    }));
 }
 
 // Mobile only: the cast/places list is hidden behind a dropdown trigger that
@@ -6326,7 +6363,42 @@ function tagRowHTML(l) {
     <span class="ci-dot" style="background:${l.color}"></span>
     <span class="ci-title">${esc(l.name)}</span>
     <span class="ci-count">${tagUsage(l.id).count}</span>
+    <details class="ci-kebab" data-ci-kebab>
+      <summary title="More actions" aria-label="More actions">⋮</summary>
+      <div class="head-kebab-menu">
+        <button class="add-btn" data-tagrename="${l.id}">RENAME</button>
+        <button class="add-btn danger" data-tagdel="${l.id}">DELETE</button>
+      </div>
+    </details>
   </div>`;
+}
+
+// Per-row ⋮ menu for the tags master list: RENAME / DELETE without opening detail.
+function wireTagRowKebabs(list) {
+  list.querySelectorAll('[data-ci-kebab]').forEach(kebab => {
+    kebab.querySelector('summary')?.addEventListener('click', e => e.stopPropagation());
+    wireHeadKebab(kebab);
+  });
+  list.querySelectorAll('[data-tagrename]').forEach(btn =>
+    btn.addEventListener('click', async e => {
+      e.stopPropagation();
+      const l = db.tags.find(x => x.id === btn.dataset.tagrename);
+      if (!l) return;
+      const next = await promptModal('Tag name:', l.name || '', { title: 'RENAME TAG', okText: 'Save' });
+      if (next && next.trim()) { l.name = next.trim().toUpperCase(); save(); renderTags(); }
+    }));
+  list.querySelectorAll('[data-tagdel]').forEach(btn =>
+    btn.addEventListener('click', async e => {
+      e.stopPropagation();
+      const l = db.tags.find(x => x.id === btn.dataset.tagdel);
+      if (!l) return;
+      if (!await confirmModal('Delete this tag? It will be removed from all hops and ideas.')) return;
+      db.chunks.forEach(c => { if (c.tagIds) c.tagIds = c.tagIds.filter(id => id !== l.id); });
+      db.ideas.forEach(i => { if (i.tagIds) i.tagIds = i.tagIds.filter(id => id !== l.id); });
+      db.tags = db.tags.filter(x => x.id !== l.id);
+      if (db.ui.activeTag === l.id) db.ui.activeTag = db.tags[0]?.id || null;
+      save(); renderTags();
+    }));
 }
 
 function renderTags() {
@@ -6350,6 +6422,7 @@ function renderTags() {
     list.innerHTML = [...db.tags].sort(byTagHops).map(tagRowHTML).join('');
     list.querySelectorAll('.chapter-item').forEach(el =>
       el.addEventListener('click', () => pickTag(el)));
+    wireTagRowKebabs(list);
     applyEntityMode('view-tags');
     renderTagPane();
     return;
@@ -6389,6 +6462,7 @@ function renderTags() {
       deleteTagCat(btn.dataset.catDel);
       renderTags();
     }));
+  wireTagRowKebabs(list);
   applyEntityMode('view-tags');
   renderTagPane();
 }
