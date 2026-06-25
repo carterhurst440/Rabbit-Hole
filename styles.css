@@ -569,6 +569,9 @@ button, input, textarea, select { font-family: inherit; }
 .add-menu > summary::-webkit-details-marker { display: none; }
 .add-menu > summary::marker { content: ''; }
 .add-menu[open] > summary { border-color: var(--accent); color: var(--accent); }
+/* Open the ADD dropdown anchored to the button's LEFT edge so it extends
+   rightward into the page instead of off the left edge of the screen. */
+.add-menu .head-kebab-menu { left: 0; right: auto; }
 /* Per-row ⋮ menu on the master lists. */
 .ci-kebab { position: relative; flex: 0 0 auto; margin-left: 2px; }
 .ci-kebab > summary {
